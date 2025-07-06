@@ -2,13 +2,14 @@ import os
 import ccxt
 from abc import ABC, abstractmethod
 import asyncio # Imported here for the _safe_api_call helper
+from misc.logger import CustomLogger
 
 class BaseExchangeTrader(ABC):
   """
   Abstract base class for interacting with cryptocurrency exchanges.
   Handles generic environment variable loading and defines common trading methods.
   """
-  def __init__(self, account_identifier: str, exchange_id: str, default_type: str = 'spot'):
+  def __init__(self, account_identifier: str, exchange_id: str, default_type: str = 'spot', logger: CustomLogger = None):
     """
     Initializes the BaseExchangeTrader with account and exchange details.
 
@@ -17,21 +18,25 @@ class BaseExchangeTrader(ABC):
                                 (e.g., "MYBOT", "MANUAL_TRADER").
       exchange_id (str): The ID of the exchange (e.g., "OKX", "COINBASEPRO").
       default_type (str): The default market type (e.g., 'spot', 'future', 'swap').
+      logger (CustomLogger): The logger instance for printing and logging
     """
     self.account_identifier = account_identifier
     self.exchange_id = exchange_id.lower() # Store as lowercase for ccxt lookup
     self.default_type = default_type
+    self.logger = logger if logger else CustomLogger(name=self.__class__.__name__)
 
     # Dynamically construct environment variable names based on identifier and exchange
     self.api_key_env = f'{account_identifier}_{exchange_id.upper()}_API_KEY'
     self.secret_key_env = f'{account_identifier}_{exchange_id.upper()}_SECRET_KEY'
     self.passphrase_env = f'{account_identifier}_{exchange_id.upper()}_PASSPHRASE'
     self.subaccount_name_env = f'{account_identifier}_{exchange_id.upper()}_SUBACCOUNT_NAME' # Generic for subaccounts/portfolios
+    self.hostname_env = f'{account_identifier}_{exchange_id.upper()}_HOSTNAME'
 
     self.api_key = os.getenv(self.api_key_env)
     self.secret_key = os.getenv(self.secret_key_env)
     self.passphrase = os.getenv(self.passphrase_env)
     self.subaccount_name = os.getenv(self.subaccount_name_env)
+    self.hostname = os.getenv(self.hostname_env)
 
     # Basic validation for essential credentials
     if not self.api_key or not self.secret_key:
@@ -42,7 +47,7 @@ class BaseExchangeTrader(ABC):
 
     self.exchange = None # This will be initialized by concrete subclasses
 
-    print(f"Base credentials loaded for {self.account_identifier} on {self.exchange_id}.")
+    return(f"Base credentials loaded for {self.account_identifier} on {self.exchange_id}.")
 
   async def _safe_api_call(self, api_method, *args, **kwargs):
     """
@@ -52,11 +57,11 @@ class BaseExchangeTrader(ABC):
     try:
       return await api_method(*args, **kwargs)
     except ccxt.NetworkError as e:
-      print(f"Network error for {self.account_identifier} ({self.exchange_id}): {e}")
+      self.logger.error(f"Network error for {self.account_identifier} ({self.exchange_id}): {e}")
     except ccxt.ExchangeError as e:
-      print(f"Exchange error for {self.account_identifier} ({self.exchange_id}): {e}")
+      self.logger.error(f"Exchange error for {self.account_identifier} ({self.exchange_id}): {e}")
     except Exception as e:
-      print(f"An unexpected error occurred for {self.account_identifier} ({self.exchange_id}): {e}")
+      self.logger.error(f"An unexpected error occurred for {self.account_identifier} ({self.exchange_id}): {e}")
     return None
 
   @abstractmethod

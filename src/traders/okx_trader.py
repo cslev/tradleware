@@ -1,5 +1,10 @@
 import ccxt
+from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
+
+
 from traders.base_trader import BaseExchangeTrader
+from misc.logger import CustomLogger
+import asyncio # Imported for asyncio.iscoroutinefunction for debugging
 
 class OKXTrader(BaseExchangeTrader):
   """
@@ -14,39 +19,58 @@ class OKXTrader(BaseExchangeTrader):
       account_identifier (str): A unique name for this OKX trading setup.
       default_type (str): The default market type for OKX (e.g., 'spot', 'future').
     """
-    super().__init__(account_identifier, 'OKX', default_type)
+    self.logger = CustomLogger(name=self.__class__.__name__)
+    super().__init__(account_identifier, 'OKX', default_type, self.logger)
 
     okx_options = {
       'defaultType': self.default_type,
       'subAccount': self.subaccount_name, # CRITICAL: This tells ccxt to target the subaccount
-    }
 
-    # Initialize ccxt.okx with credentials and specific options
-    self.exchange = ccxt.okx({
+    }
+    # self.logger.info(f"OKX options: {okx_options}")
+    # self.logger.info(f"exchange details:\napiKey:{self.api_key}\nsecret:{self.secret_key}\npassword:{self.passphrase}\noptions:{okx_options}")
+    # Initialize ccxt_async.okx with credentials and specific options
+    self.exchange = ccxt_async.okx({
       'apiKey': self.api_key,
       'secret': self.secret_key,
       'password': self.passphrase, # OKX uses 'password' for the passphrase
+      'hostname': self.hostname if self.hostname else "okx.com",
       'options': okx_options,
       'enableRateLimit': True, # Always good to enable rate limiting
     })
-    print(f"OKXTrader initialized for {self.account_identifier} (Subaccount: {self.subaccount_name})")
+    self.logger.info(f"OKXTrader initialized for {self.account_identifier} (Subaccount: {self.subaccount_name})")
+
+
+
 
   async def fetch_balance(self):
     """
     Fetches and prints the balance for the initialized OKX subaccount.
     """
-    print(f"\nFetching balance for OKX subaccount: {self.subaccount_name}...")
+    self.logger.info(f"Fetching balance for OKX subaccount: {self.subaccount_name}...")
+
+    # DEBUG: Print the type of the method before passing it to _safe_api_call
+    self.logger.debug(f"Type of self.exchange.fetch_balance before _safe_api_call: {type(self.exchange.fetch_balance)}")
+    # This check is useful for diagnostics, keep it if you want
+    if not asyncio.iscoroutinefunction(self.exchange.fetch_balance):
+        self.logger.error(f"ERROR: self.exchange.fetch_balance is not an async function! Type: {type(self.exchange.fetch_balance)}")
+        # If it's not an async function, it might be a dictionary or None, leading to the await error.
+        # This is very unusual for ccxt methods.
+        return None
     balance = await self._safe_api_call(self.exchange.fetch_balance)
     if balance:
-      print(f"Balance for {self.subaccount_name}:")
+      self.logger.info(f"Balance for {self.subaccount_name}:")
       found_assets = False
       for currency, data in balance['total'].items():
         if data > 0:
-          print(f"  {currency}: {data}")
+          self.logger.critical(f"  {currency}: {data}")
           found_assets = True
       if not found_assets:
-        print("  No assets found in this subaccount.")
+        self.logger.warning("  No assets found in this subaccount.")
     return balance
+
+
+
 
   async def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = {}):
     """
@@ -58,17 +82,19 @@ class OKXTrader(BaseExchangeTrader):
       limit (int): Maximum number of orders to fetch.
       params (dict): Additional exchange-specific parameters.
     """
-    print(f"\nFetching open orders for {symbol if symbol else 'all symbols'} on OKX subaccount: {self.subaccount_name}...")
+    self.logger.info(f"\nFetching open orders for {symbol if symbol else 'all symbols'} on OKX subaccount: {self.subaccount_name}...")
     orders = await self._safe_api_call(self.exchange.fetch_open_orders, symbol, since, limit, params)
     if orders:
-      print(f"Open Orders ({symbol if symbol else 'all'}) for {self.subaccount_name}:")
+      self.logger.info(f"Open Orders ({symbol if symbol else 'all'}) for {self.subaccount_name}:")
       for order in orders:
-        print(f"  ID: {order['id']}, Symbol: {order['symbol']}, Type: {order['type']}, "
+        self.logger.info(f"  ID: {order['id']}, Symbol: {order['symbol']}, Type: {order['type']}, "
               f"Side: {order['side']}, Price: {order['price']}, Amount: {order['amount']}, "
               f"Filled: {order['filled']}, Status: {order['status']}")
     else:
-      print(f"  No open orders found for {symbol if symbol else 'all symbols'} on this subaccount.")
+      self.logger.info(f"  No open orders found for {symbol if symbol else 'all symbols'} on this subaccount.")
     return orders
+
+
 
   async def create_order(self, symbol: str, side: str, spend_percentage: float = 1.0, order_execution_strategy: str = 'market', params: dict = {}):
     """
@@ -84,7 +110,7 @@ class OKXTrader(BaseExchangeTrader):
     """
     # 1. Input validation for spend_percentage
     if not (0.0 <= spend_percentage <= 1.0):
-      print("Error: spend_percentage must be between 0.0 and 1.0.")
+      self.logger.error("Error: spend_percentage must be between 0.0 and 1.0.")
       return None
 
     # 2. Determine base and quote currencies and market limits/precision
@@ -96,23 +122,19 @@ class OKXTrader(BaseExchangeTrader):
       base_currency = market['base']
       quote_currency = market['quote']
     except ccxt.ExchangeError as e:
-      print(f"Exchange error loading market for {symbol}: {e}")
+      self.logger.error(f"Exchange error loading market for {symbol}: {e}")
       return None
     except Exception as e:
-      print(f"Error loading market for {symbol}: {e}")
+      self.logger.error(f"Error loading market for {symbol}: {e}")
       return None
 
     if not market:
-      print(f"Could not load market data for {symbol}. Cannot proceed with order.")
+      self.logger.error(f"Could not load market data for {symbol}. Cannot proceed with order.")
       return None
 
     # Extract limits and precision for the symbol
     amount_limits = market['limits']['amount']
-    price_limits = market['limits']['price']
     cost_limits = market['limits']['cost'] # Often relevant for market orders
-
-    amount_precision = market['precision']['amount']
-    price_precision = market['precision']['price']
 
     # 3. Get current balance
     balance_info = await self.fetch_balance()
@@ -124,37 +146,37 @@ class OKXTrader(BaseExchangeTrader):
     price = None
     order_type = 'market'
 
-    print(f"\nAttempting to create a {side} order for {symbol} with {spend_percentage*100}% of available funds.")
+    self.logger.info(f"\nAttempting to create a {side} order for {symbol} with {spend_percentage*100}% of available funds.")
 
     if side == 'buy':
       available_quote = balance_info['free'].get(quote_currency, 0.0)
       spend_cost = available_quote * spend_percentage
 
       if spend_cost <= 0:
-        print(f"Insufficient {quote_currency} balance ({available_quote}) to place buy order.")
+        self.logger.error(f"Insufficient {quote_currency} balance ({available_quote}) to place buy order.")
         return None
 
       if order_execution_strategy == 'market':
         order_type = 'market'
         # For market buy, amount parameter in ccxt is usually the 'cost' (quote currency amount)
         amount_to_trade = spend_cost
-        print(f"Calculated market buy cost: {amount_to_trade} {quote_currency}")
+        self.logger.info(f"Calculated market buy cost: {amount_to_trade} {quote_currency}")
 
         # Check against min/max cost limits
         min_cost = cost_limits.get('min', 0)
         max_cost = cost_limits.get('max', float('inf'))
         if amount_to_trade < min_cost:
-          print(f"Adjusting buy cost: {amount_to_trade} is less than min_cost {min_cost}. Setting to min_cost.")
+          self.logger.warning(f"Adjusting buy cost: {amount_to_trade} is less than min_cost {min_cost}. Setting to min_cost.")
           amount_to_trade = min_cost
         if amount_to_trade > max_cost:
-          print(f"Adjusting buy cost: {amount_to_trade} is greater than max_cost {max_cost}. Setting to max_cost.")
+          self.logger.warning(f"Adjusting buy cost: {amount_to_trade} is greater than max_cost {max_cost}. Setting to max_cost.")
           amount_to_trade = max_cost
 
       elif order_execution_strategy == 'maker_limit':
         order_type = 'limit'
         ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
         if not ticker or not ticker.get('bid'):
-          print(f"Could not fetch bid price for {symbol} to determine maker buy price.")
+          self.logger.error(f"Could not fetch bid price for {symbol} to determine maker buy price.")
           return None
 
         # Set price slightly below current bid to try and ensure maker fee
@@ -167,23 +189,23 @@ class OKXTrader(BaseExchangeTrader):
 
         # Calculate amount in base currency based on desired spend and maker price
         if price <= 0: # Avoid division by zero
-          print("Calculated maker buy price is zero or negative. Cannot place order.")
+          self.logger.error("Calculated maker buy price is zero or negative. Cannot place order.")
           return None
         amount_to_trade = spend_cost / price
-        print(f"Calculated maker limit buy amount: {amount_to_trade} {base_currency} at price {price}")
+        self.logger.info(f"Calculated maker limit buy amount: {amount_to_trade} {base_currency} at price {price}")
 
         # Check against min/max amount limits
         min_amount = amount_limits.get('min', 0)
         max_amount = amount_limits.get('max', float('inf'))
         if amount_to_trade < min_amount:
-          print(f"Adjusting buy amount: {amount_to_trade} is less than min_amount {min_amount}. Setting to min_amount.")
+          self.logger.warning(f"Adjusting buy amount: {amount_to_trade} is less than min_amount {min_amount}. Setting to min_amount.")
           amount_to_trade = min_amount
         if amount_to_trade > max_amount:
-          print(f"Adjusting buy amount: {amount_to_trade} is greater than max_amount {max_amount}. Setting to max_amount.")
+          self.logger.warning(f"Adjusting buy amount: {amount_to_trade} is greater than max_amount {max_amount}. Setting to max_amount.")
           amount_to_trade = max_amount
 
       else:
-        print(f"Unsupported order execution strategy: {order_execution_strategy}")
+        self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
         return None
 
     elif side == 'sell':
@@ -191,27 +213,27 @@ class OKXTrader(BaseExchangeTrader):
       amount_to_trade = available_base * spend_percentage
 
       if amount_to_trade <= 0:
-        print(f"Insufficient {base_currency} balance ({available_base}) to place sell order.")
+        self.logger.error(f"Insufficient {base_currency} balance ({available_base}) to place sell order.")
         return None
 
       # Check against min/max amount limits for sell orders
       min_amount = amount_limits.get('min', 0)
       max_amount = amount_limits.get('max', float('inf'))
       if amount_to_trade < min_amount:
-        print(f"Adjusting sell amount: {amount_to_trade} is less than min_amount {min_amount}. Setting to min_amount.")
+        self.logger.warning(f"Adjusting sell amount: {amount_to_trade} is less than min_amount {min_amount}. Setting to min_amount.")
         amount_to_trade = min_amount
       if amount_to_trade > max_amount:
-        print(f"Adjusting sell amount: {amount_to_trade} is greater than max_amount {max_amount}. Setting to max_amount.")
+        self.logger.warning(f"Adjusting sell amount: {amount_to_trade} is greater than max_amount {max_amount}. Setting to max_amount.")
         amount_to_trade = max_amount
 
       if order_execution_strategy == 'market':
         order_type = 'market'
-        print(f"Calculated market sell amount: {amount_to_trade} {base_currency}")
+        self.logger.info(f"Calculated market sell amount: {amount_to_trade} {base_currency}")
       elif order_execution_strategy == 'maker_limit':
         order_type = 'limit'
         ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
         if not ticker or not ticker.get('ask'):
-          print(f"Could not fetch ask price for {symbol} to determine maker sell price.")
+          self.logger.error(f"Could not fetch ask price for {symbol} to determine maker sell price.")
           return None
 
         # Set price slightly above current ask to try and ensure maker fee
@@ -220,29 +242,29 @@ class OKXTrader(BaseExchangeTrader):
 
         # Apply price precision
         price = self.exchange.price_to_precision(symbol, price)
-        print(f"Calculated maker limit sell amount: {amount_to_trade} {base_currency} at price {price}")
+        self.logger.info(f"Calculated maker limit sell amount: {amount_to_trade} {base_currency} at price {price}")
       else:
-        print(f"Unsupported order execution strategy: {order_execution_strategy}")
+        self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
         return None
     else:
-      print(f"Invalid order side: {side}. Must be 'buy' or 'sell'.")
+      self.logger.error(f"Invalid order side: {side}. Must be 'buy' or 'sell'.")
       return None
 
     # Final check for amount before applying precision and placing order
     if amount_to_trade <= 0:
-      print("Calculated amount to trade is zero or negative after adjustments. Order not placed.")
+      self.logger.error("Calculated amount to trade is zero or negative after adjustments. Order not placed.")
       return None
 
     # Apply amount precision as the final step
     amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
 
-    print(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade}, Price={price}")
+    self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade}, Price={price}")
 
     # Place the order
     order = await self._safe_api_call(self.exchange.create_order, symbol, order_type, side, amount_to_trade, price, params)
     if order:
-      print(f"Order placed successfully! Order ID: {order['id']}")
-      print(f"  Status: {order['status']}, Price: {order['price']}, Amount: {order['amount']}")
+      self.logger.critical(f"Order placed successfully! Order ID: {order['id']}")
+      self.logger.critical(f"  Status: {order['status']}, Price: {order['price']}, Amount: {order['amount']}")
     return order
 
   async def cancel_order(self, order_id: str, symbol: str = None, params: dict = {}):
@@ -254,8 +276,8 @@ class OKXTrader(BaseExchangeTrader):
       symbol (str): The trading pair symbol associated with the order.
       params (dict): Additional exchange-specific parameters.
     """
-    print(f"\nAttempting to cancel order ID: {order_id} for {symbol} on OKX subaccount: {self.subaccount_name}...")
+    self.logger.info(f"\nAttempting to cancel order ID: {order_id} for {symbol} on OKX subaccount: {self.subaccount_name}...")
     cancel_result = await self._safe_api_call(self.exchange.cancel_order, order_id, symbol, params)
     if cancel_result:
-      print(f"Order {order_id} cancelled successfully! Status: {cancel_result['status']}")
+      self.logger.critical(f"Order {order_id} cancelled successfully! Status: {cancel_result['status']}")
     return cancel_result
