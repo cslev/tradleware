@@ -54,8 +54,6 @@ async def main_app():
   account_identifier = "_".join(parts[:-1])
   exchange_id_str = parts[-1].lower()
 
-
-
   trader_class = EXCHANGE_TRADER_CLASSES.get(exchange_id_str)
 
   if trader_class:
@@ -81,10 +79,11 @@ async def main_app():
     balance = await trader.fetch_balance()
 
     if balance:
-      logger.critical(f"Available Balance on {name}/{trader}")
+      
       # Fetch Open Orders (using a common symbol for demonstration)
       # You might want to customize symbols based on the exchange or account
       await trader.fetch_open_orders('BTC/SGD')
+
 
       # Place and Cancel a Dummy Order (for demonstration)
       # IMPORTANT: Adjust symbol, amount, and price for real-world testing.
@@ -107,6 +106,7 @@ async def main_app():
       logger.warning(f"Could not fetch balance for {name}, skipping further operations.")
 
   logger.info("\n--- Multi-Exchange Trading Application Finished ---")
+  await trader.close()
 
 if __name__ == '__main__':
   asyncio.run(main_app())
