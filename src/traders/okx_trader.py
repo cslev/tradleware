@@ -38,8 +38,8 @@ class OKXTrader(BaseExchangeTrader):
       'options': okx_options,
       'enableRateLimit': True, # Always good to enable rate limiting
     })
-    self.logger.info(f"OKXTrader initialized for {self.account_identifier} (Subaccount: {self.subaccount_name})")
 
+    self.logger.success(f"OKXTrader initialized for {self.account_identifier} (Subaccount: {self.subaccount_name})")
 
 
 
@@ -49,6 +49,7 @@ class OKXTrader(BaseExchangeTrader):
     """
     self.logger.info(f"Fetching balance for OKX subaccount: {self.subaccount_name}...")
 
+    ############ DEBUG - can remove after confirmed it's working #############
     # DEBUG: Print the type of the method before passing it to _safe_api_call
     self.logger.debug(f"Type of self.exchange.fetch_balance before _safe_api_call: {type(self.exchange.fetch_balance)}")
     # This check is useful for diagnostics, keep it if you want
@@ -57,6 +58,7 @@ class OKXTrader(BaseExchangeTrader):
         # If it's not an async function, it might be a dictionary or None, leading to the await error.
         # This is very unusual for ccxt methods.
         return None
+    ############################# DEBUG END ###################################
     balance = await self._safe_api_call(self.exchange.fetch_balance)
     if balance:
       self.logger.info(f"Balance for {self.subaccount_name}:")
@@ -82,19 +84,103 @@ class OKXTrader(BaseExchangeTrader):
       limit (int): Maximum number of orders to fetch.
       params (dict): Additional exchange-specific parameters.
     """
-    self.logger.info(f"\nFetching open orders for {symbol if symbol else 'all symbols'} on OKX subaccount: {self.subaccount_name}...")
-    orders = await self._safe_api_call(self.exchange.fetch_open_orders, symbol, since, limit, params)
-    if orders:
-      self.logger.info(f"Open Orders ({symbol if symbol else 'all'}) for {self.subaccount_name}:")
-      for order in orders:
-        self.logger.info(f"  ID: {order['id']}, Symbol: {order['symbol']}, Type: {order['type']}, "
-              f"Side: {order['side']}, Price: {order['price']}, Amount: {order['amount']}, "
-              f"Filled: {order['filled']}, Status: {order['status']}")
-    else:
-      self.logger.info(f"  No open orders found for {symbol if symbol else 'all symbols'} on this subaccount.")
-    return orders
+    self.logger.info(f"Fetching open orders for {symbol if symbol else 'all symbols'} on OKX subaccount: {self.subaccount_name}...")
+    orders=None
+    try:
+      orders = await self._safe_api_call(self.exchange.fetch_open_orders, symbol, since, limit, params)
+
+      if orders:
+        self.logger.info(f"Open Orders ({symbol if symbol else 'all'}) for {self.subaccount_name}:")
+        for order in orders:
+          self.logger.info(f"  ID: {order['id']}, Symbol: {order['symbol']}, Type: {order['type']}, "
+                f"Side: {order['side']}, Price: {order['price']}, Amount: {order['amount']}, "
+                f"Filled: {order['filled']}, Status: {order['status']}")
+      else:
+        self.logger.info(f"  No open orders found for {symbol if symbol else 'all symbols'} on this subaccount.")
+    except Exception as e:
+      
+      self.logger.warning(f"Are you sure you set the symbol correclty?")
+      await self.list_fiat_markets()
+    finally:
+      return orders
 
 
+  async def list_fiat_markets(self, fiat_currency:str="SGD"):
+    """
+    Fetches and lists all markets on OKX that involve fiat_currency.
+    This helps in identifying the correct trading symbol if BTC/fiat_currency isn't directly available.
+    Args:
+      fiat_currency 
+    """
+    self.logger.info(f"Loading all markets for {self.exchange_id} to find {fiat_currency} pairs...")
+    try:
+      # Ensure markets are loaded/reloaded to get the latest list
+      await self._safe_api_call(self.exchange.load_markets, True) # Set to True to force reload
+
+      self.logger.info(f"Markets loaded. Filtering for {fiat_currency} related pairs...")
+      fiat_markets = []
+      for symbol, market in self.exchange.markets.items():
+        # Check if {fiat_currency} is in the symbol name or if base/quote currency is {fiat_currency}
+        if fiat_currency in symbol.upper() or market['base'] == fiat_currency or market['quote'] == fiat_currency:
+          fiat_markets.append(market)
+
+      if fiat_markets:
+        self.logger.success(f"Found {len(fiat_markets)} {fiat_currency} related markets on {self.exchange_id}:")
+        for market in fiat_markets:
+          self.logger.info(
+            f"  Symbol: {market['symbol']}, "
+            f"Type: {market['type']}, "
+            f"Base: {market['base']}, "
+            f"Quote: {market['quote']}, "
+            f"Active: {market['active']}"
+          )
+      else:
+        self.logger.warning(f"No direct {fiat_currency} trading pairs found on {self.exchange_id} via CCXT for the '{self.default_type}' type.")
+        self.logger.info("It's possible you need to convert SGD to a stablecoin (e.g., USDT) first, then trade via crypto/stablecoin pairs (e.g., BTC/USDT).")
+
+    except Exception as e:
+      self.logger.error(f"Error listing {fiat_currency} markets for {self.exchange_id}: {e}")
+    return fiat_markets
+
+  async def convert_fiat_to_stablecoin(self, spend_percentage: float = 1.0, order_execution_strategy: str = 'market'):
+    """
+    Converts a percentage of available fiat currency (e.g., SGD) into a stablecoin (e.g., USDT).
+
+    Args:
+      spend_percentage (float): The percentage of available fiat funds to spend (0.0 to 1.0).
+      order_execution_strategy (str): 'market' for immediate execution (taker fee),
+                                      'maker_limit' for a limit order aiming for maker fee.
+
+    Returns:
+      float: The amount of stablecoin acquired, or 0.0 if the conversion failed.
+    """
+    self.logger.info(f"\nAttempting to convert {spend_percentage*100}% of {self.fiat_currency} to {self.stablecoin_currency} via {self.fiat_stablecoin_pair}...")
+    if not (0.0 < spend_percentage <= 1.0):
+      self.logger.error("❌ spend_percentage must be between 0.0 (exclusive) and 1.0 (inclusive).")
+      return 0.0
+    
+    # 1. Fetch current balance
+    balance_info = await self.fetch_balance()
+    if not balance_info:
+      self.logger.error("❌ Could not fetch balance to determine fiat funds for conversion.")
+      return 0.0
+
+    fiat_available = balance_info['free'].get(self.fiat_currency, 0.0)
+    self.logger.info(f"Available {self.fiat_currency}: {fiat_available}")
+
+    if fiat_available <= 0:
+      self.logger.warning(f"⚠️ No {self.fiat_currency} available in the account. Cannot proceed with conversion.")
+      return 0.0
+    
+    # Calculate the amount of fiat to spend
+    fiat_spend_amount = fiat_available * spend_percentage
+    self.logger.info(f"Calculated amount to spend: {fiat_spend_amount} {self.fiat_currency}")
+
+    if fiat_spend_amount <= 0:
+        self.logger.warning(f"⚠️ Calculated spend amount is zero or negative. Cannot place order.")
+        return 0.0
+
+    # TODO: Continue implementation from Gemini 
 
   async def create_order(self, symbol: str, side: str, spend_percentage: float = 1.0, order_execution_strategy: str = 'market', params: dict = {}):
     """
@@ -139,7 +225,7 @@ class OKXTrader(BaseExchangeTrader):
     # 3. Get current balance
     balance_info = await self.fetch_balance()
     if not balance_info:
-      print("Could not fetch balance to determine order amount.")
+      self.logger.error("Could not fetch balance to determine order amount.")
       return None
 
     amount_to_trade = 0.0
@@ -263,8 +349,8 @@ class OKXTrader(BaseExchangeTrader):
     # Place the order
     order = await self._safe_api_call(self.exchange.create_order, symbol, order_type, side, amount_to_trade, price, params)
     if order:
-      self.logger.critical(f"Order placed successfully! Order ID: {order['id']}")
-      self.logger.critical(f"  Status: {order['status']}, Price: {order['price']}, Amount: {order['amount']}")
+      self.logger.success(f"Order placed successfully! Order ID: {order['id']}")
+      self.logger.success(f"  Status: {order['status']}, Price: {order['price']}, Amount: {order['amount']}")
     return order
 
   async def cancel_order(self, order_id: str, symbol: str = None, params: dict = {}):
@@ -279,5 +365,5 @@ class OKXTrader(BaseExchangeTrader):
     self.logger.info(f"\nAttempting to cancel order ID: {order_id} for {symbol} on OKX subaccount: {self.subaccount_name}...")
     cancel_result = await self._safe_api_call(self.exchange.cancel_order, order_id, symbol, params)
     if cancel_result:
-      self.logger.critical(f"Order {order_id} cancelled successfully! Status: {cancel_result['status']}")
+      self.logger.success(f"Order {order_id} cancelled successfully! Status: {cancel_result['status']}")
     return cancel_result
