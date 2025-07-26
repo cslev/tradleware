@@ -142,7 +142,9 @@ class OKXTrader(BaseExchangeTrader):
       self.logger.error(f"Error listing {fiat_currency} markets for {self.exchange_id}: {e}")
     return fiat_markets
 
-  async def convert_fiat_to_stablecoin(self, spend_percentage: float = 1.0, order_execution_strategy: str = 'market'):
+  async def convert_fiat_to_stablecoin(self, 
+                                       spend_percentage: float = 1.0, 
+                                       order_execution_strategy: str = 'market'):
     """
     Converts a percentage of available fiat currency (e.g., SGD) into a stablecoin (e.g., USDT).
 
@@ -175,14 +177,47 @@ class OKXTrader(BaseExchangeTrader):
     # Calculate the amount of fiat to spend
     fiat_spend_amount = fiat_available * spend_percentage
     self.logger.info(f"Calculated amount to spend: {fiat_spend_amount} {self.fiat_currency}")
-
     if fiat_spend_amount <= 0:
         self.logger.warning(f"⚠️ Calculated spend amount is zero or negative. Cannot place order.")
         return 0.0
 
-    # TODO: Continue implementation from Gemini 
+    # 2. Place the order to buy stablecoin with fiat
+    try:
+      stablecoin_order = await self.create_order(
+          symbol=self.fiat_stablecoin_pair,
+          side='buy',
+          spend_percentage=spend_percentage, # Pass the percentage directly
+          order_execution_strategy=order_execution_strategy
+      )
+      if not stablecoin_order:
+            self.logger.error(f"❌ Order to buy {self.stablecoin_currency} failed or returned no order object.")
+            return 0.0
 
-  async def create_order(self, symbol: str, side: str, spend_percentage: float = 1.0, order_execution_strategy: str = 'market', params: dict = {}):
+      if stablecoin_order['status'] != 'closed':
+          self.logger.warning(f"⚠️ Order to buy {self.stablecoin_currency} was not immediately closed. Current status: {stablecoin_order['status']}")
+          # In a real bot, you might want to monitor this order until it closes or cancels
+          return 0.0 # Or return partial filled amount if available
+
+      self.logger.success(f"✅ Successfully converted {fiat_spend_amount} {self.fiat_currency} to {stablecoin_order['filled']} {self.stablecoin_currency}!")
+      return stablecoin_order['filled'] # Return the amount of stablecoin acquired
+    
+    except ccxt.ExchangeError as e:
+        if "Insufficient" in str(e) or "balance" in str(e):
+            self.logger.error(f"❌ Insufficient {self.fiat_currency} balance to place order for {self.fiat_stablecoin_pair}: {e}")
+        else:
+            self.logger.error(f"❌ Exchange error during {self.fiat_currency} to {self.stablecoin_currency} conversion: {e}")
+        return 0.0
+    except Exception as e:
+        self.logger.critical(f"❌ An unexpected critical error occurred during fiat to stablecoin conversion: {e}", exc_info=True)
+        return 0.0
+
+
+  async def create_order(self, 
+                         symbol: str, 
+                         side: str, 
+                         spend_percentage: float = 1.0, 
+                         order_execution_strategy: str = 'market', 
+                         params: dict = {}):
     """
     Creates an order on the OKX subaccount with flexible execution and amount.
 
