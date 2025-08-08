@@ -1,2 +1,2 @@
-# bolehtrade
-Autotrading middleware for Crypto/Stock Exchanges in SG
+# Tradleware
+Autotrading Middleware mostly for Crypto/Stock Exchanges available and approved in Singapore.
