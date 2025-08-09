@@ -1,9 +1,10 @@
 import ccxt
 from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
+from typing import Optional, Dict, Any, List
 
 
-from traders.base_trader import BaseExchangeTrader
-from misc.logger import CustomLogger
+from src.traders.base_trader import BaseExchangeTrader  # Changed from traders.base_trader
+from src.misc.logger import CustomLogger
 import asyncio # Imported for asyncio.iscoroutinefunction for debugging
 
 class OKXTrader(BaseExchangeTrader):
@@ -20,6 +21,7 @@ class OKXTrader(BaseExchangeTrader):
       default_type (str): The default market type for OKX (e.g., 'spot', 'future').
     """
     self.logger = CustomLogger(name=self.__class__.__name__)
+
     super().__init__(account_identifier, 'OKX', default_type, self.logger)
 
     okx_options = {
@@ -43,7 +45,7 @@ class OKXTrader(BaseExchangeTrader):
 
 
 
-  async def fetch_balance(self):
+  async def fetch_balance(self) -> Dict[str, Any]:
     """
     Fetches and prints the balance for the initialized OKX subaccount.
     """
@@ -68,7 +70,7 @@ class OKXTrader(BaseExchangeTrader):
           self.logger.critical(f"  {currency}: {data}")
           found_assets = True
       if not found_assets:
-        self.logger.warning("  No assets found in this subaccount.")
+        self.logger.warning("❌ No assets found in this subaccount.")
     return balance
 
 
@@ -96,7 +98,7 @@ class OKXTrader(BaseExchangeTrader):
                 f"Side: {order['side']}, Price: {order['price']}, Amount: {order['amount']}, "
                 f"Filled: {order['filled']}, Status: {order['status']}")
       else:
-        self.logger.info(f"  No open orders found for {symbol if symbol else 'all symbols'} on this subaccount.")
+        self.logger.info(f"❌ No open orders found for {symbol if symbol else 'all symbols'} on this subaccount.")
     except Exception as e:
       
       self.logger.warning(f"Are you sure you set the symbol correclty?")
@@ -139,8 +141,10 @@ class OKXTrader(BaseExchangeTrader):
         self.logger.info("It's possible you need to convert SGD to a stablecoin (e.g., USDT) first, then trade via crypto/stablecoin pairs (e.g., BTC/USDT).")
 
     except Exception as e:
-      self.logger.error(f"Error listing {fiat_currency} markets for {self.exchange_id}: {e}")
+      self.logger.error(f"❌  Error listing {fiat_currency} markets for {self.exchange_id}: {e}")
     return fiat_markets
+
+
 
   async def convert_fiat_to_stablecoin(self, 
                                        spend_percentage: float = 1.0, 

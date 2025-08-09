@@ -2,14 +2,25 @@ import os
 import ccxt
 from abc import ABC, abstractmethod
 import asyncio # Imported here for the _safe_api_call helper
-from misc.logger import CustomLogger
+from src.misc.logger import CustomLogger
+from typing import Optional, Dict, Any, List
 
 class BaseExchangeTrader(ABC):
   """
   Abstract base class for interacting with cryptocurrency exchanges.
   Handles generic environment variable loading and defines common trading methods.
   """
-  def __init__(self, account_identifier: str, exchange_id: str, default_type: str = 'spot', logger: CustomLogger = None):
+  VALID_ORDER_TYPES = ['market', 'maker_limit']
+  VALID_MARKET_TYPES = ['spot', 'future', 'swap']
+  VALID_ORDER_SIDES = ['buy', 'sell']  # New constant
+  MIN_SPEND_PERCENTAGE = 0.0  # New constant
+  MAX_SPEND_PERCENTAGE = 1.0  # New constant
+
+  def __init__(self, 
+               account_identifier: str, 
+               exchange_id: str, 
+               default_type: str = 'spot', 
+               logger: Optional[CustomLogger] = None):
     """
     Initializes the BaseExchangeTrader with account and exchange details.
 
@@ -88,7 +99,11 @@ class BaseExchangeTrader(ABC):
 
     self.logger.success(f"Base credentials loaded for {self.account_identifier} on {self.exchange_id}.")
 
-  async def _safe_api_call(self, api_method, *args, **kwargs):
+
+  async def _safe_api_call(self, 
+                           api_method, 
+                           *args, 
+                           **kwargs):
     """
     Helper method to wrap asynchronous API calls with common error handling.
     This prevents the application from crashing on network or exchange errors.
@@ -173,9 +188,39 @@ class BaseExchangeTrader(ABC):
     pass
 
   @abstractmethod
-  async def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = {}):
+  async def fetch_open_orders(self, 
+                              symbol: str = None, since: int = None, limit: int = None, params: dict = {}):
     """
     Abstract method to fetch open orders.
     Must be implemented by concrete exchange classes.
     """
     pass
+
+  # @abstractmethod
+  # async def fetch_positions(self, symbols: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+  #   """Fetch current positions (especially important for futures)."""
+  #   pass
+
+  # @abstractmethod
+  # async def fetch_ticker(self, symbol: str) -> Dict[str, Any]:
+  #     """Fetch current price information for a symbol."""
+  #     pass
+
+  # @abstractmethod
+  # async def fetch_order_book(self, symbol: str, limit: Optional[int] = None) -> Dict[str, Any]:
+  #     """Fetch order book for a symbol."""
+  #     pass
+
+  def _validate_order_params( self, 
+                              symbol: str, 
+                              side: str, 
+                              spend_percentage: float) -> None:
+    """Validates order parameters before execution."""
+    if side not in self.VALID_ORDER_SIDES:
+        raise ValueError(f"Invalid side: {side}. Must be one of {self.VALID_ORDER_SIDES}")
+    
+    if not self.MIN_SPEND_PERCENTAGE < spend_percentage <= self.MAX_SPEND_PERCENTAGE:
+        raise ValueError(f"spend_percentage must be between {self.MIN_SPEND_PERCENTAGE} and {self.MAX_SPEND_PERCENTAGE}")
+        
+    if not symbol or '/' not in symbol:
+        raise ValueError(f"Invalid symbol format: {symbol}")

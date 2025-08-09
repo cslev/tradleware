@@ -29,11 +29,11 @@ async def main_app():
 
 
   # Get the list of active configurations from the environment variable
-  # Example: ACTIVE_TRADING_CONFIGS="MYBOT_OKX,MANUAL_COINBASEPRO"
+  # Example: ACTIVE_TRADING_CONFIGS="MYBTCBOT_OKX,MANUAL_COINBASEPRO"
   active_configs_str = os.getenv('ACTIVE_TRADING_CONFIGS')
   if not active_configs_str:
     logger.error("Error: ACTIVE_TRADING_CONFIGS environment variable is not set. "
-                  "Please define which accounts to load (e.g., 'MYBOT_OKX,MYBOT_COINBASEPRO').")
+                  "Please define which accounts to load (e.g., 'MYBTCBOT_OKX,MYBOT_COINBASEPRO').")
     return
   
 

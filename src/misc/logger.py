@@ -57,7 +57,7 @@ class ColoredFormatter(logging.Formatter):
     return final_colored_message
 
 class CustomLogger:
-  def __init__(self, name, logfile_name:str="bolehtrade.log"):
+  def __init__(self, name, logfile_name:str="tradleware.log"):
     self.logger = logging.getLogger(name)
     self.logger.setLevel(logging.DEBUG)
 
