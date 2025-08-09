@@ -1,32 +1,213 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title }}</title>
-    <link href="/static/css/output.css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', path='images/favicon.ico') }}">
+  <title>{{ title }}</title>
+  <link href="{{ url_for('static', path='css/output.css') }}" rel="stylesheet">
+  <script src="https://unpkg.com/heroicons@2.0.18/24/solid/index.js"></script>
+  <style>
+    .collapse-content {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.2s ease-out;
+    }
+    .collapse-content.open {
+      max-height: 500px;
+    }
+    body {
+      background-image: url("{{ url_for('static', path='images/bg2.png') }}");
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      min-height: 100vh;
+      width: 100vw;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+      position: relative;  /* For proper stacking context */
+    }
+    html {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.75);  /* Black with 75% opacity */
+      z-index: 1;
+    }
+
+    .container {
+      position: relative;
+      z-index: 2;  /* Place content above the overlay */
+    }
+  </style>
 </head>
-<body class="bg-gray-100 text-gray-900 font-sans antialiased">
-    <div class="container mx-auto p-4 max-w-2xl mt-10 bg-white shadow-lg rounded-lg">
-        <h1 class="text-4xl font-bold text-blue-600 mb-6 text-center">TradleWare Dashboard</h1>
-        <p class="text-lg text-center mb-8">{{ message }}</p>
-
-        <div class="bg-blue-50 border-l-4 border-blue-500 text-blue-700 p-4" role="alert">
-            <p class="font-bold">UI Under Construction!</p>
-            <p>This is where your bot listings and details will go.</p>
-        </div>
-
-        <h2 class="text-2xl font-semibold mt-8 mb-4">Configured Trading Bots</h2>
-        <div id="bot-list" class="space-y-4">
-            <div class="bg-gray-50 p-4 rounded-md shadow-sm border border-gray-200 flex justify-between items-center">
-                <span class="text-lg font-medium">My Awesome Bot (OKX)</span>
-                <button class="text-gray-500 hover:text-gray-700 focus:outline-none">
-                    <svg class="w-5 h-5 transform rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                </button>
-            </div>
-        </div>
-
-        <p class="text-sm text-center text-gray-500 mt-10">Listening for webhooks on /webhook</p>
+<body class="min-h-screen">
+  <div class="container mx-auto p-12">  <!-- Changed p-6 to p-12 for bigger padding -->
+    <!-- Add logo section -->
+    <div class="flex justify-center mb-12">
+      <img 
+        src="{{ url_for('static', path='images/logo_with_text.png') }}" 
+        alt="Tradleware Logo" 
+        class="h-48 w-auto"  <!-- Adjust h-24 to make logo bigger/smaller -->
+      >
     </div>
+
+    <!-- Remove or comment out the text heading since we have logo now -->
+    <!-- <h1 class="text-3xl font-bold text-white mb-8">Trading Configurations</h1> -->
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"> <!-- Changed gap-6 to gap-8 -->
+      {% for trader_id, trader in traders.items() %}
+      <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+        <!-- Header with Exchange Logo -->
+        <div class="relative h-32 bg-gray-900 flex flex-col justify-between p-4">
+          <img src="{{ url_for('static', path='images/' + trader.exchange_id + '.png') }}" 
+               alt="{{ trader.exchange_id }} logo"
+               class="absolute inset-0 w-full h-full object-cover">  <!-- Changed object-contain to object-cover and removed p-2 -->
+          <div class="relative z-10">
+            <h2 class="text-xl font-bold text-white">{{ trader.exchange_id.upper() }}</h2>
+          </div>
+          <div class="relative z-10">
+            <p class="text-sm text-white/80">Bot ID: {{ trader_id }}</p>
+          </div>
+        </div>
+
+        <!-- Connection Status -->
+        <div id="status-{{ trader_id }}" class="border-l-4 px-4 py-2 text-sm">
+          <!-- Will be updated by JS -->
+          <div class="flex items-center space-x-2">
+            <div class="w-2 h-2 rounded-full bg-gray-400"></div>
+            <span>Checking connection...</span>
+          </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="p-4 space-y-4">
+          <!-- Balance Section -->
+          <div class="flex justify-between items-center">
+            <div>
+              <p class="text-sm text-gray-500">Subaccount</p>
+              <p class="font-medium">{{ trader.subaccount_name }}</p>
+            </div>
+            <div class="text-right">
+              <p class="text-sm text-gray-500">Balance</p>
+              <div class="flex items-center space-x-2">
+                <span id="balance-{{ trader_id }}" class="font-bold">Loading...</span>
+                <button onclick="refreshBalance('{{ trader_id }}')"
+                        class="p-1 rounded-full hover:bg-gray-100">
+                  <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Configuration Details -->
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between items-center">
+              <span class="text-gray-500">FIAT/Stablecoin Pair:</span>
+              <span class="font-mono">{{ trader.fiat_stablecoin_pair or 'Not configured' }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-gray-500">API Key:</span>
+              <span class="font-mono">{{ trader.api_key[:8] }}...{{ trader.api_key[-8:] }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-gray-500">Exchange Hostname:</span>
+              <span class="font-mono">{{ trader.hostname }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-gray-500">Webhook URL:</span>
+              <span class="font-mono text-xs">/webhook/{{ trader_id }}</span>
+            </div>
+          </div>
+
+          <!-- Debug Section -->
+          <div id="details-{{ trader_id }}" class="mt-4">
+            <div class="bg-gray-50 rounded-lg">
+              <button 
+                onclick="toggleCollapse('collapse-{{ trader_id }}')"
+                class="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+              >
+                <span>Debug Information</span>
+                <svg id="arrow-{{ trader_id }}" class="w-4 h-4 transition-transform duration-200"
+                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
+              <div id="collapse-{{ trader_id }}" class="collapse-content">
+                <div class="px-4 py-2">
+                  <h3 class="font-medium !text-red-700 mb-2">Exchange Error Log</h3>
+                  <pre id="error-log-{{ trader_id }}" class="whitespace-pre-wrap !text-red-600 text-xs">No errors reported</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <script>
+    // Add toggle function for collapsible
+    function toggleCollapse(elementId) {
+      const content = document.getElementById(elementId);
+      const arrow = document.getElementById(`arrow-${elementId.split('-')[1]}`);
+      content.classList.toggle('open');
+      arrow.style.transform = content.classList.contains('open') ? 'rotate(180deg)' : '';
+    }
+
+    async function refreshBalance(traderId) {
+      const balanceElement = document.getElementById(`balance-${traderId}`);
+      const statusElement = document.getElementById(`status-${traderId}`);
+      const errorLogElement = document.getElementById(`error-log-${traderId}`);
+      
+      balanceElement.textContent = 'Refreshing...';
+      try {
+        const response = await fetch(`/balance/${traderId}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          balanceElement.textContent = data.balance;
+          statusElement.innerHTML = `
+            <div class="flex items-center space-x-2">
+              <div class="w-2 h-2 rounded-full bg-green-500"></div>
+              <span class="text-green-700">Connected</span>
+            </div>`;
+          errorLogElement.textContent = 'No errors reported';
+        } else {
+          throw new Error(data.error);
+        }
+      } catch (error) {
+        balanceElement.textContent = 'Error';
+        statusElement.innerHTML = `
+          <div class="flex items-center space-x-2">
+            <div class="w-2 h-2 rounded-full bg-red-500"></div>
+            <span class="text-red-700">Connection Error</span>
+          </div>`;
+        errorLogElement.textContent = `Error: ${error.message}`;
+      }
+    }
+
+    // Initial balance load
+    document.addEventListener('DOMContentLoaded', () => {
+      const traderIds = JSON.parse('{{ traders.keys() | list | tojson | safe }}');
+      traderIds.forEach(traderId => {
+        refreshBalance(traderId);
+      });
+    });
+  </script>
 </body>
 </html>
