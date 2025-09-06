@@ -56,7 +56,7 @@
     <!-- Add logo section -->
     <div class="flex justify-center mb-12">
       <img 
-        src="{{ url_for('static', path='images/logo_with_text.png') }}" 
+        src="{{ url_for('static', path='images/logo_with_text3.png') }}" 
         alt="Tradleware Logo" 
         class="h-48 w-auto"  <!-- Adjust h-24 to make logo bigger/smaller -->
       >
@@ -92,23 +92,42 @@
 
         <!-- Main Content -->
         <div class="p-4 space-y-4">
-          <!-- Balance Section -->
-          <div class="flex justify-between items-center">
-            <div>
-              <p class="text-sm text-gray-500">Subaccount</p>
-              <p class="font-medium">{{ trader.subaccount_name }}</p>
+          <!-- Subaccount Section -->
+          <div>
+            <p class="text-sm text-gray-500">Subaccount</p>
+            <p class="font-medium">{{ trader.subaccount_name }}</p>
+          </div>
+
+          <!-- Balance Section with Neon Blue Background -->
+          <div class="bg-gradient-to-r from-blue-400/20 to-cyan-400/20 border border-blue-300/50 rounded-lg p-4 shadow-lg">
+            <div class="flex justify-between items-center mb-3">
+              <h3 class="text-sm font-semibold text-blue-800">Account Balances</h3>
+              <button onclick="refreshBalance('{{ trader_id }}')"
+                      class="p-1 rounded-full hover:bg-blue-100/50 transition-colors">
+                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
             </div>
-            <div class="text-right">
-              <p class="text-sm text-gray-500">Balance</p>
-              <div class="flex items-center space-x-2">
-                <span id="balance-{{ trader_id }}" class="font-bold">Loading...</span>
-                <button onclick="refreshBalance('{{ trader_id }}')"
-                        class="p-1 rounded-full hover:bg-gray-100">
-                  <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </button>
+            
+            <div class="space-y-3">
+              <!-- FIAT Balance Row -->
+              <div class="flex justify-between items-center">
+                <p id="fiat-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">FIAT:</p>
+                <p id="fiat-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
+              </div>
+              
+              <!-- Stablecoin Balance Row -->
+              <div class="flex justify-between items-center">
+                <p id="stablecoin-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">Stablecoin:</p>
+                <p id="stablecoin-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
+              </div>
+              
+              <!-- Crypto Balance Row -->
+              <div class="flex justify-between items-center">
+                <p id="crypto-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">Crypto:</p>
+                <p id="crypto-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
               </div>
             </div>
           </div>
@@ -120,7 +139,7 @@
               <span class="font-mono">{{ trader.fiat_stablecoin_pair or 'Not configured' }}</span>
             </div>
             <div class="flex justify-between items-center">
-              <span class="text-gray-500">API Key:</span>
+              <span class="text-gray-500">Exchange API Key:</span>
               <span class="font-mono">{{ trader.api_key[:8] }}...{{ trader.api_key[-8:] }}</span>
             </div>
             <div class="flex justify-between items-center">
@@ -131,9 +150,63 @@
               <span class="text-gray-500">Webhook URL:</span>
               <span class="font-mono text-xs">/webhook/{{ trader_id }}</span>
             </div>
+            <div class="flex justify-between items-center">
+              <span class="text-gray-500">Tradleware API Key:</span>
+              <span class="font-mono">
+                {% if trader.tradleware_api_key %}
+                  {{ trader.tradleware_api_key[:8] }}...{{ trader.tradleware_api_key[-8:] }}
+                {% else %}
+                  Not configured
+                {% endif %}
+              </span>
+            </div>
           </div>
 
-          <!-- Debug Section -->
+
+          <!-- Webhook Example Dropdown -->
+          <div class="bg-gray-50 rounded-lg mt-4">
+            <button 
+              onclick="toggleCollapse('webhook-{{ trader_id }}')"
+              class="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+            >
+              <span>Webhook details</span>
+              <svg id="arrow-webhook-{{ trader_id }}" class="w-4 h-4 transition-transform duration-200"
+                   xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+            <div id="webhook-{{ trader_id }}" class="collapse-content">
+              <div class="px-4 py-2">
+                <h3 class="font-medium text-cyan-700 mb-2">Webhook JSON TradingView Example</h3>
+                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{% raw %}
+{
+  "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
+  "trader_id": "MYBTCBOT_OKX",
+  "ticker": "{{ticker}}",
+  "action": "{{strategy.order.action}}",
+  "timestamp": "{{time}}",
+  "alert_name": "{{strategy.order.comment}}"
+}
+{% endraw %}</pre>
+                <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL text locally</h3>
+                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{% raw %}
+curl -X POST http://localhost:8080/webhook?alert_name=MyStrategyAlert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
+    "trader_id": "MYBTCBOT_OKX",
+    "ticker": "BTC/USDT",
+    "action": "buy",
+    "timestamp": "1700000000",
+    "alert_name": "MyStrategyAlertFromBody"
+  }'
+{% endraw %}</pre>
+              </div>
+            </div>
+          </div>
+
+
+                    <!-- Debug Section -->
           <div id="details-{{ trader_id }}" class="mt-4">
             <div class="bg-gray-50 rounded-lg">
               <button 
@@ -148,12 +221,14 @@
               </button>
               <div id="collapse-{{ trader_id }}" class="collapse-content">
                 <div class="px-4 py-2">
-                  <h3 class="font-medium !text-red-700 mb-2">Exchange Error Log</h3>
-                  <pre id="error-log-{{ trader_id }}" class="whitespace-pre-wrap !text-red-600 text-xs">No errors reported</pre>
+                  <h3 class="font-medium text-cyan-700 mb-2">Debug Log</h3>
+                  <pre id="debug-log-{{ trader_id }}" class="whitespace-pre-wrap text-cyan-600 text-xs">No debug information available</pre>
                 </div>
               </div>
             </div>
           </div>
+
+
         </div>
       </div>
       {% endfor %}
@@ -170,34 +245,63 @@
     }
 
     async function refreshBalance(traderId) {
-      const balanceElement = document.getElementById(`balance-${traderId}`);
+      const fiatElement = document.getElementById(`fiat-balance-${traderId}`);
+      const stablecoinElement = document.getElementById(`stablecoin-balance-${traderId}`);
+      const cryptoElement = document.getElementById(`crypto-balance-${traderId}`);
+      const fiatLabelElement = document.getElementById(`fiat-label-${traderId}`);
+      const stablecoinLabelElement = document.getElementById(`stablecoin-label-${traderId}`);
+      const cryptoLabelElement = document.getElementById(`crypto-label-${traderId}`);
       const statusElement = document.getElementById(`status-${traderId}`);
-      const errorLogElement = document.getElementById(`error-log-${traderId}`);
+      const debugLogElement = document.getElementById(`debug-log-${traderId}`);
       
-      balanceElement.textContent = 'Refreshing...';
+      // Set loading state
+      fiatElement.textContent = 'Loading...';
+      stablecoinElement.textContent = 'Loading...';
+      cryptoElement.textContent = 'Loading...';
+      
       try {
         const response = await fetch(`/balance/${traderId}`);
         const data = await response.json();
         
         if (response.ok) {
-          balanceElement.textContent = data.balance;
+          const balance = data.balance;
+          
+          // Update labels with dynamic units
+          fiatLabelElement.textContent = `${balance.fiat_unit}:`;
+          stablecoinLabelElement.textContent = `${balance.stablecoin_unit}:`;
+          cryptoLabelElement.textContent = `${balance.crypto_unit}:`;
+          
+          // Update individual balances
+          fiatElement.textContent = balance.fiat || '0.00';
+          stablecoinElement.textContent = balance.stablecoin || '0.00';
+          cryptoElement.textContent = balance.crypto || '0.00';
+          
           statusElement.innerHTML = `
             <div class="flex items-center space-x-2">
               <div class="w-2 h-2 rounded-full bg-green-500"></div>
               <span class="text-green-700">Connected</span>
             </div>`;
-          errorLogElement.textContent = 'No errors reported';
+          
+          // Success message in green with formatted JSON
+          debugLogElement.textContent = 'Balance fetched successfully\n' + JSON.stringify(data.balance, null, 2);
+          debugLogElement.className = 'whitespace-pre-wrap text-green-600 text-xs';
         } else {
           throw new Error(data.error);
         }
       } catch (error) {
-        balanceElement.textContent = 'Error';
+        fiatElement.textContent = 'Error';
+        stablecoinElement.textContent = 'Error';
+        cryptoElement.textContent = 'Error';
+        
         statusElement.innerHTML = `
           <div class="flex items-center space-x-2">
             <div class="w-2 h-2 rounded-full bg-red-500"></div>
             <span class="text-red-700">Connection Error</span>
           </div>`;
-        errorLogElement.textContent = `Error: ${error.message}`;
+        
+        // Error message in cyan/blue
+        debugLogElement.textContent = `Debug Error: ${error.message}`;
+        debugLogElement.className = 'whitespace-pre-wrap text-cyan-600 text-xs';
       }
     }
 
@@ -209,5 +313,9 @@
       });
     });
   </script>
+  <!-- Add this just before the closing </body> tag -->
+  <div class="w-full text-center mt-16 mb-4 text-sm text-white" style="z-index:2; position:relative;">
+    Webhooks should be sent to <span class="font-mono text-cyan-100">https://your_tradleware_domain[:port]/webhook</span>
+  </div>
 </body>
 </html>
