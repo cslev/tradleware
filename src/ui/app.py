@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse  # Import JSONResponse for JSON responses
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -106,37 +106,97 @@ async def read_root(request: Request):
 # by clicking on the refresh button in the UI.
 @app.get("/balance/{trader_id}")
 async def get_balance(trader_id: str):
-  """Fetch balance for a specific trader"""
-  if trader_id not in traders:
-    return JSONResponse(
-      status_code=404,
-      content={"error": f"Trader {trader_id} not found"}
-    )
-  
-  try:
-    balance = await traders[trader_id].fetch_balance()
-    return {"balance": balance}
-  except Exception as e:
-    # Get the original exchange error message if available
-    error_msg = str(e)
-    if hasattr(e, 'args') and len(e.args) > 0:
-      error_msg = e.args[0]
-    
-    logger.error(f"Error for {trader_id}: {error_msg}")
-    return JSONResponse(
-      status_code=500,
-      content={"error": error_msg}
-    )
+    """Fetch balance for a specific trader"""
+    if trader_id not in traders:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Trader {trader_id} not found"}
+        )
+    logger.debug(f"asking for balance of {trader_id}")
+    try:
+        raw_balance = await traders[trader_id].fetch_balance()
+        fiat = traders[trader_id].fiat_stablecoin_pair.split('/')[1]  # Extract fiat currency from the pair
+        stablecoin = traders[trader_id].fiat_stablecoin_pair.split('/')[0]  # Extract stablecoin from the pair  
+        crypto = traders[trader_id].crypto_stablecoin_pair.split('/')[0]  # Extract crypto symbol from the trader
+        
+        # logger.debug(f"Raw balance for {trader_id}: {raw_balance}")
+        
+        # Parse balances from the 'total' section
+        total_balances = raw_balance.get('total', {})
+
+        free_balances = raw_balance.get('free', {})
+        
+        # Format balance into the expected structure
+        balance = {
+            "fiat": f"{total_balances.get(fiat, 0.0):.2f}",
+            "fiat_unit": fiat,
+            "stablecoin": f"{total_balances.get(stablecoin, 0.0):.2f}",
+            "stablecoin_unit": stablecoin,
+            "crypto": f"{total_balances.get(crypto, 0.0):.8f}",  # More decimal places for crypto
+            "crypto_unit": crypto,
+        }
+        logger.debug(balance)
+        
+        return {"balance": balance}
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error for {trader_id}: {error_msg}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": error_msg}
+        )
 
 @app.post("/webhook")
-async def handle_webhook(data: dict):
-  """
-  Handles incoming webhooks (e.g., from tradingview or an exchange).
-  """
-  logger.info(f"Received webhook data: {data}")
-  # Here, you would implement the logic to process the webhook,
-  # e.g., trigger a trade, update internal state, log an event.
-  return {"status": "success", "message": "Webhook received"}
+async def handle_webhook(request: Request):
+    """
+    Handles incoming webhooks with per-bot API key authentication.
+    Expects JSON with: api_key, trader_id, ticker, action, timestamp, alert_name.
+    """
+    ## reading JSON body
+    data = await request.json()
+    
+    ## Check if the trader_id is set properly and we indeed have such a BOT
+    trader_id = data.get("trader_id")
+    if not trader_id:
+      logger.error("trader_id not sent")
+      raise HTTPException(status_code=400, detail="Missing field: trader_id")
+    if trader_id not in traders:
+      logger.error("Trader ID not found in traders")
+      raise HTTPException(status_code=404, detail=f"Trader ID '{trader_id}' not found")
+
+    
+    ## we have such a bot, let's check the API key
+    api_key = data.get("api_key")
+    trader = traders[trader_id]
+    expected_api_key = trader.tradleware_api_key
+    if not expected_api_key:
+        logger.error(f"No Tradleware API key configured for trader {trader_id}")
+        raise HTTPException(status_code=500, detail="Trader is not configured with a Tradleware API key")
+    if not api_key or api_key != expected_api_key:
+        logger.error(f"Unauthorized webhook attempt for trader {trader_id} - wrong API KEY: {api_key}.")
+        raise HTTPException(status_code=401, detail="Invalid API key.")
+
+    ## Ok bot exists and API key is valid, let's extract other fields
+    # Extract and validate required fields
+    ticker = data.get("ticker")
+    action = data.get("action")
+    timestamp = data.get("timestamp")
+    alert_name = data.get("alert_name")
+    if not alert_name and hasattr(request, "query_params"):
+      alert_name = request.query_params.get("alert_name")
+    #check if all required fields are present
+    missing = [k for k in ["ticker", "action", "timestamp"] if not data.get(k)]
+    if missing:
+      raise HTTPException(status_code=400, detail=f"Missing fields: {', '.join(missing)}")
+    logger.info(f"Webhook received: trader_id={trader_id}, ticker={ticker}, action={action}, timestamp={timestamp}, alert_name={alert_name}")
+
+    ## check action if buy or sell
+    action = data.get("action", "").lower()
+    if action not in ["buy", "sell"]:
+      logger.error(f"Invalid action received: {action}")
+      raise HTTPException(status_code=400, detail="Invalid action. Must be 'buy' or 'sell'.")
+    
+    return {"status": "success", "message": "Webhook processed"}
 
 # This __main__ block is mostly for quick local testing if you 'python src/ui/app.py'
 # For robust running, you'll use 'uvicorn src.ui.app:app' from the BOLEHTRADE root.
