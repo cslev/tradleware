@@ -63,11 +63,11 @@ class OKXTrader(BaseExchangeTrader):
     ############################# DEBUG END ###################################
     balance = await self._safe_api_call(self.exchange.fetch_balance)
     if balance:
-      self.logger.info(f"Balance for {self.subaccount_name}:")
+      self.logger.info(f"Balance for {self.subaccount_name}:\n{balance}\n")
       found_assets = False
       for currency, data in balance['total'].items():
         if data > 0:
-          self.logger.critical(f"  {currency}: {data}")
+          self.logger.success(f"  {currency}: {data}")
           found_assets = True
       if not found_assets:
         self.logger.warning("❌ No assets found in this subaccount.")

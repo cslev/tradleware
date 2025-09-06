@@ -44,6 +44,7 @@ class BaseExchangeTrader(ABC):
     self.hostname_env = f'{account_identifier}_{exchange_id.upper()}_HOSTNAME'
     self.fiat_stablecoin_pair_env = f'{account_identifier}_{exchange_id.upper()}_FIAT_STABLECOIN_PAIR'
     self.crypto_stablecoin_pair_env = f'{account_identifier}_{exchange_id.upper()}_CRYPTO_STABLECOIN_PAIR'
+    self.tradleware_api_key = os.getenv(f"{account_identifier}_{exchange_id.upper()}_TRADLEWARE_API_KEY")
 
     self.api_key = os.getenv(self.api_key_env)
     self.secret_key = os.getenv(self.secret_key_env)
@@ -52,6 +53,7 @@ class BaseExchangeTrader(ABC):
     self.hostname = os.getenv(self.hostname_env)
     self.fiat_stablecoin_pair = os.getenv(self.fiat_stablecoin_pair_env)
     self.crypto_stablecoin_pair = os.getenv(self.crypto_stablecoin_pair_env)
+    
     
 
     # --- Implement Validation Here ---
@@ -62,7 +64,8 @@ class BaseExchangeTrader(ABC):
       (self.passphrase_env, self.passphrase), # Critical for OKX
       (self.subaccount_name_env, self.subaccount_name),
       (self.fiat_stablecoin_pair_env, self.fiat_stablecoin_pair),
-      (self.crypto_stablecoin_pair_env, self.crypto_stablecoin_pair)
+      (self.crypto_stablecoin_pair_env, self.crypto_stablecoin_pair),
+
     ]
 
     missing_vars = []
