@@ -1,0 +1,133 @@
+// Fix the toggle function for collapsible
+function toggleCollapse(elementId) {
+  const content = document.getElementById(elementId);
+  const arrowId = elementId.includes('webhook') ? `arrow-webhook-${elementId.split('-')[1]}` : `arrow-${elementId.split('-')[1]}`;
+  const arrow = document.getElementById(arrowId);
+  
+  content.classList.toggle('open');
+  if (arrow) {
+    arrow.style.transform = content.classList.contains('open') ? 'rotate(180deg)' : '';
+  }
+}
+
+// Update your refreshLogs function to parse and color the logs AND auto-scroll
+async function refreshLogs(traderId) {
+    const debugLogElement = document.getElementById(`debug-log-${traderId}`);
+    const debugLogContainer = debugLogElement.closest('.debug-log-container');
+    
+    try {
+        const response = await fetch(`/logs/${traderId}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+            const logs = data.logs;
+            
+            if (logs && logs.length > 0) {
+                // Process each log line to add color classes
+                const coloredLogs = logs.map(log => {
+                    if (log.includes('] ERROR:')) {
+                        return `<span class="log-error">${log}</span>`;
+                    } else if (log.includes('] WARNING:')) {
+                        return `<span class="log-warning">${log}</span>`;
+                    } else if (log.includes('] SUCCESS:')) {
+                        return `<span class="log-success">${log}</span>`;
+                    } else if (log.includes('] INFO:')) {
+                        return `<span class="log-info">${log}</span>`;
+                    } else {
+                        return log; // Default color
+                    }
+                }).join('\n');
+                
+                debugLogElement.innerHTML = coloredLogs || 'No recent logs';
+            } else {
+                debugLogElement.textContent = 'No recent logs';
+            }
+            
+            debugLogElement.className = 'whitespace-pre-wrap text-cyan-600 text-xs m-0';
+            
+            // Auto-scroll to bottom after updating content
+            if (debugLogContainer) {
+                setTimeout(() => {
+                    debugLogContainer.scrollTop = debugLogContainer.scrollHeight;
+                }, 10); // Small delay to ensure content is rendered
+            }
+            
+        } else {
+            debugLogElement.innerHTML = `<span class="log-error">Error fetching logs: ${data.error}</span>`;
+            debugLogElement.className = 'whitespace-pre-wrap text-red-600 text-xs m-0';
+        }
+    } catch (error) {
+        debugLogElement.innerHTML = `<span class="log-error">Error: ${error.message}</span>`;
+        debugLogElement.className = 'whitespace-pre-wrap text-red-600 text-xs m-0';
+    }
+}
+
+async function refreshBalance(traderId) {
+  const fiatElement = document.getElementById(`fiat-balance-${traderId}`);
+  const stablecoinElement = document.getElementById(`stablecoin-balance-${traderId}`);
+  const cryptoElement = document.getElementById(`crypto-balance-${traderId}`);
+  const fiatLabelElement = document.getElementById(`fiat-label-${traderId}`);
+  const stablecoinLabelElement = document.getElementById(`stablecoin-label-${traderId}`);
+  const cryptoLabelElement = document.getElementById(`crypto-label-${traderId}`);
+  const statusElement = document.getElementById(`status-${traderId}`);
+  
+  // Set loading state
+  fiatElement.textContent = 'Loading...';
+  stablecoinElement.textContent = 'Loading...';
+  cryptoElement.textContent = 'Loading...';
+  
+  try {
+    const response = await fetch(`/balance/${traderId}`);
+    const data = await response.json();
+    
+    if (response.ok) {
+      const balance = data.balance;
+      
+      // Update labels with dynamic units
+      fiatLabelElement.textContent = `${balance.fiat_unit}:`;
+      stablecoinLabelElement.textContent = `${balance.stablecoin_unit}:`;
+      cryptoLabelElement.textContent = `${balance.crypto_unit}:`;
+      
+      // Update individual balances
+      fiatElement.textContent = balance.fiat || '0.00';
+      stablecoinElement.textContent = balance.stablecoin || '0.00';
+      cryptoElement.textContent = balance.crypto || '0.00';
+      
+      statusElement.innerHTML = `
+        <div class="flex items-center space-x-2">
+          <div class="w-2 h-2 rounded-full bg-green-500"></div>
+          <span class="text-green-700">Connected</span>
+        </div>`;
+    } else {
+      throw new Error(data.error);
+    }
+  } catch (error) {
+    fiatElement.textContent = 'Error';
+    stablecoinElement.textContent = 'Error';
+    cryptoElement.textContent = 'Error';
+    
+    statusElement.innerHTML = `
+      <div class="flex items-center space-x-2">
+        <div class="w-2 h-2 rounded-full bg-red-500"></div>
+        <span class="text-red-700">Connection Error</span>
+      </div>`;
+  }
+}
+
+// Initial load and periodic refresh
+document.addEventListener('DOMContentLoaded', () => {
+  const traderIds = JSON.parse(document.getElementById('trader-ids').textContent);
+  
+  // Initial load
+  traderIds.forEach(traderId => {
+    refreshBalance(traderId);
+    refreshLogs(traderId);
+  });
+  
+  // Set up periodic refresh for logs only
+  setInterval(() => {
+    traderIds.forEach(traderId => {
+      refreshLogs(traderId);
+    });
+  }, 5000); // Refresh every 5 seconds
+});
