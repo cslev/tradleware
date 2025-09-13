@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 import asyncio # Imported here for the _safe_api_call helper
 from src.misc.logger import CustomLogger
 from typing import Optional, Dict, Any, List
+from collections import deque
+from datetime import datetime
 
 class BaseExchangeTrader(ABC):
   """
@@ -100,8 +102,58 @@ class BaseExchangeTrader(ABC):
 
     self.exchange = None # This will be initialized by concrete subclasses
 
+    # Add log buffer for this trader (keep last 50 messages)
+    self.log_buffer = deque(maxlen=50)
+    
+    # Add some initial logs for testing
+    self._add_to_buffer("INFO", f"Trader {account_identifier} initialized")
+    
+    # Create a custom logger for this trader that also writes to buffer
+    self.logger = CustomLogger(f'{account_identifier}_{exchange_id}')
+    self._setup_log_buffer()
+
     self.logger.success(f"Base credentials loaded for {self.account_identifier} on {self.exchange_id}.")
 
+
+  def _setup_log_buffer(self):
+      """Setup logging to also write to the trader's log buffer"""
+      # Override logger methods to also store in buffer
+      original_info = self.logger.info
+      original_error = self.logger.error
+      original_warning = self.logger.warning
+      original_success = self.logger.success
+      
+      def info_with_buffer(msg):
+          self._add_to_buffer("INFO", msg)
+          return original_info(msg)
+          
+      def error_with_buffer(msg):
+          self._add_to_buffer("ERROR", msg)
+          return original_error(msg)
+          
+      def warning_with_buffer(msg):
+          self._add_to_buffer("WARNING", msg)
+          return original_warning(msg)
+          
+      def success_with_buffer(msg):
+          self._add_to_buffer("SUCCESS", msg)
+          return original_success(msg)
+      
+      self.logger.info = info_with_buffer
+      self.logger.error = error_with_buffer
+      self.logger.warning = warning_with_buffer
+      self.logger.success = success_with_buffer
+
+  def _add_to_buffer(self, level: str, message: str):
+      """Add a log message to this trader's buffer"""
+      from datetime import datetime
+      timestamp = datetime.now().strftime("%H:%M:%S")
+      self.log_buffer.append(f"[{timestamp}] {level}: {message}")
+  
+  def get_recent_logs(self) -> list:
+      """Get recent log messages for this trader"""
+      return list(self.log_buffer)
+    
 
   async def _safe_api_call(self, 
                            api_method, 

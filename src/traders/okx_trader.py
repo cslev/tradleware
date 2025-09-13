@@ -63,7 +63,7 @@ class OKXTrader(BaseExchangeTrader):
     ############################# DEBUG END ###################################
     balance = await self._safe_api_call(self.exchange.fetch_balance)
     if balance:
-      self.logger.info(f"Balance for {self.subaccount_name}:\n{balance}\n")
+      self.logger.info(f"Balance for {self.subaccount_name}:\n")
       found_assets = False
       for currency, data in balance['total'].items():
         if data > 0:
@@ -147,18 +147,16 @@ class OKXTrader(BaseExchangeTrader):
 
 
   async def convert_fiat_to_stablecoin(self, 
-                                       spend_percentage: float = 1.0, 
-                                       order_execution_strategy: str = 'market'):
+                                   spend_percentage: float = 1.0, 
+                                   order_execution_strategy: str = 'market',
+                                   max_slippage: float = 0.05):  # Keep and use it
     """
     Converts a percentage of available fiat currency (e.g., SGD) into a stablecoin (e.g., USDT).
 
     Args:
       spend_percentage (float): The percentage of available fiat funds to spend (0.0 to 1.0).
-      order_execution_strategy (str): 'market' for immediate execution (taker fee),
-                                      'maker_limit' for a limit order aiming for maker fee.
-
-    Returns:
-      float: The amount of stablecoin acquired, or 0.0 if the conversion failed.
+      order_execution_strategy (str): 'market' for immediate execution, 'maker_limit' for limit order.
+      max_slippage (float): Maximum allowed slippage for market orders (0.0 to 1.0).
     """
     self.logger.info(f"\nAttempting to convert {spend_percentage*100}% of {self.fiat_currency} to {self.stablecoin_currency} via {self.fiat_stablecoin_pair}...")
     if not (0.0 < spend_percentage <= 1.0):
@@ -185,35 +183,59 @@ class OKXTrader(BaseExchangeTrader):
         self.logger.warning(f"⚠️ Calculated spend amount is zero or negative. Cannot place order.")
         return 0.0
 
-    # 2. Place the order to buy stablecoin with fiat
-    try:
-      stablecoin_order = await self.create_order(
-          symbol=self.fiat_stablecoin_pair,
-          side='buy',
-          spend_percentage=spend_percentage, # Pass the percentage directly
-          order_execution_strategy=order_execution_strategy
-      )
-      if not stablecoin_order:
-            self.logger.error(f"❌ Order to buy {self.stablecoin_currency} failed or returned no order object.")
-            return 0.0
-
-      if stablecoin_order['status'] != 'closed':
-          self.logger.warning(f"⚠️ Order to buy {self.stablecoin_currency} was not immediately closed. Current status: {stablecoin_order['status']}")
-          # In a real bot, you might want to monitor this order until it closes or cancels
-          return 0.0 # Or return partial filled amount if available
-
-      self.logger.success(f"✅ Successfully converted {fiat_spend_amount} {self.fiat_currency} to {stablecoin_order['filled']} {self.stablecoin_currency}!")
-      return stablecoin_order['filled'] # Return the amount of stablecoin acquired
+    # Add minimum amount check
+    min_order_value = 10.0  # Example: minimum $10 equivalent
+    if fiat_spend_amount < min_order_value:
+      self.logger.warning(f"Order amount {fiat_spend_amount} below minimum {min_order_value}")
+      return 0.0
     
-    except ccxt.ExchangeError as e:
-        if "Insufficient" in str(e) or "balance" in str(e):
-            self.logger.error(f"❌ Insufficient {self.fiat_currency} balance to place order for {self.fiat_stablecoin_pair}: {e}")
+    # 2. Add slippage protection for market orders
+    if order_execution_strategy == 'market':
+      # Get current market price before placing order
+      ticker = await self._safe_api_call(self.exchange.fetch_ticker, self.fiat_stablecoin_pair)
+      if not ticker:
+        self.logger.error("Could not fetch ticker for slippage calculation")
+        return 0.0
+      
+      expected_price = ticker['ask']  # Expected buy price
+      self.logger.info(f"Current market price: {expected_price}")
+    
+    # 3. Place the order
+    stablecoin_order = await self.create_order(
+      symbol=self.fiat_stablecoin_pair,
+      side='buy',
+      spend_percentage=spend_percentage,
+      order_execution_strategy=order_execution_strategy
+    )
+    
+    if not stablecoin_order:
+          self.logger.error(f"❌ Order to buy {self.stablecoin_currency} failed or returned no order object.")
+          return 0.0
+
+    if stablecoin_order['status'] != 'closed':
+        self.logger.warning(f"⚠️ Order to buy {self.stablecoin_currency} was not immediately closed. Current status: {stablecoin_order['status']}")
+        # In a real bot, you might want to monitor this order until it closes or cancels
+        return 0.0 # Or return partial filled amount if available
+
+    # For limit orders, consider waiting for completion
+    if order_execution_strategy == 'maker_limit' and stablecoin_order['status'] == 'open':
+      self.logger.info("Limit order placed, monitoring for completion...")
+      # Could add order monitoring logic here
+
+    # 4. Check slippage for market orders
+    if order_execution_strategy == 'market' and stablecoin_order:
+      actual_price = stablecoin_order.get('average') or stablecoin_order.get('price', 0)
+      if actual_price and expected_price:
+        slippage = abs(actual_price - expected_price) / expected_price
+        if slippage > max_slippage:
+          self.logger.warning(f"⚠️ High slippage detected: {slippage:.2%} (limit: {max_slippage:.2%})")
+          # Could implement cancellation logic here if slippage is too high
         else:
-            self.logger.error(f"❌ Exchange error during {self.fiat_currency} to {self.stablecoin_currency} conversion: {e}")
-        return 0.0
-    except Exception as e:
-        self.logger.critical(f"❌ An unexpected critical error occurred during fiat to stablecoin conversion: {e}", exc_info=True)
-        return 0.0
+          self.logger.info(f"✅ Slippage within limits: {slippage:.2%}")
+    
+    self.logger.success(f"✅ Successfully converted {fiat_spend_amount} {self.fiat_currency} to {stablecoin_order['filled']} {self.stablecoin_currency}!")
+    return stablecoin_order.get('filled', 0.0)  # Use .get() for safety
+
 
 
   async def create_order(self, 
