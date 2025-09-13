@@ -7,56 +7,16 @@
   <title>{{ title }}</title>
   <link href="{{ url_for('static', path='css/output.css') }}" rel="stylesheet">
   <script src="https://unpkg.com/heroicons@2.0.18/24/solid/index.js"></script>
-  <style>
-    .collapse-content {
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height 0.2s ease-out;
-    }
-    .collapse-content.open {
-      max-height: 500px;
-    }
-    body {
-      background-image: url("{{ url_for('static', path='images/bg2.png') }}");
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
-      background-attachment: fixed;
-      min-height: 100vh;
-      width: 100vw;
-      margin: 0;
-      padding: 0;
-      overflow-x: hidden;
-      position: relative;  /* For proper stacking context */
-    }
-    html {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-    }
-    body::before {
-      content: '';
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-color: rgba(0, 0, 0, 0.75);  /* Black with 75% opacity */
-      z-index: 1;
-    }
-
-    .container {
-      position: relative;
-      z-index: 2;  /* Place content above the overlay */
-    }
-  </style>
 </head>
 <body class="min-h-screen">
+  <!-- Hidden data for JavaScript -->
+  <script id="trader-ids" type="application/json">{{ traders.keys() | list | tojson | safe }}</script>
+  
   <div class="container mx-auto p-12">  <!-- Changed p-6 to p-12 for bigger padding -->
     <!-- Add logo section -->
     <div class="flex justify-center mb-12">
       <img 
-        src="{{ url_for('static', path='images/logo_with_text3.png') }}" 
+        src="{{ url_for('static', path='images/logo_with_text_v2.png') }}" 
         alt="Tradleware Logo" 
         class="h-48 w-auto"  <!-- Adjust h-24 to make logo bigger/smaller -->
       >
@@ -206,14 +166,14 @@ curl -X POST http://localhost:8080/webhook?alert_name=MyStrategyAlert \
           </div>
 
 
-                    <!-- Debug Section -->
+          <!-- Debug Section -->
           <div id="details-{{ trader_id }}" class="mt-4">
             <div class="bg-gray-50 rounded-lg">
               <button 
                 onclick="toggleCollapse('collapse-{{ trader_id }}')"
                 class="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
               >
-                <span>Debug Information</span>
+                <span>Recent Logs</span>
                 <svg id="arrow-{{ trader_id }}" class="w-4 h-4 transition-transform duration-200"
                      xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -221,8 +181,10 @@ curl -X POST http://localhost:8080/webhook?alert_name=MyStrategyAlert \
               </button>
               <div id="collapse-{{ trader_id }}" class="collapse-content">
                 <div class="px-4 py-2">
-                  <h3 class="font-medium text-cyan-700 mb-2">Debug Log</h3>
-                  <pre id="debug-log-{{ trader_id }}" class="whitespace-pre-wrap text-cyan-600 text-xs">No debug information available</pre>
+              
+                  <div class="debug-log-container">
+                    <pre id="debug-log-{{ trader_id }}" class="whitespace-pre-wrap text-cyan-600 text-xs m-0">Loading logs...</pre>
+                  </div>
                 </div>
               </div>
             </div>
@@ -235,87 +197,12 @@ curl -X POST http://localhost:8080/webhook?alert_name=MyStrategyAlert \
     </div>
   </div>
 
-  <script>
-    // Add toggle function for collapsible
-    function toggleCollapse(elementId) {
-      const content = document.getElementById(elementId);
-      const arrow = document.getElementById(`arrow-${elementId.split('-')[1]}`);
-      content.classList.toggle('open');
-      arrow.style.transform = content.classList.contains('open') ? 'rotate(180deg)' : '';
-    }
-
-    async function refreshBalance(traderId) {
-      const fiatElement = document.getElementById(`fiat-balance-${traderId}`);
-      const stablecoinElement = document.getElementById(`stablecoin-balance-${traderId}`);
-      const cryptoElement = document.getElementById(`crypto-balance-${traderId}`);
-      const fiatLabelElement = document.getElementById(`fiat-label-${traderId}`);
-      const stablecoinLabelElement = document.getElementById(`stablecoin-label-${traderId}`);
-      const cryptoLabelElement = document.getElementById(`crypto-label-${traderId}`);
-      const statusElement = document.getElementById(`status-${traderId}`);
-      const debugLogElement = document.getElementById(`debug-log-${traderId}`);
-      
-      // Set loading state
-      fiatElement.textContent = 'Loading...';
-      stablecoinElement.textContent = 'Loading...';
-      cryptoElement.textContent = 'Loading...';
-      
-      try {
-        const response = await fetch(`/balance/${traderId}`);
-        const data = await response.json();
-        
-        if (response.ok) {
-          const balance = data.balance;
-          
-          // Update labels with dynamic units
-          fiatLabelElement.textContent = `${balance.fiat_unit}:`;
-          stablecoinLabelElement.textContent = `${balance.stablecoin_unit}:`;
-          cryptoLabelElement.textContent = `${balance.crypto_unit}:`;
-          
-          // Update individual balances
-          fiatElement.textContent = balance.fiat || '0.00';
-          stablecoinElement.textContent = balance.stablecoin || '0.00';
-          cryptoElement.textContent = balance.crypto || '0.00';
-          
-          statusElement.innerHTML = `
-            <div class="flex items-center space-x-2">
-              <div class="w-2 h-2 rounded-full bg-green-500"></div>
-              <span class="text-green-700">Connected</span>
-            </div>`;
-          
-          // Success message in green with formatted JSON
-          debugLogElement.textContent = 'Balance fetched successfully\n' + JSON.stringify(data.balance, null, 2);
-          debugLogElement.className = 'whitespace-pre-wrap text-green-600 text-xs';
-        } else {
-          throw new Error(data.error);
-        }
-      } catch (error) {
-        fiatElement.textContent = 'Error';
-        stablecoinElement.textContent = 'Error';
-        cryptoElement.textContent = 'Error';
-        
-        statusElement.innerHTML = `
-          <div class="flex items-center space-x-2">
-            <div class="w-2 h-2 rounded-full bg-red-500"></div>
-            <span class="text-red-700">Connection Error</span>
-          </div>`;
-        
-        // Error message in cyan/blue
-        debugLogElement.textContent = `Debug Error: ${error.message}`;
-        debugLogElement.className = 'whitespace-pre-wrap text-cyan-600 text-xs';
-      }
-    }
-
-    // Initial balance load
-    document.addEventListener('DOMContentLoaded', () => {
-      const traderIds = JSON.parse('{{ traders.keys() | list | tojson | safe }}');
-      traderIds.forEach(traderId => {
-        refreshBalance(traderId);
-      });
-    });
-  </script>
   <!-- Add this just before the closing </body> tag -->
   <div class="w-full text-center mt-16 mb-4 text-sm text-white" style="z-index:2; position:relative;">
     Webhooks should be sent to <span class="font-mono text-cyan-100">https://your_tradleware_domain[:port]/webhook</span>
   </div>
+  
+  <!-- Import the external JavaScript file -->
+  <script src="{{ url_for('static', path='js/main.js') }}"></script>
 </body>
 </html>
