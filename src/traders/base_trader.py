@@ -36,7 +36,12 @@ class BaseExchangeTrader(ABC):
     self.account_identifier = account_identifier
     self.exchange_id = exchange_id.lower() # Store as lowercase for ccxt lookup
     self.default_type = default_type
-    self.logger = logger if logger else CustomLogger(name=self.__class__.__name__)
+    self.logger = logger if logger else CustomLogger(
+        name=self.__class__.__name__,
+        gotify_url=os.getenv('GOTIFY_URL'),
+        gotify_token=os.getenv('GOTIFY_TOKEN'),
+        gotify_log_level=int(os.getenv('GOTIFY_LOG_LEVEL', 30))
+    )
 
     # Dynamically construct environment variable names based on identifier and exchange
     self.api_key_env = f'{account_identifier}_{exchange_id.upper()}_API_KEY'
@@ -109,10 +114,15 @@ class BaseExchangeTrader(ABC):
     self._add_to_buffer("INFO", f"Trader {account_identifier} initialized")
     
     # Create a custom logger for this trader that also writes to buffer
-    self.logger = CustomLogger(f'{account_identifier}_{exchange_id}')
+    self.logger = CustomLogger(
+        f'{account_identifier}_{exchange_id}',
+        gotify_url=os.getenv('GOTIFY_URL'),
+        gotify_token=os.getenv('GOTIFY_TOKEN'),
+        gotify_log_level=int(os.getenv('GOTIFY_LOG_LEVEL', 30))
+    )
     self._setup_log_buffer()
 
-    self.logger.success(f"Base credentials loaded for {self.account_identifier} on {self.exchange_id}.")
+    self.logger.info(f"Base credentials loaded for {self.account_identifier} on {self.exchange_id}.")
 
 
   def _setup_log_buffer(self):
@@ -202,7 +212,7 @@ class BaseExchangeTrader(ABC):
       self.logger.info(f"Attempting to close exchange connection for {self.account_identifier} ({self.exchange_id})...")
       try:
         await self.exchange.close()
-        self.logger.success(f"Exchange connection for {self.account_identifier} ({self.exchange_id}) closed successfully.")
+        self.logger.info(f"Exchange connection for {self.account_identifier} ({self.exchange_id}) closed successfully.")
       except Exception as e:
         self.logger.error(f"Error closing exchange connection for {self.account_identifier} ({self.exchange_id}): {e}")
     else:

@@ -1,7 +1,7 @@
 import ccxt
 from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
 from typing import Optional, Dict, Any, List
-
+import os
 
 from src.traders.base_trader import BaseExchangeTrader  # Changed from traders.base_trader
 from src.misc.logger import CustomLogger
@@ -20,7 +20,10 @@ class OKXTrader(BaseExchangeTrader):
       account_identifier (str): A unique name for this OKX trading setup.
       default_type (str): The default market type for OKX (e.g., 'spot', 'future').
     """
-    self.logger = CustomLogger(name=self.__class__.__name__)
+    self.logger = CustomLogger(name=self.__class__.__name__,
+                              gotify_url=os.getenv('GOTIFY_SERVER_URL'),
+                              gotify_token=os.getenv('GOTIFY_APP_TOKEN'),
+                              gotify_log_level=int(os.getenv('GOTIFY_LOG_LEVEL', 30)))
 
     super().__init__(account_identifier, 'OKX', default_type, self.logger)
 
@@ -67,7 +70,7 @@ class OKXTrader(BaseExchangeTrader):
       found_assets = False
       for currency, data in balance['total'].items():
         if data > 0:
-          self.logger.success(f"  {currency}: {data}")
+          self.logger.info(f"  {currency}: {data}")
           found_assets = True
       if not found_assets:
         self.logger.warning("❌ No assets found in this subaccount.")
@@ -146,10 +149,10 @@ class OKXTrader(BaseExchangeTrader):
 
 
 
-  async def convert_fiat_to_stablecoin(self, 
-                                   spend_percentage: float = 1.0, 
-                                   order_execution_strategy: str = 'market',
-                                   max_slippage: float = 0.05):  # Keep and use it
+  async def convert_fiat_to_stablecoin( self, 
+                                        spend_percentage: float = 1.0, 
+                                        order_execution_strategy: str = 'market',
+                                        max_slippage: float = 0.05):  # Keep and use it
     """
     Converts a percentage of available fiat currency (e.g., SGD) into a stablecoin (e.g., USDT).
 
@@ -166,28 +169,28 @@ class OKXTrader(BaseExchangeTrader):
     # 1. Fetch current balance
     balance_info = await self.fetch_balance()
     if not balance_info:
-      self.logger.error("❌ Could not fetch balance to determine fiat funds for conversion.")
-      return 0.0
+      error_msg = "Could not fetch account balance from exchange"
+      self.logger.error(f"❌ {error_msg} to determine fiat funds for conversion.")
+      raise RuntimeError(error_msg)
 
     fiat_available = balance_info['free'].get(self.fiat_currency, 0.0)
     self.logger.info(f"Available {self.fiat_currency}: {fiat_available}")
 
     if fiat_available <= 0:
-      self.logger.warning(f"⚠️ No {self.fiat_currency} available in the account. Cannot proceed with conversion.")
-      return 0.0
+      error_msg = f"No {self.fiat_currency} available in the account (balance: {fiat_available})"
+      self.logger.warning(f"⚠️ {error_msg}. Cannot proceed with conversion.")
+      raise ValueError(error_msg)
     
     # Calculate the amount of fiat to spend
     fiat_spend_amount = fiat_available * spend_percentage
     self.logger.info(f"Calculated amount to spend: {fiat_spend_amount} {self.fiat_currency}")
     if fiat_spend_amount <= 0:
-        self.logger.warning(f"⚠️ Calculated spend amount is zero or negative. Cannot place order.")
-        return 0.0
+        error_msg = f"Calculated spend amount is zero or negative ({fiat_spend_amount:.2f} {self.fiat_currency})"
+        self.logger.warning(f"⚠️ {error_msg}. Cannot place order.")
+        raise ValueError(error_msg)
 
-    # Add minimum amount check
-    min_order_value = 10.0  # Example: minimum $10 equivalent
-    if fiat_spend_amount < min_order_value:
-      self.logger.warning(f"Order amount {fiat_spend_amount} below minimum {min_order_value}")
-      return 0.0
+    # Check against exchange minimum limits by attempting the order
+    # The create_order method will handle minimum amount validation using actual exchange limits
     
     # 2. Add slippage protection for market orders
     if order_execution_strategy == 'market':
@@ -212,15 +215,33 @@ class OKXTrader(BaseExchangeTrader):
           self.logger.error(f"❌ Order to buy {self.stablecoin_currency} failed or returned no order object.")
           return 0.0
 
-    if stablecoin_order['status'] != 'closed':
-        self.logger.warning(f"⚠️ Order to buy {self.stablecoin_currency} was not immediately closed. Current status: {stablecoin_order['status']}")
-        # In a real bot, you might want to monitor this order until it closes or cancels
-        return 0.0 # Or return partial filled amount if available
+    # For market orders, the order might be executed immediately but status might not be populated
+    # Let's fetch the order details to get accurate information
+    order_id = stablecoin_order.get('id')
+    if order_id and order_execution_strategy == 'market':
+        # Wait a moment and fetch the order details
+        await asyncio.sleep(1)
+        try:
+            updated_order = await self._safe_api_call(self.exchange.fetch_order, order_id, self.fiat_stablecoin_pair)
+            if updated_order:
+                stablecoin_order = updated_order
+                self.logger.info(f"Updated order status: {stablecoin_order.get('status')}, filled: {stablecoin_order.get('filled', 0)}")
+        except Exception as e:
+            self.logger.warning(f"Could not fetch updated order details: {e}")
 
-    # For limit orders, consider waiting for completion
-    if order_execution_strategy == 'maker_limit' and stablecoin_order['status'] == 'open':
-      self.logger.info("Limit order placed, monitoring for completion...")
-      # Could add order monitoring logic here
+    # Check order status - for market orders, status might be 'closed' or 'filled'
+    order_status = stablecoin_order.get('status')
+    if order_status not in ['closed', 'filled'] and order_execution_strategy == 'market':
+        self.logger.warning(f"⚠️ Market order to buy {self.stablecoin_currency} was not immediately executed. Current status: {order_status}")
+        # For market orders, even if status is unclear, check if we have filled amount
+        filled_amount = stablecoin_order.get('filled', 0)
+        if filled_amount > 0:
+            self.logger.info(f"✅ Order partially/fully filled: {filled_amount} {self.stablecoin_currency}")
+        else:
+            return 0.0
+    elif order_execution_strategy == 'maker_limit' and order_status == 'open':
+        self.logger.info("Limit order placed, monitoring for completion...")
+        # Could add order monitoring logic here
 
     # 4. Check slippage for market orders
     if order_execution_strategy == 'market' and stablecoin_order:
@@ -233,8 +254,11 @@ class OKXTrader(BaseExchangeTrader):
         else:
           self.logger.info(f"✅ Slippage within limits: {slippage:.2%}")
     
-    self.logger.success(f"✅ Successfully converted {fiat_spend_amount} {self.fiat_currency} to {stablecoin_order['filled']} {self.stablecoin_currency}!")
-    return stablecoin_order.get('filled', 0.0)  # Use .get() for safety
+    # Get the filled amount
+    filled_amount = stablecoin_order.get('filled', 0) or 0
+    
+    self.logger.success(f"✅ Successfully converted {fiat_spend_amount} {self.fiat_currency} to {filled_amount} {self.stablecoin_currency}!")
+    return filled_amount
 
 
 
@@ -264,7 +288,7 @@ class OKXTrader(BaseExchangeTrader):
     market = None
     try:
       # Load market info if not already loaded, or refresh it
-      self.exchange.load_markets(reload=True)
+      await self.exchange.load_markets(reload=True)
       market = self.exchange.market(symbol)
       base_currency = market['base']
       quote_currency = market['quote']
@@ -310,14 +334,16 @@ class OKXTrader(BaseExchangeTrader):
         self.logger.info(f"Calculated market buy cost: {amount_to_trade} {quote_currency}")
 
         # Check against min/max cost limits
-        min_cost = cost_limits.get('min', 0)
-        max_cost = cost_limits.get('max', float('inf'))
+        min_cost = cost_limits.get('min') or 0
+        max_cost = cost_limits.get('max') or float('inf')
         if amount_to_trade < min_cost:
-          self.logger.warning(f"Adjusting buy cost: {amount_to_trade} is less than min_cost {min_cost}. Setting to min_cost.")
-          amount_to_trade = min_cost
+          error_msg = f"Order amount {amount_to_trade:.2f} {quote_currency} is below exchange minimum {min_cost:.2f} {quote_currency}"
+          self.logger.error(error_msg)
+          raise ValueError(error_msg)
         if amount_to_trade > max_cost:
-          self.logger.warning(f"Adjusting buy cost: {amount_to_trade} is greater than max_cost {max_cost}. Setting to max_cost.")
-          amount_to_trade = max_cost
+          error_msg = f"Order amount {amount_to_trade:.2f} {quote_currency} exceeds exchange maximum {max_cost:.2f} {quote_currency}"
+          self.logger.error(error_msg)
+          raise ValueError(error_msg)
 
       elif order_execution_strategy == 'maker_limit':
         order_type = 'limit'
@@ -342,14 +368,16 @@ class OKXTrader(BaseExchangeTrader):
         self.logger.info(f"Calculated maker limit buy amount: {amount_to_trade} {base_currency} at price {price}")
 
         # Check against min/max amount limits
-        min_amount = amount_limits.get('min', 0)
-        max_amount = amount_limits.get('max', float('inf'))
+        min_amount = amount_limits.get('min') or 0
+        max_amount = amount_limits.get('max') or float('inf')
         if amount_to_trade < min_amount:
-          self.logger.warning(f"Adjusting buy amount: {amount_to_trade} is less than min_amount {min_amount}. Setting to min_amount.")
-          amount_to_trade = min_amount
+          error_msg = f"Order amount {amount_to_trade:.6f} {base_currency} is below exchange minimum {min_amount:.6f} {base_currency}"
+          self.logger.error(error_msg)
+          raise ValueError(error_msg)
         if amount_to_trade > max_amount:
-          self.logger.warning(f"Adjusting buy amount: {amount_to_trade} is greater than max_amount {max_amount}. Setting to max_amount.")
-          amount_to_trade = max_amount
+          error_msg = f"Order amount {amount_to_trade:.6f} {base_currency} exceeds exchange maximum {max_amount:.6f} {base_currency}"
+          self.logger.error(error_msg)
+          raise ValueError(error_msg)
 
       else:
         self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
@@ -364,14 +392,16 @@ class OKXTrader(BaseExchangeTrader):
         return None
 
       # Check against min/max amount limits for sell orders
-      min_amount = amount_limits.get('min', 0)
-      max_amount = amount_limits.get('max', float('inf'))
+      min_amount = amount_limits.get('min') or 0
+      max_amount = amount_limits.get('max') or float('inf')
       if amount_to_trade < min_amount:
-        self.logger.warning(f"Adjusting sell amount: {amount_to_trade} is less than min_amount {min_amount}. Setting to min_amount.")
-        amount_to_trade = min_amount
+        error_msg = f"Sell amount {amount_to_trade:.6f} {base_currency} is below exchange minimum {min_amount:.6f} {base_currency}"
+        self.logger.error(error_msg)
+        raise ValueError(error_msg)
       if amount_to_trade > max_amount:
-        self.logger.warning(f"Adjusting sell amount: {amount_to_trade} is greater than max_amount {max_amount}. Setting to max_amount.")
-        amount_to_trade = max_amount
+        error_msg = f"Sell amount {amount_to_trade:.6f} {base_currency} exceeds exchange maximum {max_amount:.6f} {base_currency}"
+        self.logger.error(error_msg)
+        raise ValueError(error_msg)
 
       if order_execution_strategy == 'market':
         order_type = 'market'

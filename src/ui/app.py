@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
       if trader_class:
         try:
           traders[config_str] = trader_class(account_identifier=account_identifier)
-          logger.success(f"Initialized trader: {config_str}")
+          logger.info(f"Initialized trader: {config_str}")
         except Exception as e:
           logger.error(f"Failed to initialize {config_str}: {str(e)}")
   else:
@@ -75,10 +75,15 @@ app = FastAPI(
   lifespan=lifespan
 )
 
+load_dotenv() # Load environment variables from .env file
+
 # Initialize a logger for the FastAPI app
 # Ensure CustomLogger is correctly imported from src.misc.logger
-logger = CustomLogger('Tradleware')
-load_dotenv() # Load environment variables from .env file
+logger = CustomLogger(name='Tradleware',
+                      gotify_url=os.getenv('GOTIFY_SERVER_URL'),
+                      gotify_token=os.getenv('GOTIFY_APP_TOKEN'),
+                      gotify_log_level=int(os.getenv('GOTIFY_LOG_LEVEL', 30)))
+
 
 # Mount static files (for CSS, JS, images). Paths are now relative to /src/ui/
 # BUT, FastAPI needs the path relative to the app's *startup directory*
@@ -240,7 +245,7 @@ async def handle_webhook(request: Request):
       trader.logger.error(f"INVALID action: {action}")
       raise HTTPException(status_code=400, detail="Invalid action. Must be 'buy' or 'sell'.")
     else:
-      trader.logger.success(f"VALID Action {action} ")
+      trader.logger.info(f"VALID Action {action} ")
 
     ######################################################
     ## CHECK IF TICKER MATCHES THE BOT'S CONFIGURED PAIR
@@ -254,7 +259,7 @@ async def handle_webhook(request: Request):
           detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
       )
     else:
-      trader.logger.success(f"VALID ticker: {ticker}")
+      trader.logger.info(f"VALID ticker: {ticker}")
     
 
     ######################################################
@@ -327,6 +332,102 @@ async def get_trader_logs(trader_id: str):
             status_code=500,
             content={"error": str(e)}
         )
+
+@app.post("/convert/{trader_id}")
+async def convert_fiat_to_stablecoin(trader_id: str):
+  """Convert fiat currency to stablecoin for a specific trader"""
+  if trader_id not in traders:
+    return JSONResponse(
+      status_code=404,
+      content={"error": f"Trader {trader_id} not found"}
+    )
+  
+  trader = traders[trader_id]
+  trader.logger.info(f"Convert fiat to stablecoin requested for {trader_id}")
+  
+  try:
+    # Call the trader's convert function with 100% of available fiat
+    stablecoin_acquired = await trader.convert_fiat_to_stablecoin(
+      spend_percentage=1.0,  # Convert 100% of available fiat
+      order_execution_strategy='market'
+    )
+    
+    if stablecoin_acquired > 0:
+      trader.logger.success(f"Successfully converted fiat to {stablecoin_acquired} stablecoin")
+      return {
+        "status": "success", 
+        "message": f"Successfully converted fiat to stablecoin",
+        "stablecoin_acquired": stablecoin_acquired
+      }
+    else:
+      trader.logger.warning("Conversion completed but no stablecoin acquired")
+      return {
+        "status": "warning",
+        "message": "Conversion completed but no stablecoin acquired"
+      }
+      
+  except (ValueError, RuntimeError) as e:
+    # These are expected errors with user-friendly messages
+    error_msg = str(e)
+    trader.logger.warning(f"Conversion failed: {error_msg}")
+    return {
+      "status": "warning",
+      "message": error_msg
+    }
+  except Exception as e:
+    original_error_msg = str(e)  # Keep the full original error for logging
+    user_error_msg = original_error_msg  # This will be sent to the user (may be cleaned up)
+    
+    # Parse exchange-specific error messages based on trader type
+    try:
+      import json
+      # Check if the error message contains JSON
+      if '{' in original_error_msg and '}' in original_error_msg:
+        # Extract JSON part from the error message
+        json_start = original_error_msg.find('{')
+        json_part = original_error_msg[json_start:]
+        
+        error_data = json.loads(json_part)
+        
+        # Parse based on trader/exchange type
+        if trader.__class__.__name__ == 'OKXTrader':
+          # OKX uses 'sMsg' field for error messages, can be at top level or nested in data array
+          if isinstance(error_data, dict):
+            # Check top level first
+            if 'sMsg' in error_data and error_data['sMsg']:
+              user_error_msg = error_data['sMsg']
+            # Check in data array
+            elif 'data' in error_data and isinstance(error_data['data'], list) and len(error_data['data']) > 0:
+              if 'sMsg' in error_data['data'][0] and error_data['data'][0]['sMsg']:
+                user_error_msg = error_data['data'][0]['sMsg']
+          elif isinstance(error_data, list) and len(error_data) > 0 and 'sMsg' in error_data[0]:
+            user_error_msg = error_data[0]['sMsg']
+       
+        ########### ADD HERE MORE EXCHANGE SPECIFIC RESPONSE HANDLING
+        # elif trader.__class__.__name__ == 'BinanceTrader':
+        #   # Binance typically uses 'msg' field
+        #   if isinstance(error_data, dict) and 'msg' in error_data:
+        #     user_error_msg = error_data['msg']
+        # elif trader.__class__.__name__ == 'CoinbaseTrader':
+        #   # Coinbase typically uses 'message' field
+        #   if isinstance(error_data, dict) and 'message' in error_data:
+        #     user_error_msg = error_data['message']
+        # Add more exchange-specific parsing as needed
+        # For unknown exchanges, we'll fall back to the original error message
+            
+    except (json.JSONDecodeError, KeyError, IndexError) as parse_error:
+      # If JSON parsing fails, use the original error message
+      trader.logger.debug(f"JSON parsing failed: {parse_error}")
+      pass
+    
+    # Always log the full original error message for debugging
+    # trader.logger.error(f"Error during fiat conversion for {trader_id}: {original_error_msg}")
+    
+    # But return the cleaned user-friendly message to the frontend
+    return JSONResponse(
+      status_code=500,
+      content={"error": user_error_msg}
+    )
 
 # This __main__ block is mostly for quick local testing if you 'python src/ui/app.py'
 # For robust running, you'll use 'uvicorn src.ui.app:app' from the BOLEHTRADE root.
