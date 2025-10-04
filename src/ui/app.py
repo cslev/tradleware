@@ -99,12 +99,16 @@ templates = Jinja2Templates(directory="src/ui/templates")
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
   """Renders the main index.html page with trader cards."""
+  # Get log refresh interval from environment (default to 5000ms = 5 seconds)
+  log_refresh_interval = int(os.getenv('LOG_REFRESH_INTERVAL_MS', 5000))
+  
   return templates.TemplateResponse(
     "index.html",
     {
       "request": request,
       "title": "Tradleware Dashboard",
-      "traders": traders  # Add the traders dictionary we defined globally
+      "traders": traders,  # Add the traders dictionary we defined globally
+      "log_refresh_interval": log_refresh_interval  # Pass the refresh interval to template
     }
   )
 
@@ -283,6 +287,58 @@ async def handle_webhook(request: Request):
           }
         else:
           trader.logger.info(f"Buy signal validation passed. Available {stablecoin_symbol} balance: {available_stablecoin}")
+          
+          # Execute the buy order
+          try:
+            trader.logger.info(f"Executing BUY order for {ticker} with 100% of available {stablecoin_symbol}")
+            order_result = await trader.create_order(
+              symbol=ticker,
+              side='buy',
+              spend_percentage=1.0,  # Use 100% of available stablecoin
+              order_execution_strategy='market'  # Market order for immediate execution
+            )
+            
+            if order_result:
+              trader.logger.info(f"BUY order executed successfully! Order ID: {order_result.get('id')}")
+              
+              # Get updated balance to show meaningful success message
+              try:
+                updated_balance = await trader.fetch_balance()
+                free_balances = updated_balance.get('free', {})
+                crypto_symbol = ticker.split('/')[0]
+                stablecoin_symbol = ticker.split('/')[1] 
+                crypto_balance = free_balances.get(crypto_symbol, 0.0)
+                stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
+                
+                trader.logger.success(f"🚀 BUY Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
+              except Exception as balance_e:
+                trader.logger.success(f"🚀 BUY order completed! Order ID: {order_result.get('id')}")
+              
+              return {
+                "status": "success",
+                "message": f"BUY order executed successfully",
+                "order_id": order_result.get('id'),
+                "symbol": ticker,
+                "side": "buy",
+                "amount": order_result.get('amount'),
+                "price": order_result.get('price'),
+                "processed_at": timestamp_str
+              }
+            else:
+              trader.logger.error(f"BUY order execution failed - no order result returned")
+              return {
+                "status": "error",
+                "message": "BUY order execution failed",
+                "processed_at": timestamp_str
+              }
+          except Exception as order_e:
+            error_msg = str(order_e)
+            trader.logger.error(f"Error executing BUY order: {error_msg}")
+            return {
+              "status": "error",
+              "message": f"BUY order execution failed: {error_msg}",
+              "processed_at": timestamp_str
+            }
               
       except Exception as e:
         trader.logger.error(f"Failed to fetch balance for buy validation: {str(e)}")
@@ -306,12 +362,69 @@ async def handle_webhook(request: Request):
           }
         else:
           trader.logger.info(f"Sell signal validation passed. Available {crypto_symbol} balance: {available_crypto}")
+          
+          # Execute the sell order
+          try:
+            trader.logger.info(f"Executing SELL order for {ticker} with 100% of available {crypto_symbol}")
+            order_result = await trader.create_order(
+              symbol=ticker,
+              side='sell',
+              spend_percentage=1.0,  # Use 100% of available crypto
+              order_execution_strategy='market'  # Market order for immediate execution
+            )
+            
+            if order_result:
+              trader.logger.info(f"SELL order executed successfully! Order ID: {order_result.get('id')}")
+              
+              # Get updated balance to show meaningful success message
+              try:
+                updated_balance = await trader.fetch_balance()
+                free_balances = updated_balance.get('free', {})
+                crypto_symbol = ticker.split('/')[0]
+                stablecoin_symbol = ticker.split('/')[1] 
+                crypto_balance = free_balances.get(crypto_symbol, 0.0)
+                stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
+                
+                trader.logger.success(f"💰 SELL Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
+              except Exception as balance_e:
+                trader.logger.success(f"💰 SELL order completed! Order ID: {order_result.get('id')}")
+              
+              return {
+                "status": "success",
+                "message": f"SELL order executed successfully",
+                "order_id": order_result.get('id'),
+                "symbol": ticker,
+                "side": "sell",
+                "amount": order_result.get('amount'),
+                "price": order_result.get('price'),
+                "processed_at": timestamp_str
+              }
+            else:
+              trader.logger.error(f"SELL order execution failed - no order result returned")
+              return {
+                "status": "error",
+                "message": "SELL order execution failed",
+                "processed_at": timestamp_str
+              }
+          except Exception as order_e:
+            error_msg = str(order_e)
+            trader.logger.error(f"Error executing SELL order: {error_msg}")
+            return {
+              "status": "error",
+              "message": f"SELL order execution failed: {error_msg}",
+              "processed_at": timestamp_str
+            }
               
       except Exception as e:
         trader.logger.error(f"Failed to fetch balance for sell validation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to validate balance: {str(e)}")
-    
-    trader.logger.success("Webhook processed successfully")
+    else:
+      trader.logger.warning(f"Invalid action signal received: {action}! Modify your strategy script to send only 'buy' or 'sell' actions.")
+      return {
+        "status": "warning",
+        "message": f"Invalid action signal: {action}",
+        "processed_at": timestamp_str
+      }
     return {"status": "success", "message": "Webhook processed", "processed_at": timestamp_str}
 
 @app.get("/logs/{trader_id}")

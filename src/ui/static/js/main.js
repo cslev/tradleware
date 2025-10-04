@@ -176,6 +176,7 @@ async function convertFiatToStablecoin(traderId, event) {
 // Initial load and periodic refresh
 document.addEventListener('DOMContentLoaded', () => {
   const traderIds = JSON.parse(document.getElementById('trader-ids').textContent);
+  const logRefreshInterval = JSON.parse(document.getElementById('log-refresh-interval').textContent);
   
   // Initial load
   traderIds.forEach(traderId => {
@@ -188,5 +189,5 @@ document.addEventListener('DOMContentLoaded', () => {
     traderIds.forEach(traderId => {
       refreshLogs(traderId);
     });
-  }, 5000); // Refresh every 5 seconds
+  }, logRefreshInterval); // Use configurable refresh interval from environment
 });
