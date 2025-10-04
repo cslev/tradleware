@@ -433,9 +433,31 @@ class OKXTrader(BaseExchangeTrader):
       return None
 
     # Apply amount precision as the final step
+    if order_type == 'market' and side == 'buy':
+      # For OKX market buy orders, we need to convert quote amount to base amount
+      # Get current market price to convert USDT to BTC amount
+      ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+      if not ticker or not ticker.get('ask'):
+        self.logger.error(f"Could not fetch market price for {symbol} to calculate buy amount.")
+        return None
+      
+      market_price = ticker['ask']  # Use ask price for buy orders
+      original_quote_amount = amount_to_trade  # Store original USDT amount for logging
+      # Convert quote amount (USDT) to base amount (BTC)
+      base_amount = amount_to_trade / market_price
+      amount_to_trade = base_amount
+      self.logger.info(f"Converted {original_quote_amount:.2f} {quote_currency} to {amount_to_trade:.8f} {base_currency} at market price {market_price}")
+      
+      # For market orders, price should remain None (let exchange determine execution price)
+      price = None
+    
     amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
 
-    self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade}, Price={price}")
+    # Consistent logging - show price only if it's a limit order
+    if price is not None:
+      self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade}, Price={price}")
+    else:
+      self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade} (Market Order)")
 
     # Place the order
     order = await self._safe_api_call(self.exchange.create_order, symbol, order_type, side, amount_to_trade, price, params)

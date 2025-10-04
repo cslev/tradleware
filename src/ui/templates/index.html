@@ -11,12 +11,13 @@
 <body class="min-h-screen">
   <!-- Hidden data for JavaScript -->
   <script id="trader-ids" type="application/json">{{ traders.keys() | list | tojson | safe }}</script>
+  <script id="log-refresh-interval" type="application/json">{{ log_refresh_interval }}</script>
   
   <div class="container mx-auto p-12">  <!-- Changed p-6 to p-12 for bigger padding -->
     <!-- Add logo section -->
     <div class="flex justify-center mb-12">
       <img 
-        src="{{ url_for('static', path='images/logo_with_text_v2.png') }}" 
+        src="{{ url_for('static', path='images/logo_v4.png') }}" 
         alt="Tradleware Logo" 
         class="h-48 w-auto"  <!-- Adjust h-24 to make logo bigger/smaller -->
       >
