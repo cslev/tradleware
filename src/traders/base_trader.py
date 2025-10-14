@@ -3,6 +3,7 @@ import ccxt
 from abc import ABC, abstractmethod
 import asyncio # Imported here for the _safe_api_call helper
 from src.misc.logger import CustomLogger
+from src.misc.get_env import get_env  # Import centralized get_env helper
 from typing import Optional, Dict, Any, List
 from collections import deque
 from datetime import datetime
@@ -38,9 +39,9 @@ class BaseExchangeTrader(ABC):
     self.default_type = default_type
     self.logger = logger if logger else CustomLogger(
         name=self.__class__.__name__,
-        gotify_url=os.getenv('GOTIFY_URL'),
-        gotify_token=os.getenv('GOTIFY_TOKEN'),
-        gotify_log_level=int(os.getenv('GOTIFY_LOG_LEVEL', 30))
+        gotify_url=get_env('GOTIFY_URL'),
+        gotify_token=get_env('GOTIFY_TOKEN'),
+        gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
     )
 
     # Dynamically construct environment variable names based on identifier and exchange
@@ -51,15 +52,15 @@ class BaseExchangeTrader(ABC):
     self.hostname_env = f'{account_identifier}_{exchange_id.upper()}_HOSTNAME'
     self.fiat_stablecoin_pair_env = f'{account_identifier}_{exchange_id.upper()}_FIAT_STABLECOIN_PAIR'
     self.crypto_stablecoin_pair_env = f'{account_identifier}_{exchange_id.upper()}_CRYPTO_STABLECOIN_PAIR'
-    self.tradleware_api_key = os.getenv(f"{account_identifier}_{exchange_id.upper()}_TRADLEWARE_API_KEY")
+    self.tradleware_api_key = get_env(f"{account_identifier}_{exchange_id.upper()}_TRADLEWARE_API_KEY")
 
-    self.api_key = os.getenv(self.api_key_env)
-    self.secret_key = os.getenv(self.secret_key_env)
-    self.passphrase = os.getenv(self.passphrase_env)
-    self.subaccount_name = os.getenv(self.subaccount_name_env)
-    self.hostname = os.getenv(self.hostname_env)
-    self.fiat_stablecoin_pair = os.getenv(self.fiat_stablecoin_pair_env)
-    self.crypto_stablecoin_pair = os.getenv(self.crypto_stablecoin_pair_env)
+    self.api_key = get_env(self.api_key_env)
+    self.secret_key = get_env(self.secret_key_env)
+    self.passphrase = get_env(self.passphrase_env)
+    self.subaccount_name = get_env(self.subaccount_name_env)
+    self.hostname = get_env(self.hostname_env)
+    self.fiat_stablecoin_pair = get_env(self.fiat_stablecoin_pair_env)
+    self.crypto_stablecoin_pair = get_env(self.crypto_stablecoin_pair_env)
     
     
 
@@ -116,9 +117,9 @@ class BaseExchangeTrader(ABC):
     # Create a custom logger for this trader that also writes to buffer
     self.logger = CustomLogger(
         f'{account_identifier}_{exchange_id}',
-        gotify_url=os.getenv('GOTIFY_URL'),
-        gotify_token=os.getenv('GOTIFY_TOKEN'),
-        gotify_log_level=int(os.getenv('GOTIFY_LOG_LEVEL', 30))
+        gotify_url=get_env('GOTIFY_URL'),
+        gotify_token=get_env('GOTIFY_TOKEN'),
+        gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
     )
     self._setup_log_buffer()
 

@@ -5,6 +5,7 @@ import os
 
 from src.traders.base_trader import BaseExchangeTrader  # Changed from traders.base_trader
 from src.misc.logger import CustomLogger
+from src.misc.get_env import get_env  # Import centralized get_env helper
 import asyncio # Imported for asyncio.iscoroutinefunction for debugging
 
 class OKXTrader(BaseExchangeTrader):
@@ -21,9 +22,9 @@ class OKXTrader(BaseExchangeTrader):
       default_type (str): The default market type for OKX (e.g., 'spot', 'future').
     """
     self.logger = CustomLogger(name=self.__class__.__name__,
-                              gotify_url=os.getenv('GOTIFY_SERVER_URL'),
-                              gotify_token=os.getenv('GOTIFY_APP_TOKEN'),
-                              gotify_log_level=int(os.getenv('GOTIFY_LOG_LEVEL', 30)))
+                              gotify_url=get_env('GOTIFY_SERVER_URL'),
+                              gotify_token=get_env('GOTIFY_APP_TOKEN'),
+                              gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30')))
 
     super().__init__(account_identifier, 'OKX', default_type, self.logger)
 

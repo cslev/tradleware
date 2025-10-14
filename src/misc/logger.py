@@ -6,6 +6,7 @@ import colorama
 from colorama import Fore, Style
 import requests
 import json
+from .get_env import get_env  # Import centralized get_env helper
 
 # Initialize colorama
 colorama.init(autoreset=True)
@@ -70,9 +71,9 @@ class CustomLogger:
     self.logger = logging.getLogger(name)
     self.logger.setLevel(logging.DEBUG)
     
-    self.gotify_url = gotify_url or os.getenv('GOTIFY_SERVER_URL')
-    self.gotify_token = gotify_token or os.getenv('GOTIFY_APP_TOKEN')
-    self.gotify_log_level = int(gotify_log_level or os.getenv('GOTIFY_LOG_LEVEL', logging.WARNING))
+    self.gotify_url = gotify_url or get_env('GOTIFY_SERVER_URL')
+    self.gotify_token = gotify_token or get_env('GOTIFY_APP_TOKEN')
+    self.gotify_log_level = int(gotify_log_level or get_env('GOTIFY_LOG_LEVEL', str(logging.WARNING)))
     print("Logger initialized by {} - gotify_url: {}, gotify_token: {}, gotify_log_level: {}".format(
         name, self.gotify_url,  self.gotify_token, self.gotify_log_level))
 
