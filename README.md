@@ -193,7 +193,8 @@ The webhook path is displayed in:
 **Note:** The webhook still requires API key authentication, so even if someone discovers the URL, they cannot execute trades without the correct `MYBTCBOT_OKX_TRADLEWARE_API_KEY`.
 
 
-
+---
+---
 ## DEV: Run and debug
 
 Navigate to project root
@@ -217,7 +218,7 @@ cd src/ui
 npx tailwindcss -i ./static/css/input.css -o ./static/css/output.css --watch
 ```
 
-Run FastAPI app (in main terminal)
+Run FastAPI app (in main terminal) from project root
 ```
 uvicorn src.ui.app:app --host 0.0.0.0 --port 8080 --reload
 ```
