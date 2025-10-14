@@ -1,0 +1,32 @@
+//@version=6
+strategy("copilot - Bull Market Support Band", overlay=true, commission_type=strategy.commission.percent, commission_value=0.1, slippage=3, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// Date filters (use literal Unix timestamps for const int)
+startDate = input.time(1514764800000, "Start Date")  // 2018-01-01 00:00 UTC
+endDate   = input.time(3155673599000, "End Date")    // 2069-12-31 23:59 UTC
+inRange   = time >= startDate and time <= endDate
+
+// Timeframe logic - preserve weekly behavior with gap filling
+source = close
+smaLength = 20
+emaLength = 21
+
+sma = ta.sma(source, smaLength)
+ema = ta.ema(source, emaLength)
+
+outSma = request.security(syminfo.tickerid, "W", sma, gaps=barmerge.gaps_on)
+outEma = request.security(syminfo.tickerid, "W", ema, gaps=barmerge.gaps_on)
+
+// Preserve visual plots
+smaPlot = plot(outSma, color=color.new(color.red, 0), title='20w SMA')
+emaPlot = plot(outEma, color=color.new(color.green, 0), title='21w EMA')
+
+// Fill between the two weekly bands (no fillgaps arg in Pine v6's fill)
+fill(smaPlot, emaPlot, color=color.new(color.orange, 75), title='Band Fill')
+
+// Trading logic - Buy on EMA bullish crossover, Sell on EMA bearish crossover
+if inRange
+    if ta.crossover(outEma, outSma) and strategy.position_size == 0
+        strategy.entry("Long", strategy.long)
+    if ta.crossunder(outEma, outSma) and strategy.position_size > 0
+        strategy.close("Long")
