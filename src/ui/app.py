@@ -5,12 +5,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv #for env variables
 import os
+import json
 from datetime import datetime
 
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
 from src.misc.logger import CustomLogger
+from src.misc.get_env import get_env  # Import centralized get_env helper
 # Import our trader classes
 from src.traders.okx_trader import OKXTrader
 
@@ -33,8 +35,9 @@ async def lifespan(app: FastAPI):
   """Lifespan context manager for startup/shutdown events"""
   # Startup
   logger.info("Initializing trading configurations...")
+  logger.info(f"Webhook endpoint configured at: /{WEBHOOK_PATH}")
   
-  active_configs_str = os.getenv('ACTIVE_TRADING_CONFIGS')
+  active_configs_str = get_env('ACTIVE_TRADING_CONFIGS')
   if active_configs_str:
     config_strings = [cfg.strip() for cfg in active_configs_str.split(',') if cfg.strip()]
     
@@ -77,12 +80,15 @@ app = FastAPI(
 
 load_dotenv() # Load environment variables from .env file
 
+# Get webhook path from environment (default to 'webhook')
+WEBHOOK_PATH = get_env('WEBHOOK_PATH', 'webhook').strip('/')  # Strip leading/trailing slashes
+
 # Initialize a logger for the FastAPI app
 # Ensure CustomLogger is correctly imported from src.misc.logger
 logger = CustomLogger(name='Tradleware',
-                      gotify_url=os.getenv('GOTIFY_SERVER_URL'),
-                      gotify_token=os.getenv('GOTIFY_APP_TOKEN'),
-                      gotify_log_level=int(os.getenv('GOTIFY_LOG_LEVEL', 30)))
+                      gotify_url=get_env('GOTIFY_SERVER_URL'),
+                      gotify_token=get_env('GOTIFY_APP_TOKEN'),
+                      gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30')))
 
 
 # Mount static files (for CSS, JS, images). Paths are now relative to /src/ui/
@@ -100,7 +106,7 @@ templates = Jinja2Templates(directory="src/ui/templates")
 async def read_root(request: Request):
   """Renders the main index.html page with trader cards."""
   # Get log refresh interval from environment (default to 5000ms = 5 seconds)
-  log_refresh_interval = int(os.getenv('LOG_REFRESH_INTERVAL_MS', 5000))
+  log_refresh_interval = int(get_env('LOG_REFRESH_INTERVAL_MS', '5000'))
   
   return templates.TemplateResponse(
     "index.html",
@@ -108,7 +114,8 @@ async def read_root(request: Request):
       "request": request,
       "title": "Tradleware Dashboard",
       "traders": traders,  # Add the traders dictionary we defined globally
-      "log_refresh_interval": log_refresh_interval  # Pass the refresh interval to template
+      "log_refresh_interval": log_refresh_interval,  # Pass the refresh interval to template
+      "webhook_path": WEBHOOK_PATH  # Pass the configured webhook path to template
     }
   )
 
@@ -156,14 +163,29 @@ async def get_balance(trader_id: str):
             content={"error": error_msg}
         )
 
-@app.post("/webhook")
+@app.post(f"/{WEBHOOK_PATH}")
 async def handle_webhook(request: Request):
     """
     Handles incoming webhooks with per-bot API key authentication.
     Expects JSON with: api_key, trader_id, ticker, action, timestamp, alert_name.
+    
+    Note: The webhook path is configurable via WEBHOOK_PATH environment variable.
+    Default: /webhook, but can be set to any random string for security (e.g., /x7f9k2m4p8)
     """
-    ## reading JSON body
-    data = await request.json()
+    ## reading JSON body with error handling
+    try:
+        body = await request.body()
+        data = json.loads(body.decode('utf-8'))
+    except json.JSONDecodeError as e:
+        # Log the raw body for debugging (limit to 500 chars to avoid log spam)
+        body_preview = body.decode('utf-8', errors='replace')[:500] if body else "Empty body"
+        error_msg = f"Malformed JSON in webhook request: {str(e)} | Request body: {body_preview}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
+    except Exception as e:
+        error_msg = f"Error reading webhook request body: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
     
     ########################################################################
     ## Check if the trader_id is set properly and we indeed have such a BOT

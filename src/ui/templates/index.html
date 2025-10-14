@@ -123,7 +123,7 @@
             </div>
             <div class="flex justify-between items-center">
               <span class="text-gray-500">Webhook URL:</span>
-              <span class="font-mono text-xs">/webhook/{{ trader_id }}</span>
+              <span class="font-mono text-xs">/{{ webhook_path }}</span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-gray-500">Tradleware API Key:</span>
@@ -163,9 +163,9 @@
   "alert_name": "{{strategy.order.comment}}"
 }
 {% endraw %}</pre>
-                <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL text locally</h3>
+                <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test locally</h3>
                 <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{% raw %}
-curl -X POST http://localhost:8080/webhook?alert_name=MyStrategyAlert \
+curl -X POST http://localhost:8080/{% endraw %}{{ webhook_path }}{% raw %}?alert_name=MyStrategyAlert \
   -H "Content-Type: application/json" \
   -d '{
     "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
@@ -214,7 +214,7 @@ curl -X POST http://localhost:8080/webhook?alert_name=MyStrategyAlert \
 
   <!-- Add this just before the closing </body> tag -->
   <div class="w-full text-center mt-16 mb-4 text-sm text-white" style="z-index:2; position:relative;">
-    Webhooks should be sent to <span class="font-mono text-cyan-100">https://your_tradleware_domain[:port]/webhook</span>
+    Webhooks should be sent to <span class="font-mono text-cyan-100">https://your_tradleware_domain[:port]/{{ webhook_path }}</span>
   </div>
   
   <!-- Import the external JavaScript file -->
