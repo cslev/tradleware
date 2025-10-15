@@ -173,10 +173,29 @@ async function convertFiatToStablecoin(traderId, event) {
   }
 }
 
+
 // Initial load and periodic refresh
 document.addEventListener('DOMContentLoaded', () => {
   const traderIds = JSON.parse(document.getElementById('trader-ids').textContent);
   const logRefreshInterval = JSON.parse(document.getElementById('log-refresh-interval').textContent);
+  const webhookPath = document.getElementById('webhook-path').textContent;
+  
+  // Construct the full webhook URL from the current browser location
+  const webhookUrl = `${window.location.protocol}//${window.location.host}/${webhookPath}`;
+  
+  // Update all webhook URL displays
+  document.querySelectorAll('.webhook-url').forEach(el => {
+    el.textContent = webhookUrl;
+  });
+  
+  document.querySelectorAll('.footer-webhook-url').forEach(el => {
+    el.textContent = webhookUrl;
+  });
+  
+  // Update cURL example
+  document.querySelectorAll('.curl-example').forEach(el => {
+    el.textContent = el.textContent.replace('<WEBHOOK_URL>', webhookUrl);
+  });
   
   // Initial load
   traderIds.forEach(traderId => {

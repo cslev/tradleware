@@ -12,6 +12,7 @@
   <!-- Hidden data for JavaScript -->
   <script id="trader-ids" type="application/json">{{ traders.keys() | list | tojson | safe }}</script>
   <script id="log-refresh-interval" type="application/json">{{ log_refresh_interval }}</script>
+  <script id="webhook-path" type="text/plain">{{ webhook_path }}</script>
   
   <div class="container mx-auto p-12">  <!-- Changed p-6 to p-12 for bigger padding -->
     <!-- Add logo section -->
@@ -123,7 +124,7 @@
             </div>
             <div class="flex justify-between items-center">
               <span class="text-gray-500">Webhook URL:</span>
-              <span class="font-mono text-xs">/{{ webhook_path }}</span>
+              <span class="font-mono text-xs webhook-url"></span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-gray-500">Tradleware API Key:</span>
@@ -164,8 +165,8 @@
 }
 {% endraw %}</pre>
                 <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test locally</h3>
-                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{% raw %}
-curl -X POST http://localhost:8080/{% endraw %}{{ webhook_path }}{% raw %}?alert_name=MyStrategyAlert \
+                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto curl-example">{% raw %}
+curl -X POST <WEBHOOK_URL>?alert_name=MyStrategyAlert \
   -H "Content-Type: application/json" \
   -d '{
     "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
@@ -214,7 +215,7 @@ curl -X POST http://localhost:8080/{% endraw %}{{ webhook_path }}{% raw %}?alert
 
   <!-- Add this just before the closing </body> tag -->
   <div class="w-full text-center mt-16 mb-4 text-sm text-white" style="z-index:2; position:relative;">
-    Webhooks should be sent to <span class="font-mono text-cyan-100">https://your_tradleware_domain[:port]/{{ webhook_path }}</span>
+    Webhooks should be sent to <span class="font-mono text-cyan-100 footer-webhook-url"></span>
   </div>
   
   <!-- Import the external JavaScript file -->
