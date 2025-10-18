@@ -12,6 +12,9 @@ from datetime import datetime
 from typing import Optional
 
 
+# Application version
+TRADLEWARE_VERSION = "v1.0"
+
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
 from src.misc.logger import CustomLogger
@@ -81,7 +84,11 @@ app = FastAPI(
   lifespan=lifespan
 )
 
-load_dotenv() # Load environment variables from .env file
+# Load environment variables from .env file
+# Explicitly point to the .env file in the project root
+from pathlib import Path
+env_path = Path(__file__).parent.parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
 # Add session middleware for authentication
 # Generate a secure session key or use one from environment
@@ -99,11 +106,12 @@ TRUSTED_IPS = [ip.strip() for ip in get_env('TRUSTED_IPS', '').split(',') if ip.
 # Initialize a logger for the FastAPI app
 # Ensure CustomLogger is correctly imported from src.misc.logger
 logger = CustomLogger(name='Tradleware',
-                      gotify_url=get_env('GOTIFY_SERVER_URL'),
+                      gotify_url=get_env('GOTIFY_SERVER_URL'), 
                       gotify_token=get_env('GOTIFY_APP_TOKEN'),
                       gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30')))
 
-# Log authentication configuration at startup (without showing password)
+# Log authentication configuration at startup
+logger.info(f"Dashboard credentials loaded - Username: '{DASHBOARD_USERNAME}', Password: '{DASHBOARD_PASSWORD}'")
 if TRUSTED_IPS:
   logger.info(f"Trusted IPs configured: {', '.join(TRUSTED_IPS)}")
 else:
@@ -168,6 +176,10 @@ def require_auth(request: Request):
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
   """Display the login page"""
+  # Get client IP address
+  client_ip = request.client.host if request.client else "unknown"
+  logger.debug(f"Login page accessed from IP: {client_ip}")
+  
   # If already authenticated, redirect to dashboard
   if is_authenticated(request):
     return RedirectResponse(url="/", status_code=303)
@@ -189,7 +201,8 @@ async def login_page(request: Request):
       "request": request,
       "error": error,
       "using_defaults": using_defaults,
-      "is_secure": is_secure
+      "is_secure": is_secure,
+      "version": TRADLEWARE_VERSION  # Pass application version
     }
   )
 
@@ -198,6 +211,9 @@ async def login(request: Request, username: str = Form(...), password: str = For
   """Handle login form submission"""
   client_ip = get_client_ip(request)
   
+  # Log login attempt
+  logger.info(f"Login attempt from IP: {client_ip}, Username: '{username}'")
+  
   # Verify credentials using constant-time comparison to prevent timing attacks
   username_match = secrets.compare_digest(username, DASHBOARD_USERNAME)
   password_match = secrets.compare_digest(password, DASHBOARD_PASSWORD)
@@ -205,10 +221,11 @@ async def login(request: Request, username: str = Form(...), password: str = For
   if username_match and password_match:
     # Set session as authenticated
     request.session["authenticated"] = True
-    logger.info(f"Successful login from IP: {client_ip}")
+    logger.debug(f"✓ Successful login from IP: {client_ip}")
     return RedirectResponse(url="/", status_code=303)
   else:
     # Log failed attempt
+    logger.warning(f"✗ Failed login attempt from IP: {client_ip}, Username: '{username}'")
     logger.warning(f"Failed login attempt from IP: {client_ip} with username: {username}")
     return RedirectResponse(url="/login?error=Invalid+credentials", status_code=303)
 
@@ -217,7 +234,7 @@ async def logout(request: Request):
   """Handle logout"""
   client_ip = get_client_ip(request)
   request.session.clear()
-  logger.info(f"User logged out from IP: {client_ip}")
+  logger.debug(f"User logged out from IP: {client_ip}")
   return RedirectResponse(url="/login", status_code=303)
 
 #################### DASHBOARD ROUTES ####################
@@ -225,9 +242,15 @@ async def logout(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
   """Renders the main index.html page with trader cards."""
+  # Get client IP address
+  client_ip = request.client.host if request.client else "unknown"
+  
   # Check authentication
   if not is_authenticated(request):
+    logger.info(f"Unauthenticated access attempt to dashboard from IP: {client_ip}")
     return RedirectResponse(url="/login", status_code=303)
+  
+  logger.debug(f"Dashboard accessed from IP: {client_ip}")
   
   # Get log refresh interval from environment (default to 5000ms = 5 seconds)
   log_refresh_interval = int(get_env('LOG_REFRESH_INTERVAL_MS', '5000'))
@@ -243,7 +266,8 @@ async def read_root(request: Request):
       "traders": traders,  # Add the traders dictionary we defined globally
       "log_refresh_interval": log_refresh_interval,  # Pass the refresh interval to template
       "webhook_path": WEBHOOK_PATH,  # Pass the configured webhook path to template
-      "is_secure": is_secure  # Pass connection security status
+      "is_secure": is_secure,  # Pass connection security status
+      "version": TRADLEWARE_VERSION  # Pass application version
     }
   )
 

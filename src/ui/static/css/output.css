@@ -18,6 +18,7 @@
     --color-green-600: oklch(62.7% 0.194 149.214);
     --color-green-700: oklch(52.7% 0.154 150.069);
     --color-cyan-100: oklch(95.6% 0.045 203.388);
+    --color-cyan-300: oklch(86.5% 0.127 207.078);
     --color-cyan-400: oklch(78.9% 0.154 211.53);
     --color-cyan-600: oklch(60.9% 0.126 221.723);
     --color-cyan-700: oklch(52% 0.105 223.128);
@@ -646,11 +647,17 @@
   .text-cyan-100 {
     color: var(--color-cyan-100);
   }
+  .text-cyan-300 {
+    color: var(--color-cyan-300);
+  }
   .text-cyan-600 {
     color: var(--color-cyan-600);
   }
   .text-cyan-700 {
     color: var(--color-cyan-700);
+  }
+  .text-gray-400 {
+    color: var(--color-gray-400);
   }
   .text-gray-500 {
     color: var(--color-gray-500);

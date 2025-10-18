@@ -245,6 +245,11 @@ curl -X POST <WEBHOOK_URL>?alert_name=MyStrategyAlert \
       {% endif %}
     </div>
     
+    <!-- Version Information -->
+    <p class="text-gray-400 mb-3">
+      Your Tradleware version is: <span class="font-mono text-cyan-100">{{ version }}</span>
+    </p>
+    
     <!-- Webhook Information -->
     <p class="text-white">
       Webhooks should be sent to <span class="font-mono text-cyan-100 footer-webhook-url"></span>

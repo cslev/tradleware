@@ -39,8 +39,8 @@ class BaseExchangeTrader(ABC):
     self.default_type = default_type
     self.logger = logger if logger else CustomLogger(
         name=self.__class__.__name__,
-        gotify_url=get_env('GOTIFY_URL'),
-        gotify_token=get_env('GOTIFY_TOKEN'),
+        gotify_url=get_env('GOTIFY_SERVER_URL'),
+        gotify_token=get_env('GOTIFY_APP_TOKEN'),
         gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
     )
 
@@ -117,8 +117,8 @@ class BaseExchangeTrader(ABC):
     # Create a custom logger for this trader that also writes to buffer
     self.logger = CustomLogger(
         f'{account_identifier}_{exchange_id}',
-        gotify_url=get_env('GOTIFY_URL'),
-        gotify_token=get_env('GOTIFY_TOKEN'),
+        gotify_url=get_env('GOTIFY_SERVER_URL'),
+        gotify_token=get_env('GOTIFY_APP_TOKEN'),
         gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
     )
     self._setup_log_buffer()
