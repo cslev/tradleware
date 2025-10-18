@@ -1,9 +1,9 @@
 ccxt
 python-dotenv
 colorama
-fastapi 
+fastapi
 uvicorn[standard]
-python-multipart 
+python-multipart
 jinja2
 aiohttp
-itsdangerous  # Required for session management and secure cookies
+itsdangerous
