@@ -258,6 +258,9 @@ async def read_root(request: Request):
   # Check if connection is secure (HTTPS)
   is_secure = request.url.scheme == "https"
   
+  # Check if accessing from trusted IP
+  is_trusted_ip = client_ip in TRUSTED_IPS if TRUSTED_IPS else False
+  
   return templates.TemplateResponse(
     "index.html",
     {
@@ -267,6 +270,8 @@ async def read_root(request: Request):
       "log_refresh_interval": log_refresh_interval,  # Pass the refresh interval to template
       "webhook_path": WEBHOOK_PATH,  # Pass the configured webhook path to template
       "is_secure": is_secure,  # Pass connection security status
+      "is_trusted_ip": is_trusted_ip,  # Pass trusted IP status
+      "client_ip": client_ip,  # Pass client IP for display
       "version": TRADLEWARE_VERSION  # Pass application version
     }
   )
