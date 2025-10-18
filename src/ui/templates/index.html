@@ -20,12 +20,12 @@
       <div class="flex-1"></div> <!-- Spacer for centering -->
       <div class="flex justify-center flex-1">
         <img 
-          src="{{ url_for('static', path='images/logo_v5_horizontal.png') }}" 
+          src="{{ url_for('static', path='images/logos/logo_v5_horizontal.png') }}" 
           alt="Tradleware Logo" 
           class="h-48 object-contain"
         >
       </div>
-      <div class="flex-1 flex justify-end">
+      <div class="flex-1 flex justify-end">/
         <a href="/logout" class="login-button text-white font-bold px-8 py-3 rounded-lg flex items-center gap-2 uppercase tracking-wider">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
@@ -43,7 +43,7 @@
       <div class="bg-white rounded-lg shadow-lg overflow-hidden">
         <!-- Header with Exchange Logo -->
         <div class="relative h-32 bg-gray-900 flex flex-col justify-between p-4">
-          <img src="{{ url_for('static', path='images/' + trader.exchange_id + '.png') }}" 
+          <img src="{{ url_for('static', path='images/crypto_exchanges/' + trader.exchange_id + '.png') }}" 
                alt="{{ trader.exchange_id }} logo"
                class="absolute inset-0 w-full h-full object-cover">  <!-- Changed object-contain to object-cover and removed p-2 -->
           <div class="relative z-10">
