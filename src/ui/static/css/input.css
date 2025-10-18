@@ -13,6 +13,7 @@
 
 /* Login Page Styles */
 .login-page {
+  background-image: url("../images/background.png");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -182,7 +183,7 @@ body.dashboard-page::before {
 }
 
 body {
-  background-image: url("../images/bg2.png");
+  background-image: url("../images/background.png");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
