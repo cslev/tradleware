@@ -180,14 +180,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const logRefreshInterval = JSON.parse(document.getElementById('log-refresh-interval').textContent);
   const webhookPath = document.getElementById('webhook-path').textContent;
   
-  // Construct the full webhook URL from the current browser location
-  const webhookUrl = `${window.location.protocol}//${window.location.host}/${webhookPath}`;
+  // Show just the webhook path with placeholder for domain
+  const webhookUrl = `https://[YOUR_TRADLEWARE_DOMAIN]/${webhookPath}`;
   
-  // Update all webhook URL displays
+  // Update card webhook URL displays - show only the path part
   document.querySelectorAll('.webhook-url').forEach(el => {
-    el.textContent = webhookUrl;
+    el.textContent = webhookPath;
   });
   
+  // Update footer webhook URL displays - show full URL
   document.querySelectorAll('.footer-webhook-url').forEach(el => {
     el.textContent = webhookUrl;
   });

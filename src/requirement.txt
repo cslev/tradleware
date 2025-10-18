@@ -6,3 +6,4 @@ uvicorn[standard]
 python-multipart 
 jinja2
 aiohttp
+itsdangerous  # Required for session management and secure cookies

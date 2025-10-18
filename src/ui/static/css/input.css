@@ -1,6 +1,99 @@
 /* Tradleware/src/ui/static/css/input.css */
 @import "tailwindcss";
 
+/* Tradleware Cyberpunk Color Palette */
+:root {
+  --neon-blue: #07bff5;
+  --neon-pink: #f54dae;
+  --neon-blue-dark: #05a8dd;
+  --neon-pink-light: #ff66cc;
+  --neon-blue-shadow: #0088aa;
+  --neon-pink-shadow: #c03885;
+}
+
+/* Login Page Styles */
+.login-page {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.login-page::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.75);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.login-container {
+  backdrop-filter: blur(16px);
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid #00d4ff;
+  box-shadow: 
+    0 0 20px rgba(0, 212, 255, 0.6),
+    0 0 40px rgba(0, 212, 255, 0.4),
+    inset 0 0 30px rgba(0, 212, 255, 0.1);
+}
+
+.login-input {
+  background: rgba(255, 255, 255, 0.9);
+  transition: all 0.3s ease;
+}
+
+.login-input:focus {
+  background: rgba(255, 255, 255, 1);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.login-button {
+  background: linear-gradient(135deg, var(--neon-blue) 0%, var(--neon-blue-dark) 100%);
+  position: relative;
+  transition: all 0.3s ease;
+  box-shadow: 
+    0 0 20px rgba(7, 191, 245, 0.6),
+    0 4px 0 var(--neon-blue-shadow),
+    0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.login-button:hover {
+  background: linear-gradient(135deg, var(--neon-pink) 0%, var(--neon-pink-light) 100%);
+  transform: translateY(-2px);
+  box-shadow: 
+    0 0 30px rgba(245, 77, 174, 0.8),
+    0 6px 0 var(--neon-pink-shadow),
+    0 8px 25px rgba(0, 0, 0, 0.5);
+}
+
+.login-button:active {
+  transform: translateY(2px);
+  box-shadow: 
+    0 0 15px rgba(7, 191, 245, 0.6),
+    0 2px 0 var(--neon-blue-shadow),
+    0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+.error-message {
+  animation: shake 0.5s;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10px); }
+  75% { transform: translateX(10px); }
+}
+
 /* Collapsible content styles */
 .collapse-content {
   max-height: 0;
@@ -70,8 +163,8 @@
   color: #0891b2; /* cyan-600 */
 }
 
-/* Body background and overlay */
-body::before {
+/* Body background and overlay - only for dashboard pages with .dashboard-page class */
+body.dashboard-page::before {
   content: '';
   position: fixed;
   top: 0;

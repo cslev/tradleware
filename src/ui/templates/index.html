@@ -8,20 +8,31 @@
   <link href="{{ url_for('static', path='css/output.css') }}" rel="stylesheet">
   <script src="https://unpkg.com/heroicons@2.0.18/24/solid/index.js"></script>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen dashboard-page">
   <!-- Hidden data for JavaScript -->
   <script id="trader-ids" type="application/json">{{ traders.keys() | list | tojson | safe }}</script>
   <script id="log-refresh-interval" type="application/json">{{ log_refresh_interval }}</script>
   <script id="webhook-path" type="text/plain">{{ webhook_path }}</script>
   
   <div class="container mx-auto p-12">  <!-- Changed p-6 to p-12 for bigger padding -->
-    <!-- Add logo section -->
-    <div class="flex justify-center mb-12">
-      <img 
-        src="{{ url_for('static', path='images/logo_v4.png') }}" 
-        alt="Tradleware Logo" 
-        class="h-48 w-auto"  <!-- Adjust h-24 to make logo bigger/smaller -->
-      >
+    <!-- Header with logo and logout button -->
+    <div class="flex justify-between items-center mb-12">
+      <div class="flex-1"></div> <!-- Spacer for centering -->
+      <div class="flex justify-center flex-1">
+        <img 
+          src="{{ url_for('static', path='images/logo_v5_horizontal.png') }}" 
+          alt="Tradleware Logo" 
+          class="h-48 object-contain"
+        >
+      </div>
+      <div class="flex-1 flex justify-end">
+        <a href="/logout" class="login-button text-white font-bold px-8 py-3 rounded-lg flex items-center gap-2 uppercase tracking-wider">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+          Logout
+        </a>
+      </div>
     </div>
 
     <!-- Remove or comment out the text heading since we have logo now -->
@@ -214,8 +225,30 @@ curl -X POST <WEBHOOK_URL>?alert_name=MyStrategyAlert \
   </div>
 
   <!-- Add this just before the closing </body> tag -->
-  <div class="w-full text-center mt-16 mb-4 text-sm text-white" style="z-index:2; position:relative;">
-    Webhooks should be sent to <span class="font-mono text-cyan-100 footer-webhook-url"></span>
+  <div class="w-full text-center mt-16 mb-4 text-sm" style="z-index:2; position:relative;">
+    <!-- Connection Security Status -->
+    <div class="mb-3">
+      {% if is_secure %}
+      <p class="text-green-300">
+        <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
+        </svg>
+        Your connection is encrypted
+      </p>
+      {% else %}
+      <p class="text-red-400">
+        <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z"/>
+        </svg>
+        Your connection is not encrypted
+      </p>
+      {% endif %}
+    </div>
+    
+    <!-- Webhook Information -->
+    <p class="text-white">
+      Webhooks should be sent to <span class="font-mono text-cyan-100 footer-webhook-url"></span>
+    </p>
   </div>
   
   <!-- Import the external JavaScript file -->

@@ -1,12 +1,15 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse  # Import JSONResponse for JSON responses
+from fastapi import FastAPI, Request, HTTPException, Form
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse  # Import JSONResponse for JSON responses
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv #for env variables
 import os
 import json
+import secrets
 from datetime import datetime
+from typing import Optional
 
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
@@ -80,8 +83,18 @@ app = FastAPI(
 
 load_dotenv() # Load environment variables from .env file
 
+# Add session middleware for authentication
+# Generate a secure session key or use one from environment
+SESSION_SECRET_KEY = get_env('SESSION_SECRET_KEY') or secrets.token_urlsafe(32)
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
+
 # Get webhook path from environment (default to 'webhook')
 WEBHOOK_PATH = get_env('WEBHOOK_PATH', 'webhook').strip('/')  # Strip leading/trailing slashes
+
+# Authentication configuration
+DASHBOARD_USERNAME = get_env('DASHBOARD_USERNAME', 'admin')
+DASHBOARD_PASSWORD = get_env('DASHBOARD_PASSWORD', 'changeme')
+TRUSTED_IPS = [ip.strip() for ip in get_env('TRUSTED_IPS', '').split(',') if ip.strip()]
 
 # Initialize a logger for the FastAPI app
 # Ensure CustomLogger is correctly imported from src.misc.logger
@@ -89,6 +102,12 @@ logger = CustomLogger(name='Tradleware',
                       gotify_url=get_env('GOTIFY_SERVER_URL'),
                       gotify_token=get_env('GOTIFY_APP_TOKEN'),
                       gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30')))
+
+# Log authentication configuration at startup (without showing password)
+if TRUSTED_IPS:
+  logger.info(f"Trusted IPs configured: {', '.join(TRUSTED_IPS)}")
+else:
+  logger.warning("No trusted IPs configured. All access requires authentication.")
 
 
 # Mount static files (for CSS, JS, images). Paths are now relative to /src/ui/
@@ -101,12 +120,120 @@ app.mount("/static", StaticFiles(directory="src/ui/static"), name="static")
 templates = Jinja2Templates(directory="src/ui/templates")
 
 
+#################### AUTHENTICATION HELPERS ####################
+
+def get_client_ip(request: Request) -> str:
+  """Get the real client IP address, accounting for proxies"""
+  # Check X-Forwarded-For header (set by reverse proxies)
+  forwarded = request.headers.get("X-Forwarded-For")
+  if forwarded:
+    # X-Forwarded-For can contain multiple IPs, take the first one
+    return forwarded.split(",")[0].strip()
+  
+  # Check X-Real-IP header (alternative proxy header)
+  real_ip = request.headers.get("X-Real-IP")
+  if real_ip:
+    return real_ip.strip()
+  
+  # Fallback to direct client IP
+  return request.client.host if request.client else "unknown"
+
+def is_trusted_ip(client_ip: str) -> bool:
+  """Check if the client IP is in the trusted IPs list"""
+  if not TRUSTED_IPS:
+    return False
+  return client_ip in TRUSTED_IPS
+
+def is_authenticated(request: Request) -> bool:
+  """Check if user is authenticated (either by session or trusted IP)"""
+  client_ip = get_client_ip(request)
+  
+  # Check if IP is trusted first (bypass authentication)
+  if is_trusted_ip(client_ip):
+    logger.debug(f"Access granted from trusted IP: {client_ip}")
+    return True
+  
+  # Check session authentication
+  return request.session.get("authenticated", False)
+
+def require_auth(request: Request):
+  """Dependency that requires authentication. Raises HTTPException if not authenticated."""
+  if not is_authenticated(request):
+    client_ip = get_client_ip(request)
+    logger.warning(f"Unauthorized access attempt from IP: {client_ip}")
+    raise HTTPException(status_code=401, detail="Authentication required")
+
+#################### AUTHENTICATION ROUTES ####################
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+  """Display the login page"""
+  # If already authenticated, redirect to dashboard
+  if is_authenticated(request):
+    return RedirectResponse(url="/", status_code=303)
+  
+  # Get error message from query params if login failed
+  error = request.query_params.get("error")
+  
+  # Check if default credentials are still in use
+  using_defaults = (
+    DASHBOARD_USERNAME == "admin" and DASHBOARD_PASSWORD == "changeme"
+  ) or not DASHBOARD_USERNAME or not DASHBOARD_PASSWORD
+  
+  # Check if connection is secure (HTTPS)
+  is_secure = request.url.scheme == "https"
+  
+  return templates.TemplateResponse(
+    "login.html",
+    {
+      "request": request,
+      "error": error,
+      "using_defaults": using_defaults,
+      "is_secure": is_secure
+    }
+  )
+
+@app.post("/login")
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+  """Handle login form submission"""
+  client_ip = get_client_ip(request)
+  
+  # Verify credentials using constant-time comparison to prevent timing attacks
+  username_match = secrets.compare_digest(username, DASHBOARD_USERNAME)
+  password_match = secrets.compare_digest(password, DASHBOARD_PASSWORD)
+  
+  if username_match and password_match:
+    # Set session as authenticated
+    request.session["authenticated"] = True
+    logger.info(f"Successful login from IP: {client_ip}")
+    return RedirectResponse(url="/", status_code=303)
+  else:
+    # Log failed attempt
+    logger.warning(f"Failed login attempt from IP: {client_ip} with username: {username}")
+    return RedirectResponse(url="/login?error=Invalid+credentials", status_code=303)
+
+@app.get("/logout")
+async def logout(request: Request):
+  """Handle logout"""
+  client_ip = get_client_ip(request)
+  request.session.clear()
+  logger.info(f"User logged out from IP: {client_ip}")
+  return RedirectResponse(url="/login", status_code=303)
+
+#################### DASHBOARD ROUTES ####################
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
   """Renders the main index.html page with trader cards."""
+  # Check authentication
+  if not is_authenticated(request):
+    return RedirectResponse(url="/login", status_code=303)
+  
   # Get log refresh interval from environment (default to 5000ms = 5 seconds)
   log_refresh_interval = int(get_env('LOG_REFRESH_INTERVAL_MS', '5000'))
+  
+  # Check if connection is secure (HTTPS)
+  is_secure = request.url.scheme == "https"
   
   return templates.TemplateResponse(
     "index.html",
@@ -115,15 +242,20 @@ async def read_root(request: Request):
       "title": "Tradleware Dashboard",
       "traders": traders,  # Add the traders dictionary we defined globally
       "log_refresh_interval": log_refresh_interval,  # Pass the refresh interval to template
-      "webhook_path": WEBHOOK_PATH  # Pass the configured webhook path to template
+      "webhook_path": WEBHOOK_PATH,  # Pass the configured webhook path to template
+      "is_secure": is_secure  # Pass connection security status
     }
   )
 
 # Add the balance endpoint - this will be called from the UI to fetch trader balances
 # by clicking on the refresh button in the UI.
 @app.get("/balance/{trader_id}")
-async def get_balance(trader_id: str):
+async def get_balance(request: Request, trader_id: str):
     """Fetch balance for a specific trader"""
+    # Check authentication
+    if not is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    
     if trader_id not in traders:
         return JSONResponse(
             status_code=404,
@@ -450,8 +582,12 @@ async def handle_webhook(request: Request):
     return {"status": "success", "message": "Webhook processed", "processed_at": timestamp_str}
 
 @app.get("/logs/{trader_id}")
-async def get_trader_logs(trader_id: str):
+async def get_trader_logs(request: Request, trader_id: str):
     """Get recent log messages for a specific trader"""
+    # Check authentication
+    if not is_authenticated(request):
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+    
     if trader_id not in traders:
         return JSONResponse(
             status_code=404,
@@ -469,8 +605,12 @@ async def get_trader_logs(trader_id: str):
         )
 
 @app.post("/convert/{trader_id}")
-async def convert_fiat_to_stablecoin(trader_id: str):
+async def convert_fiat_to_stablecoin(request: Request, trader_id: str):
   """Convert fiat currency to stablecoin for a specific trader"""
+  # Check authentication
+  if not is_authenticated(request):
+    return JSONResponse(status_code=401, content={"error": "Authentication required"})
+  
   if trader_id not in traders:
     return JSONResponse(
       status_code=404,
