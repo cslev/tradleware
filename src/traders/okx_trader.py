@@ -1,12 +1,12 @@
+from typing import Dict, Any
+import asyncio # Imported for asyncio.iscoroutinefunction for debugging
+
 import ccxt
 from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
-from typing import Optional, Dict, Any, List
-import os
 
 from src.traders.base_trader import BaseExchangeTrader  # Changed from traders.base_trader
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env  # Import centralized get_env helper
-import asyncio # Imported for asyncio.iscoroutinefunction for debugging
 
 class OKXTrader(BaseExchangeTrader):
   """
@@ -60,10 +60,10 @@ class OKXTrader(BaseExchangeTrader):
     self.logger.debug(f"Type of self.exchange.fetch_balance before _safe_api_call: {type(self.exchange.fetch_balance)}")
     # This check is useful for diagnostics, keep it if you want
     if not asyncio.iscoroutinefunction(self.exchange.fetch_balance):
-        self.logger.error(f"ERROR: self.exchange.fetch_balance is not an async function! Type: {type(self.exchange.fetch_balance)}")
-        # If it's not an async function, it might be a dictionary or None, leading to the await error.
-        # This is very unusual for ccxt methods.
-        return None
+      self.logger.error(f"ERROR: self.exchange.fetch_balance is not an async function! Type: {type(self.exchange.fetch_balance)}")
+      # If it's not an async function, it might be a dictionary or None, leading to the await error.
+      # This is very unusual for ccxt methods.
+      return None
     ############################# DEBUG END ###################################
     balance = await self._safe_api_call(self.exchange.fetch_balance)
     if balance:
@@ -80,35 +80,24 @@ class OKXTrader(BaseExchangeTrader):
 
 
 
-  async def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = {}):
+  async def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = None):
     """
-    Fetches and prints open orders for a given symbol on the OKX subaccount.
+    Fetches all open orders for the OKX subaccount.
 
     Args:
-      symbol (str): The trading pair symbol (e.g., 'BTC/USDT'). If None, fetches all.
-      since (int): Timestamp in milliseconds to fetch orders since.
+      symbol (str): The trading pair symbol to filter orders by (e.g., 'BTC/USDT'). If None, fetches orders for all symbols.
+      since (int): Filter orders created after this timestamp (in milliseconds).
       limit (int): Maximum number of orders to fetch.
       params (dict): Additional exchange-specific parameters.
-    """
-    self.logger.info(f"Fetching open orders for {symbol if symbol else 'all symbols'} on OKX subaccount: {self.subaccount_name}...")
-    orders=None
-    try:
-      orders = await self._safe_api_call(self.exchange.fetch_open_orders, symbol, since, limit, params)
 
-      if orders:
-        self.logger.info(f"Open Orders ({symbol if symbol else 'all'}) for {self.subaccount_name}:")
-        for order in orders:
-          self.logger.info(f"  ID: {order['id']}, Symbol: {order['symbol']}, Type: {order['type']}, "
-                f"Side: {order['side']}, Price: {order['price']}, Amount: {order['amount']}, "
-                f"Filled: {order['filled']}, Status: {order['status']}")
-      else:
-        self.logger.info(f"❌ No open orders found for {symbol if symbol else 'all symbols'} on this subaccount.")
-    except Exception as e:
-      
-      self.logger.warning(f"Are you sure you set the symbol correclty?")
-      await self.list_fiat_markets()
-    finally:
-      return orders
+    Returns:
+      list: A list of open orders for the specified symbol or all symbols.
+    """
+    if params is None:
+      params = {}
+    self.logger.info(f"\nFetching open orders for {symbol} on OKX subaccount: {self.subaccount_name}...")
+    orders = await self._safe_api_call(self.exchange.fetch_open_orders, symbol, since, limit, params)
+    return orders
 
 
   async def list_fiat_markets(self, fiat_currency:str="SGD"):
@@ -116,15 +105,15 @@ class OKXTrader(BaseExchangeTrader):
     Fetches and lists all markets on OKX that involve fiat_currency.
     This helps in identifying the correct trading symbol if BTC/fiat_currency isn't directly available.
     Args:
-      fiat_currency 
+      fiat_currency
     """
     self.logger.info(f"Loading all markets for {self.exchange_id} to find {fiat_currency} pairs...")
+    fiat_markets = []  # Initialize before try block to ensure it's always defined
     try:
       # Ensure markets are loaded/reloaded to get the latest list
       await self._safe_api_call(self.exchange.load_markets, True) # Set to True to force reload
 
       self.logger.info(f"Markets loaded. Filtering for {fiat_currency} related pairs...")
-      fiat_markets = []
       for symbol, market in self.exchange.markets.items():
         # Check if {fiat_currency} is in the symbol name or if base/quote currency is {fiat_currency}
         if fiat_currency in symbol.upper() or market['base'] == fiat_currency or market['quote'] == fiat_currency:
@@ -144,14 +133,13 @@ class OKXTrader(BaseExchangeTrader):
         self.logger.warning(f"No direct {fiat_currency} trading pairs found on {self.exchange_id} via CCXT for the '{self.default_type}' type.")
         self.logger.info("It's possible you need to convert SGD to a stablecoin (e.g., USDT) first, then trade via crypto/stablecoin pairs (e.g., BTC/USDT).")
 
-    except Exception as e:
-      self.logger.error(f"❌  Error listing {fiat_currency} markets for {self.exchange_id}: {e}")
+    except Exception as exc:
+      self.logger.error(f"❌  Error listing {fiat_currency} markets for {self.exchange_id}: {exc}")
     return fiat_markets
 
 
-
-  async def convert_fiat_to_stablecoin( self, 
-                                        spend_percentage: float = 1.0, 
+  async def convert_fiat_to_stablecoin(self,
+                                        spend_percentage: float = 1.0,
                                         order_execution_strategy: str = 'market',
                                         max_slippage: float = 0.05):  # Keep and use it
     """
@@ -163,10 +151,10 @@ class OKXTrader(BaseExchangeTrader):
       max_slippage (float): Maximum allowed slippage for market orders (0.0 to 1.0).
     """
     self.logger.info(f"\nAttempting to convert {spend_percentage*100}% of {self.fiat_currency} to {self.stablecoin_currency} via {self.fiat_stablecoin_pair}...")
-    if not (0.0 < spend_percentage <= 1.0):
+    if not 0.0 < spend_percentage <= 1.0:
       self.logger.error("❌ spend_percentage must be between 0.0 (exclusive) and 1.0 (inclusive).")
       return 0.0
-    
+
     # 1. Fetch current balance
     balance_info = await self.fetch_balance()
     if not balance_info:
@@ -181,18 +169,18 @@ class OKXTrader(BaseExchangeTrader):
       error_msg = f"No {self.fiat_currency} available in the account (balance: {fiat_available})"
       self.logger.warning(f"⚠️ {error_msg}. Cannot proceed with conversion.")
       raise ValueError(error_msg)
-    
+
     # Calculate the amount of fiat to spend
     fiat_spend_amount = fiat_available * spend_percentage
     self.logger.info(f"Calculated amount to spend: {fiat_spend_amount} {self.fiat_currency}")
     if fiat_spend_amount <= 0:
-        error_msg = f"Calculated spend amount is zero or negative ({fiat_spend_amount:.2f} {self.fiat_currency})"
-        self.logger.warning(f"⚠️ {error_msg}. Cannot place order.")
-        raise ValueError(error_msg)
+      error_msg = f"Calculated spend amount is zero or negative ({fiat_spend_amount:.2f} {self.fiat_currency})"
+      self.logger.warning(f"⚠️ {error_msg}. Cannot place order.")
+      raise ValueError(error_msg)
 
     # Check against exchange minimum limits by attempting the order
     # The create_order method will handle minimum amount validation using actual exchange limits
-    
+
     # 2. Add slippage protection for market orders
     if order_execution_strategy == 'market':
       # Get current market price before placing order
@@ -200,10 +188,10 @@ class OKXTrader(BaseExchangeTrader):
       if not ticker:
         self.logger.error("Could not fetch ticker for slippage calculation")
         return 0.0
-      
+
       expected_price = ticker['ask']  # Expected buy price
       self.logger.info(f"Current market price: {expected_price}")
-    
+
     # 3. Place the order
     stablecoin_order = await self.create_order(
       symbol=self.fiat_stablecoin_pair,
@@ -211,38 +199,38 @@ class OKXTrader(BaseExchangeTrader):
       spend_percentage=spend_percentage,
       order_execution_strategy=order_execution_strategy
     )
-    
+
     if not stablecoin_order:
-          self.logger.error(f"❌ Order to buy {self.stablecoin_currency} failed or returned no order object.")
-          return 0.0
+      self.logger.error(f"❌ Order to buy {self.stablecoin_currency} failed or returned no order object.")
+      return 0.0
 
     # For market orders, the order might be executed immediately but status might not be populated
     # Let's fetch the order details to get accurate information
     order_id = stablecoin_order.get('id')
     if order_id and order_execution_strategy == 'market':
-        # Wait a moment and fetch the order details
-        await asyncio.sleep(1)
-        try:
-            updated_order = await self._safe_api_call(self.exchange.fetch_order, order_id, self.fiat_stablecoin_pair)
-            if updated_order:
-                stablecoin_order = updated_order
-                self.logger.info(f"Updated order status: {stablecoin_order.get('status')}, filled: {stablecoin_order.get('filled', 0)}")
-        except Exception as e:
-            self.logger.warning(f"Could not fetch updated order details: {e}")
+      # Wait a moment and fetch the order details
+      await asyncio.sleep(1)
+      try:
+        updated_order = await self._safe_api_call(self.exchange.fetch_order, order_id, self.fiat_stablecoin_pair)
+        if updated_order:
+          stablecoin_order = updated_order
+          self.logger.info(f"Updated order status: {stablecoin_order.get('status')}, filled: {stablecoin_order.get('filled', 0)}")
+      except Exception as e:
+        self.logger.warning(f"Could not fetch updated order details: {e}")
 
     # Check order status - for market orders, status might be 'closed' or 'filled'
     order_status = stablecoin_order.get('status')
     if order_status not in ['closed', 'filled'] and order_execution_strategy == 'market':
-        self.logger.warning(f"⚠️ Market order to buy {self.stablecoin_currency} was not immediately executed. Current status: {order_status}")
-        # For market orders, even if status is unclear, check if we have filled amount
-        filled_amount = stablecoin_order.get('filled', 0)
-        if filled_amount > 0:
-            self.logger.info(f"✅ Order partially/fully filled: {filled_amount} {self.stablecoin_currency}")
-        else:
-            return 0.0
+      self.logger.warning(f"⚠️ Market order to buy {self.stablecoin_currency} was not immediately executed. Current status: {order_status}")
+      # For market orders, even if status is unclear, check if we have filled amount
+      filled_amount = stablecoin_order.get('filled', 0)
+      if filled_amount > 0:
+        self.logger.info(f"✅ Order partially/fully filled: {filled_amount} {self.stablecoin_currency}")
+      else:
+        return 0.0
     elif order_execution_strategy == 'maker_limit' and order_status == 'open':
-        self.logger.info("Limit order placed, monitoring for completion...")
-        # Could add order monitoring logic here
+      self.logger.info("Limit order placed, monitoring for completion...")
+      # Could add order monitoring logic here
 
     # 4. Check slippage for market orders
     if order_execution_strategy == 'market' and stablecoin_order:
@@ -254,21 +242,21 @@ class OKXTrader(BaseExchangeTrader):
           # Could implement cancellation logic here if slippage is too high
         else:
           self.logger.info(f"✅ Slippage within limits: {slippage:.2%}")
-    
+
     # Get the filled amount
     filled_amount = stablecoin_order.get('filled', 0) or 0
-    
+
     self.logger.success(f"✅ Successfully converted {fiat_spend_amount} {self.fiat_currency} to {filled_amount} {self.stablecoin_currency}!")
     return filled_amount
 
 
 
-  async def create_order(self, 
-                         symbol: str, 
-                         side: str, 
-                         spend_percentage: float = 1.0, 
-                         order_execution_strategy: str = 'market', 
-                         params: dict = {}):
+  async def create_order(self,
+                         symbol: str,
+                         side: str,
+                         spend_percentage: float = 1.0,
+                         order_execution_strategy: str = 'market',
+                         params: dict = None):
     """
     Creates an order on the OKX subaccount with flexible execution and amount.
 
@@ -280,8 +268,12 @@ class OKXTrader(BaseExchangeTrader):
                                       'maker_limit' for a limit order aiming for maker fee.
       params (dict): Additional exchange-specific parameters.
     """
+    # Initialize params to empty dict if None to avoid CCXT library issues
+    if params is None:
+      params = {}
+
     # 1. Input validation for spend_percentage
-    if not (0.0 <= spend_percentage <= 1.0):
+    if not 0.0 <= spend_percentage <= 1.0:
       self.logger.error("Error: spend_percentage must be between 0.0 and 1.0.")
       return None
 
@@ -441,17 +433,17 @@ class OKXTrader(BaseExchangeTrader):
       if not ticker or not ticker.get('ask'):
         self.logger.error(f"Could not fetch market price for {symbol} to calculate buy amount.")
         return None
-      
+
       market_price = ticker['ask']  # Use ask price for buy orders
       original_quote_amount = amount_to_trade  # Store original USDT amount for logging
       # Convert quote amount (USDT) to base amount (BTC)
       base_amount = amount_to_trade / market_price
       amount_to_trade = base_amount
-      self.logger.info(f"Converted {original_quote_amount:.2f} {quote_currency} to {amount_to_trade:.8f} {base_currency} at market price {market_price}")
-      
+      self.logger.info(f"Converting {original_quote_amount:.2f} {quote_currency} to {amount_to_trade:.8f} {base_currency} at market price {market_price}")
+
       # For market orders, price should remain None (let exchange determine execution price)
       price = None
-    
+
     amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
 
     # Consistent logging - show price only if it's a limit order
@@ -465,9 +457,11 @@ class OKXTrader(BaseExchangeTrader):
     if order:
       self.logger.success(f"Order placed successfully! Order ID: {order['id']}")
       self.logger.success(f"  Status: {order['status']}, Price: {order['price']}, Amount: {order['amount']}")
+    else:
+      self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
     return order
 
-  async def cancel_order(self, order_id: str, symbol: str = None, params: dict = {}):
+  async def cancel_order(self, order_id: str, symbol: str = None, params: dict = None):
     """
     Cancels an order by its ID on the OKX subaccount.
 
@@ -476,6 +470,8 @@ class OKXTrader(BaseExchangeTrader):
       symbol (str): The trading pair symbol associated with the order.
       params (dict): Additional exchange-specific parameters.
     """
+    if params is None:
+      params = {}
     self.logger.info(f"\nAttempting to cancel order ID: {order_id} for {symbol} on OKX subaccount: {self.subaccount_name}...")
     cancel_result = await self._safe_api_call(self.exchange.cancel_order, order_id, symbol, params)
     if cancel_result:

@@ -1,12 +1,14 @@
-import os
-import ccxt
 from abc import ABC, abstractmethod
-import asyncio # Imported here for the _safe_api_call helper
-from src.misc.logger import CustomLogger
-from src.misc.get_env import get_env  # Import centralized get_env helper
-from typing import Optional, Dict, Any, List
 from collections import deque
 from datetime import datetime
+from typing import Optional
+# Log the full traceback for debugging
+import traceback
+
+import ccxt
+
+from src.misc.logger import CustomLogger
+from src.misc.get_env import get_env  # Import centralized get_env helper
 
 class BaseExchangeTrader(ABC):
   """
@@ -19,10 +21,10 @@ class BaseExchangeTrader(ABC):
   MIN_SPEND_PERCENTAGE = 0.0  # New constant
   MAX_SPEND_PERCENTAGE = 1.0  # New constant
 
-  def __init__(self, 
-               account_identifier: str, 
-               exchange_id: str, 
-               default_type: str = 'spot', 
+  def __init__(self,
+               account_identifier: str,
+               exchange_id: str,
+               default_type: str = 'spot',
                logger: Optional[CustomLogger] = None):
     """
     Initializes the BaseExchangeTrader with account and exchange details.
@@ -38,10 +40,10 @@ class BaseExchangeTrader(ABC):
     self.exchange_id = exchange_id.lower() # Store as lowercase for ccxt lookup
     self.default_type = default_type
     self.logger = logger if logger else CustomLogger(
-        name=self.__class__.__name__,
-        gotify_url=get_env('GOTIFY_SERVER_URL'),
-        gotify_token=get_env('GOTIFY_APP_TOKEN'),
-        gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
+      name=self.__class__.__name__,
+      gotify_url=get_env('GOTIFY_SERVER_URL'),
+      gotify_token=get_env('GOTIFY_APP_TOKEN'),
+      gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
     )
 
     # Dynamically construct environment variable names based on identifier and exchange
@@ -61,8 +63,7 @@ class BaseExchangeTrader(ABC):
     self.hostname = get_env(self.hostname_env)
     self.fiat_stablecoin_pair = get_env(self.fiat_stablecoin_pair_env)
     self.crypto_stablecoin_pair = get_env(self.crypto_stablecoin_pair_env)
-    
-    
+
 
     # --- Implement Validation Here ---
     # List of required environment variables and their corresponding loaded values
@@ -104,22 +105,22 @@ class BaseExchangeTrader(ABC):
       raise ValueError(
         f"Error processing {self.fiat_stablecoin_pair_env} ('{self.fiat_stablecoin_pair}'): "
         f"Could not determine fiat currency. Please ensure it's in 'BASE/QUOTE' format. Error: {e}"
-        )
+        ) from e
 
     self.exchange = None # This will be initialized by concrete subclasses
 
     # Add log buffer for this trader (keep last 50 messages)
     self.log_buffer = deque(maxlen=50)
-    
+
     # Add some initial logs for testing
     self._add_to_buffer("INFO", f"Trader {account_identifier} initialized")
-    
+
     # Create a custom logger for this trader that also writes to buffer
     self.logger = CustomLogger(
-        f'{account_identifier}_{exchange_id}',
-        gotify_url=get_env('GOTIFY_SERVER_URL'),
-        gotify_token=get_env('GOTIFY_APP_TOKEN'),
-        gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
+      f'{account_identifier}_{exchange_id}',
+      gotify_url=get_env('GOTIFY_SERVER_URL'),
+      gotify_token=get_env('GOTIFY_APP_TOKEN'),
+      gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
     )
     self._setup_log_buffer()
 
@@ -127,48 +128,47 @@ class BaseExchangeTrader(ABC):
 
 
   def _setup_log_buffer(self):
-      """Setup logging to also write to the trader's log buffer"""
-      # Override logger methods to also store in buffer
-      original_info = self.logger.info
-      original_error = self.logger.error
-      original_warning = self.logger.warning
-      original_success = self.logger.success
-      
-      def info_with_buffer(msg):
-          self._add_to_buffer("INFO", msg)
-          return original_info(msg)
-          
-      def error_with_buffer(msg):
-          self._add_to_buffer("ERROR", msg)
-          return original_error(msg)
-          
-      def warning_with_buffer(msg):
-          self._add_to_buffer("WARNING", msg)
-          return original_warning(msg)
-          
-      def success_with_buffer(msg):
-          self._add_to_buffer("SUCCESS", msg)
-          return original_success(msg)
-      
-      self.logger.info = info_with_buffer
-      self.logger.error = error_with_buffer
-      self.logger.warning = warning_with_buffer
-      self.logger.success = success_with_buffer
+    """Setup logging to also write to the trader's log buffer"""
+    # Override logger methods to also store in buffer
+    original_info = self.logger.info
+    original_error = self.logger.error
+    original_warning = self.logger.warning
+    original_success = self.logger.success
+
+    def info_with_buffer(msg):
+      self._add_to_buffer("INFO", msg)
+      return original_info(msg)
+
+    def error_with_buffer(msg):
+      self._add_to_buffer("ERROR", msg)
+      return original_error(msg)
+
+    def warning_with_buffer(msg):
+      self._add_to_buffer("WARNING", msg)
+      return original_warning(msg)
+
+    def success_with_buffer(msg):
+      self._add_to_buffer("SUCCESS", msg)
+      return original_success(msg)
+
+    self.logger.info = info_with_buffer
+    self.logger.error = error_with_buffer
+    self.logger.warning = warning_with_buffer
+    self.logger.success = success_with_buffer
 
   def _add_to_buffer(self, level: str, message: str):
-      """Add a log message to this trader's buffer"""
-      from datetime import datetime
-      timestamp = datetime.now().strftime("%H:%M:%S")
-      self.log_buffer.append(f"[{timestamp}] {level}: {message}")
-  
-  def get_recent_logs(self) -> list:
-      """Get recent log messages for this trader"""
-      return list(self.log_buffer)
-    
+    """Add a log message to this trader's buffer"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    self.log_buffer.append(f"[{timestamp}] {level}: {message}")
 
-  async def _safe_api_call(self, 
-                           api_method, 
-                           *args, 
+  def get_recent_logs(self) -> list:
+    """Get recent log messages for this trader"""
+    return list(self.log_buffer)
+
+
+  async def _safe_api_call(self,
+                           api_method,
+                           *args,
                            **kwargs):
     """
     Helper method to wrap asynchronous API calls with common error handling.
@@ -176,9 +176,6 @@ class BaseExchangeTrader(ABC):
     """
     try:
       return await api_method(*args, **kwargs)
-    except ccxt.NetworkError as e:
-      self.logger.error(f"Network error for {self.account_identifier} ({self.exchange_id}): {e}")
-      raise # Re-raise NetworkError for caller to handle specific network issues
     except ccxt.AuthenticationError as e:
       self.logger.critical(f"Authentication error for {self.account_identifier} ({self.exchange_id}). Check API keys/passphrase: {e}")
       raise # Re-raise AuthenticationError, as it's often a critical config issue
@@ -191,6 +188,9 @@ class BaseExchangeTrader(ABC):
     except ccxt.RateLimitExceeded as e:
       self.logger.warning(f"Rate limit exceeded for {self.account_identifier} ({self.exchange_id}): {e}")
       raise # Re-raise for caller to implement backoff
+    except ccxt.NetworkError as e:
+      self.logger.error(f"Network error for {self.account_identifier} ({self.exchange_id}): {e}")
+      raise # Re-raise NetworkError for caller to handle specific network issues
     except ccxt.ExchangeError as e:
       # General ExchangeError: Log with exc_info and re-raise.
       # Specific interpretation (e.g., "market symbol not found") is left to the caller.
@@ -199,9 +199,11 @@ class BaseExchangeTrader(ABC):
     except Exception as e:
       # Catch all other unexpected Python errors that are not CCXT specific.
       self.logger.critical(f"An unexpected CRITICAL error occurred for {self.account_identifier} ({self.exchange_id}): {e}")
+
+      self.logger.critical(f"Full traceback:\n{traceback.format_exc()}")
       return None # Return None for truly unhandled, generic exceptions to prevent hard crash
 
-  
+
   # --- NEW METHOD TO ADD ---
   async def close(self):
     """
@@ -229,7 +231,7 @@ class BaseExchangeTrader(ABC):
     pass
 
   @abstractmethod
-  async def create_order(self, symbol: str, side: str, spend_percentage: float = 1.0, order_execution_strategy: str = 'market', params: dict = {}):
+  async def create_order(self, symbol: str, side: str, spend_percentage: float = 1.0, order_execution_strategy: str = 'market', params: dict = None):
     """
     Abstract method to create an order with flexible execution and amount.
     Must be implemented by concrete exchange classes.
@@ -246,7 +248,7 @@ class BaseExchangeTrader(ABC):
     pass
 
   @abstractmethod
-  async def cancel_order(self, order_id: str, symbol: str = None, params: dict = {}):
+  async def cancel_order(self, order_id: str, symbol: str = None, params: dict = None):
     """
     Abstract method to cancel an order by its ID.
     Must be implemented by concrete exchange classes.
@@ -254,8 +256,8 @@ class BaseExchangeTrader(ABC):
     pass
 
   @abstractmethod
-  async def fetch_open_orders(self, 
-                              symbol: str = None, since: int = None, limit: int = None, params: dict = {}):
+  async def fetch_open_orders(self,
+                              symbol: str = None, since: int = None, limit: int = None, params: dict = None):
     """
     Abstract method to fetch open orders.
     Must be implemented by concrete exchange classes.
@@ -277,16 +279,16 @@ class BaseExchangeTrader(ABC):
   #     """Fetch order book for a symbol."""
   #     pass
 
-  def _validate_order_params( self, 
-                              symbol: str, 
-                              side: str, 
+  def _validate_order_params(self,
+                              symbol: str,
+                              side: str,
                               spend_percentage: float) -> None:
     """Validates order parameters before execution."""
     if side not in self.VALID_ORDER_SIDES:
-        raise ValueError(f"Invalid side: {side}. Must be one of {self.VALID_ORDER_SIDES}")
-    
+      raise ValueError(f"Invalid side: {side}. Must be one of {self.VALID_ORDER_SIDES}")
+
     if not self.MIN_SPEND_PERCENTAGE < spend_percentage <= self.MAX_SPEND_PERCENTAGE:
-        raise ValueError(f"spend_percentage must be between {self.MIN_SPEND_PERCENTAGE} and {self.MAX_SPEND_PERCENTAGE}")
-        
+      raise ValueError(f"spend_percentage must be between {self.MIN_SPEND_PERCENTAGE} and {self.MAX_SPEND_PERCENTAGE}")
+
     if not symbol or '/' not in symbol:
-        raise ValueError(f"Invalid symbol format: {symbol}")
+      raise ValueError(f"Invalid symbol format: {symbol}")

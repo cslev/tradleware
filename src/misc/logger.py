@@ -1,11 +1,10 @@
 import logging
 import sys
-import os
+import json
 from pathlib import Path
 import colorama
 from colorama import Fore, Style
 import requests
-import json
 from .get_env import get_env  # Import centralized get_env helper
 
 # Initialize colorama
@@ -61,8 +60,8 @@ class ColoredFormatter(logging.Formatter):
     return final_colored_message
 
 class CustomLogger:
-  def __init__(self, 
-               name, 
+  def __init__(self,
+               name,
                logfile_name:str="tradleware.log",
                gotify_url:str=None,
                gotify_token:str=None,
@@ -70,18 +69,17 @@ class CustomLogger:
                ):
     self.logger = logging.getLogger(name)
     self.logger.setLevel(logging.DEBUG)
-    
+
     self.gotify_url = gotify_url or get_env('GOTIFY_SERVER_URL')
     self.gotify_token = gotify_token or get_env('GOTIFY_APP_TOKEN')
     self.gotify_log_level = int(gotify_log_level or get_env('GOTIFY_LOG_LEVEL', str(logging.WARNING)))
-    print("Logger initialized by {} - gotify_url: {}, gotify_token: {}, gotify_log_level: {}".format(
-        name, self.gotify_url,  self.gotify_token, self.gotify_log_level))
+    print(f"Logger initialized by {name} - gotify_url: {self.gotify_url}, gotify_token: {self.gotify_token}, gotify_log_level: {self.gotify_log_level}")
 
     # Create console handler
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.DEBUG)
     # Create a formatter with the current log level colors
-    formatter = ColoredFormatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s', 
+    formatter = ColoredFormatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
                                  datefmt='%Y-%m-%d %H:%M:%S')
     ch.setFormatter(formatter)
 
@@ -94,53 +92,53 @@ class CustomLogger:
     logfile = logs_dir / logfile_name
     fh = logging.FileHandler(logfile, mode='a') #rewrite the logfile always
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s', 
+    fh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
                                       datefmt='%Y-%m-%d %H:%M:%S'))
 
     # Add the handlers to the logger
     self.logger.addHandler(ch)
     self.logger.addHandler(fh)
 
-  def debug(self, message, exc_info=False): 
-    self.logger.debug(message, exc_info=exc_info) 
-    if(self.gotify_url is not None and 
-       self.gotify_token is not None and 
+  def debug(self, message, exc_info=False):
+    self.logger.debug(message, exc_info=exc_info)
+    if(self.gotify_url is not None and
+       self.gotify_token is not None and
        logging.DEBUG >= self.gotify_log_level):
       self.send_gotify_notification(title="🐛 Debug Notification",
                                  message=message,
                                  priority=1)  # Low priority for debug messages
 
-  def info(self, message, exc_info=False): 
+  def info(self, message, exc_info=False):
     self.logger.info(message, exc_info=exc_info)
-    if(self.gotify_url is not None and 
-       self.gotify_token is not None and 
+    if(self.gotify_url is not None and
+       self.gotify_token is not None and
        logging.INFO >= self.gotify_log_level):
       self.send_gotify_notification(title="ℹ️ Info Notification",
                                  message=message,
                                  priority=5)  # Normal priority for info messages
 
-  def warning(self, message, exc_info=False): 
+  def warning(self, message, exc_info=False):
     self.logger.warning(message, exc_info=exc_info)
-    if(self.gotify_url is not None and 
-       self.gotify_token is not None and 
+    if(self.gotify_url is not None and
+       self.gotify_token is not None and
        logging.WARNING >= self.gotify_log_level):
       self.send_gotify_notification(title="⚠️ Warning Notification",
                                  message=message,
                                  priority=7)  # High priority for warning messages
 
-  def error(self, message, exc_info=False): 
+  def error(self, message, exc_info=False):
     self.logger.error(message, exc_info=exc_info)
-    if(self.gotify_url is not None and 
-       self.gotify_token is not None and 
+    if(self.gotify_url is not None and
+       self.gotify_token is not None and
        logging.ERROR >= self.gotify_log_level):
       self.send_gotify_notification(title="❌ Error Notification",
                                  message=message,
                                  priority=9)  # Very high priority for error messages
 
-  def critical(self, message, exc_info=False): 
+  def critical(self, message, exc_info=False):
     self.logger.critical(message, exc_info=exc_info)
-    if(self.gotify_url is not None and 
-       self.gotify_token is not None and 
+    if(self.gotify_url is not None and
+       self.gotify_token is not None and
        logging.CRITICAL >= self.gotify_log_level):
       self.send_gotify_notification(title="🚨 Critical Notification",
                                  message=message,
@@ -151,8 +149,8 @@ class CustomLogger:
     Logs a message with the custom SUCCESS level.
     """
     self.logger.log(SUCCESS_LEVEL, message, exc_info=exc_info)
-    if(self.gotify_url is not None and 
-       self.gotify_token is not None and 
+    if(self.gotify_url is not None and
+       self.gotify_token is not None and
        (SUCCESS_LEVEL >= self.gotify_log_level or self.gotify_log_level <= logging.WARNING)):
       self.send_gotify_notification(title="✅ Success Notification",
                                  message=message,
@@ -160,55 +158,56 @@ class CustomLogger:
 
 
   def send_gotify_notification(self,
-                               title: str, 
-                               message: str, 
-                               priority: int = 5, 
+                               title: str,
+                               message: str,
+                               priority: int = 5,
                                extras: dict = None):
     """
     Sends a notification to a Gotify service.
 
     Args:
-        title (str): The title of the notification.
-        message (str): The main message content.
-        priority (int): The priority level (1-10, 1=lowest, 5=default, 10=highest).
-        extras (dict, optional): A dictionary of extra key-value pairs for advanced Gotify clients.
+      title (str): The title of the notification.
+      message (str): The main message content.
+      priority (int): The priority level (1-10, 1=lowest, 5=default, 10=highest).
+      extras (dict, optional): A dictionary of extra key-value pairs for advanced Gotify clients.
                                  Defaults to None.
     Returns:
-        bool: True if the notification was sent successfully, False otherwise.
+      bool: True if the notification was sent successfully, False otherwise.
     """
     headers = {
-        "Content-Type": "application/json",
-        "X-Gotify-Key": self.gotify_token
+      "Content-Type": "application/json",
+      "X-Gotify-Key": self.gotify_token
     }
 
     payload = {
-        "title": title,
-        "message": message,
-        "priority": priority
+      "title": title,
+      "message": message,
+      "priority": priority
     }
 
     if extras:
-        payload["extras"] = extras
+      payload["extras"] = extras
 
     try:
-        response = requests.post(
-            f"{self.gotify_url}/message",
-            headers=headers,
-            data=json.dumps(payload)
-        )
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-        self.logger.info(f"✅ Gotify notification sent successfully: '{title}'")
-        return True
+      response = requests.post(
+        f"{self.gotify_url}/message",
+        headers=headers,
+        data=json.dumps(payload),
+        timeout=10
+      )
+      response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+      self.logger.info(f"✅ Gotify notification sent successfully: '{title}'")
+      return True
     except requests.exceptions.HTTPError as http_err:
-        self.logger.error(f"❌ Gotify HTTP error occurred: {http_err} - {response.text}")
+      self.logger.error(f"❌ Gotify HTTP error occurred: {http_err} - {response.text}")
     except requests.exceptions.ConnectionError as conn_err:
-        self.logger.error(f"❌ Gotify connection error occurred: {conn_err}. Is Gotify server running at {self.gotify_url}?")
+      self.logger.error(f"❌ Gotify connection error occurred: {conn_err}. Is Gotify server running at {self.gotify_url}?")
     except requests.exceptions.Timeout as timeout_err:
-        self.logger.error(f"❌ Gotify request timed out: {timeout_err}")
+      self.logger.error(f"❌ Gotify request timed out: {timeout_err}")
     except requests.exceptions.RequestException as req_err:
-        self.logger.error(f"❌ An unexpected Gotify request error occurred: {req_err}")
+      self.logger.error(f"❌ An unexpected Gotify request error occurred: {req_err}")
     except Exception as e:
-        self.logger.error(f"❌ An unexpected error occurred: {e}")
+      self.logger.error(f"❌ An unexpected error occurred: {e}")
     return False
 # Example usage
 if __name__ == "__main__":
