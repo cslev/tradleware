@@ -1,7 +1,35 @@
 # Tradleware
-Autotrading Middleware mostly for Crypto/Stock Exchanges available and approved in Singapore.
 
+<p align="center">
+  <img src="src/ui/static/images/logos/logo_v5_horizontal.png" alt="Tradleware Logo" width="600">
+</p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/License-GPL%20v3-blue.svg" alt="License: GPL v3">
+  <img src="https://img.shields.io/badge/pylint-10.00/10-brightgreen" alt="Pylint Score">
+  <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/platform-docker-blue.svg" alt="Docker">
+  <img src="https://img.shields.io/badge/Made%20in-Singapore%20🇸🇬-red.svg" alt="Made in Singapore">
+  <img src="https://img.shields.io/badge/privacy-by%20design-green.svg" alt="Privacy by Design">
+  <img src="https://img.shields.io/badge/cost-FREE%20💰-brightgreen.svg" alt="Free">
+</p>
+
+**Tradleware** is a **free, open-source autotrading middleware** that bridges the gap between your trading strategies and cryptocurrency/stock exchanges—built with **privacy-by-design** from Singapore 🇸🇬 with love (with a Hungarian researcher's obsession with efficiency, paprika-level debugging, and the belief that if it's worth automating, it's worth over-engineering at 3 AM with coffee ☕🇭🇺).
+
+Take full control of your automated trading without compromising your security. Tradleware runs entirely on **your own infrastructure**, meaning your exchange API keys never leave your servers. No third-party services. No data sharing. No subscription fees. Just you, your strategies, and your trades.
+
+Designed to capture webhooks from popular strategy platforms like **TradingView**, Tradleware validates, processes, and executes trades automatically on exchanges that meet Singapore's rigorous regulatory standards. While my focus is on exchanges approved or being approved by the **Monetary Authority of Singapore (MAS)**—ensuring they've passed through stringent vetting processes—Tradleware can be used anywhere in the world. I simply believe in building on platforms that prioritize compliance, security, and trader protection.
+
+**Key Philosophy:**
+- 🔒 **Privacy First**: Your API keys, your data, your control
+- 💰 **Completely Free**: No hidden costs, no subscriptions, free forever (How ah? coz how i charge u if you run it at home ah??)
+- 🤖 **Automation Done Right**: Secure webhook processing with built-in safety checks
+- 🏛️ **Regulatory Focus**: Prioritizing MAS-compliant exchanges for peace of mind
+- 🌏 **Global Ready**: Use it anywhere, with any supported exchange
+
+Whether you're running sophisticated algorithmic strategies or simple indicator-based alerts, Tradleware ensures your trades execute reliably, securely, and automatically—all while keeping your sensitive data exactly where it belongs: with you.
+
+---
 
 ## Features
 
@@ -33,7 +61,37 @@ This will:
 
 ### Configure Environment Variables
 
-Before running the container, you need to set up your `.env` file with the necessary configuration:
+Before running the container, you need to set up your `.env` file with the necessary configuration.
+
+#### Environment Variables Reference
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| **Core Configuration** |
+| `ACTIVE_TRADING_CONFIGS` | ✅ Yes | - | Comma-separated list of trading bot configurations (e.g., `"MYBOT_OKX,OTHERBOT_OKX"`) |
+| **Dashboard & Security** |
+| `DASHBOARD_USERNAME` | No | `admin` | Username for dashboard login |
+| `DASHBOARD_PASSWORD` | No | `changeme` | Password for dashboard login (⚠️ **Change this!**) |
+| `SESSION_SECRET_KEY` | No | Auto-generated | Secret key for session encryption. Generate with `openssl rand -hex 32` |
+| `WEBHOOK_PATH` | No | `webhook` | Custom webhook endpoint path for security (e.g., `ka8Moh4aiNgai4`). Generate with `pwgen -n 14` |
+| `TRUSTED_IPS` | No | - | Comma-separated list of IPs that bypass authentication (e.g., `127.0.0.1,192.168.1.100`) |
+| **UI Configuration** |
+| `LOG_REFRESH_INTERVAL_MS` | No | `5000` | Dashboard log refresh interval in milliseconds (1000-30000 recommended) |
+| **Gotify Notifications** |
+| `GOTIFY_SERVER_URL` | No | - | Your Gotify server URL (e.g., `https://gotify.example.com`) |
+| `GOTIFY_APP_TOKEN` | No | - | Gotify application token for sending notifications |
+| `GOTIFY_LOG_LEVEL` | No | `30` | Minimum log level for Gotify notifications (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL) |
+| **Per-Bot Exchange Configuration** (Replace `{IDENTIFIER}` with your bot name, e.g., `MYBOT`) |
+| `{IDENTIFIER}_OKX_API_KEY` | ✅ Yes | - | OKX exchange API key |
+| `{IDENTIFIER}_OKX_SECRET_KEY` | ✅ Yes | - | OKX exchange secret key |
+| `{IDENTIFIER}_OKX_PASSPHRASE` | ✅ Yes | - | OKX exchange passphrase |
+| `{IDENTIFIER}_OKX_HOSTNAME` | No | `www.okx.com` | OKX API hostname |
+| `{IDENTIFIER}_OKX_SUBACCOUNT_NAME` | ✅ Yes | - | OKX subaccount name to use |
+| `{IDENTIFIER}_OKX_FIAT_STABLECOIN_PAIR` | ✅ Yes | - | Fiat to stablecoin trading pair (e.g., `USDT/SGD`) |
+| `{IDENTIFIER}_OKX_CRYPTO_STABLECOIN_PAIR` | ✅ Yes | - | Crypto to stablecoin trading pair (e.g., `BTC/USDT`) |
+| `{IDENTIFIER}_OKX_TRADLEWARE_API_KEY` | ✅ Yes | - | Webhook authentication key. Generate with `openssl rand -hex 32` |
+
+#### Quick Setup
 
 1. **Copy the example environment file** (if available) or create a new `.env` file:
    ```bash
@@ -53,17 +111,24 @@ Before running the container, you need to set up your `.env` file with the neces
    MYBTCBOT_OKX_PASSPHRASE="your-passphrase"
    MYBTCBOT_OKX_HOSTNAME="www.okx.com"
    MYBTCBOT_OKX_SUBACCOUNT_NAME="YourSubaccountName"
-   MYBTCBOT_OKX_FIAT_STABLECOIN_PAIR="USDT/USD"
+   MYBTCBOT_OKX_FIAT_STABLECOIN_PAIR="USDT/SGD"
    MYBTCBOT_OKX_CRYPTO_STABLECOIN_PAIR="BTC/USDT"
    
    # Generate webhook API key (use: openssl rand -hex 32)
    MYBTCBOT_OKX_TRADLEWARE_API_KEY="your-generated-api-key"
    ```
 
-3. **Configure webhook security** (recommended):
+3. **Configure dashboard security**:
    ```env
-   # Generate random path (use: pwgen -n 14)
+   # Change default credentials
+   DASHBOARD_USERNAME="yourusername"
+   DASHBOARD_PASSWORD="your-secure-password"
+   
+   # Generate random webhook path for security (use: pwgen -n 14)
    WEBHOOK_PATH="ka8Moh4aiNgai4"
+   
+   # Optional: Generate session secret (use: openssl rand -hex 32)
+   SESSION_SECRET_KEY="your-generated-session-secret"
    ```
 
 4. **Optional: Configure Gotify notifications**:
@@ -72,13 +137,11 @@ Before running the container, you need to set up your `.env` file with the neces
    GOTIFY_APP_TOKEN="your-gotify-token"
    GOTIFY_LOG_LEVEL=30
    ```
-   *Gotify integration sends real-time push notifications to your mobile device or desktop for trading events (successful trades, errors, warnings). It's like receiving SMS alerts but through a self-hosted notification server.*
 
 5. **Optional: Configure UI refresh rate**:
    ```env
    LOG_REFRESH_INTERVAL_MS=5000  # 5 seconds
    ```
-   *This controls how often the web UI polls for new log messages from your trading bots. Lower values (e.g., 1000ms) provide near real-time updates but increase server load, while higher values (e.g., 10000ms) reduce load but delay log visibility.*
 
 ### Run the Container
 
@@ -89,6 +152,8 @@ docker-compose up -d
 ```
 
 The application will be available at `http://localhost:8080`
+
+````
 
 ### View Logs
 
