@@ -46,11 +46,12 @@ The easiest way to run Tradleware is using Docker. You have two options:
 
 ### Option 1: Pull Pre-built Image from Docker Hub (Recommended)
 
-The fastest way to get started - no compilation needed! Just pull the official image:
+The fastest way to get started - no compilation needed! Just pull the official image (latest for `amd64`):
 
 ```bash
 docker pull cslev/tradleware:latest
 ```
+For different versions and architectures, visit [Dockerhub](https://hub.docker.com/repository/docker/cslev/tradleware/tags).
 
 Then run using docker-compose (see [Configure Environment Variables](#configure-environment-variables) section below first):
 
