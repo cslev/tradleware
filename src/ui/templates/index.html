@@ -176,18 +176,7 @@
 }
 {% endraw %}</pre>
                 <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test locally</h3>
-                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto curl-example">{% raw %}
-curl -X POST <WEBHOOK_URL>?alert_name=MyStrategyAlert \
-  -H "Content-Type: application/json" \
-  -d '{
-    "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
-    "trader_id": "MYBTCBOT_OKX",
-    "ticker": "BTC/USDT",
-    "action": "buy",
-    "timestamp": "1700000000",
-    "alert_name": "MyStrategyAlertFromBody"
-  }'
-{% endraw %}</pre>
+                <pre id="curl-example-{{ trader_id }}" class="bg-gray-100 p-2 rounded text-xs overflow-x-auto curl-example"></pre>
               </div>
             </div>
           </div>

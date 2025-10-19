@@ -193,9 +193,15 @@ document.addEventListener('DOMContentLoaded', () => {
     el.textContent = webhookUrl;
   });
   
-  // Update cURL example
-  document.querySelectorAll('.curl-example').forEach(el => {
-    el.textContent = el.textContent.replace('<WEBHOOK_URL>', webhookUrl);
+  // Set cURL example for each trader
+  traderIds.forEach(traderId => {
+    const curlPre = document.getElementById(`curl-example-${traderId}`);
+    if (curlPre) {
+      curlPre.textContent =
+        `curl -X POST ${webhookUrl}?alert_name=MyStrategyAlert \\
+  -H "Content-Type: application/json" \\
+  -d '{\n    "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",\n    "trader_id": "${traderId}",\n    "ticker": "BTC/USDT",\n    "action": "buy",\n    "timestamp": "1700000000",\n    "alert_name": "MyStrategyAlertFromBody"\n  }'`;
+    }
   });
   
   // Initial load
