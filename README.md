@@ -1,4 +1,4 @@
-# Tradleware
+# TRADLEWARE
 
 <p align="center">
   <img src="src/ui/static/images/logos/logo_v5_horizontal.jpg" alt="Tradleware Logo" width="800">
@@ -42,9 +42,30 @@ Whether you're running sophisticated algorithmic strategies or simple indicator-
 
 ## Docker Deployment
 
-The easiest way to run Tradleware is using Docker. The application includes a `Dockerfile` and `docker-compose.yml` for simple deployment.
+The easiest way to run Tradleware is using Docker. You have two options:
 
-### Build the Docker Image
+### Option 1: Pull Pre-built Image from Docker Hub (Recommended)
+
+The fastest way to get started - no compilation needed! Just pull the official image:
+
+```bash
+docker pull cslev/tradleware:latest
+```
+
+Then run using docker-compose (see [Configure Environment Variables](#configure-environment-variables) section below first):
+
+```bash
+docker-compose up -d
+```
+
+**Benefits:**
+- ⚡ No build time - instant deployment
+- ✅ Pre-tested stable release
+- 🔄 Easy updates with `docker pull lelesan/tradleware:latest`
+
+### Option 2: Build from Source
+
+If you prefer to build locally or want to modify the code:
 
 Navigate to the project root and build the image:
 
