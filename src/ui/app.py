@@ -182,6 +182,14 @@ def require_auth(request: Request):
     logger.warning(f"Unauthorized access attempt from IP: {client_ip}")
     raise HTTPException(status_code=401, detail="Authentication required")
 
+def is_request_secure(request: Request) -> bool:
+  # Check X-Forwarded-Proto header (used by most proxies/tunnels)
+  xf_proto = request.headers.get("X-Forwarded-Proto")
+  if xf_proto:
+    return xf_proto.lower() == "https"
+  # Fallback to scheme (for direct access)
+  return request.url.scheme == "https"
+
 #################### AUTHENTICATION ROUTES ####################
 
 @app.get("/login", response_class=HTMLResponse)
@@ -267,7 +275,7 @@ async def read_root(request: Request):
   log_refresh_interval = int(get_env('LOG_REFRESH_INTERVAL_MS', '5000'))
 
   # Check if connection is secure (HTTPS)
-  is_secure = request.url.scheme == "https"
+  is_secure = is_request_secure(request)
 
   # Check if accessing from trusted IP
   from_trusted_ip = client_ip in TRUSTED_IPS if TRUSTED_IPS else False

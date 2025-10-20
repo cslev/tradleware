@@ -16,21 +16,27 @@
   
   <div class="container mx-auto p-12">  <!-- Changed p-6 to p-12 for bigger padding -->
     <!-- Header with logo and logout button -->
-    <div class="flex justify-between items-center mb-12">
-      <div class="flex-1"></div> <!-- Spacer for centering -->
-      <div class="flex justify-center flex-1">
-        <img 
-          src="{{ url_for('static', path='images/logos/logo_v5_horizontal.png') }}" 
-          alt="Tradleware Logo" 
-          class="h-48 object-contain"
-        >
-      </div>
-      <div class="flex-1 flex justify-end">/
-        <a href="/logout" class="login-button text-white font-bold px-8 py-3 rounded-lg flex items-center gap-2 uppercase tracking-wider">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div class="flex flex-col items-center mb-12 w-full">
+      <!-- Show vertical logo on mobile, horizontal on larger screens -->
+      <img 
+        src="{{ url_for('static', path='images/logos/logo_v5_vertical2.png') }}" 
+        alt="Tradleware Logo Vertical" 
+        class="h-56 w-full max-w-xs object-contain block sm:hidden"
+      >
+      <img 
+        src="{{ url_for('static', path='images/logos/logo_v5_horizontal.png') }}" 
+        alt="Tradleware Logo Horizontal" 
+        class="hidden sm:block object-contain mx-auto w-[600px] h-[200px] min-w-[600px] min-h-[200px]"
+      >
+      <!-- Logout button always below logo -->
+      <div class="mt-4 w-full flex justify-center">
+        <a href="/logout" class="login-button text-white font-bold rounded-full flex items-center uppercase tracking-wider
+          px-3 py-1 text-xs gap-1 w-full max-w-xs justify-center
+        ">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
           </svg>
-          Logout
+          <span>Logout</span>
         </a>
       </div>
     </div>
