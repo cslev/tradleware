@@ -212,7 +212,7 @@ async def login_page(request: Request):
   ) or not DASHBOARD_USERNAME or not DASHBOARD_PASSWORD
 
   # Check if connection is secure (HTTPS)
-  is_secure = request.url.scheme == "https"
+  is_secure = is_request_secure(request)
 
   return templates.TemplateResponse(
     "login.html",
