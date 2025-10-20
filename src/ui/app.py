@@ -28,7 +28,7 @@ from src.traders.okx_trader import OKXTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v1.0"
+TRADLEWARE_VERSION = "v1.1"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
