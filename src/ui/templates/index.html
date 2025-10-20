@@ -19,14 +19,9 @@
     <div class="flex flex-col items-center mb-12 w-full">
       <!-- Show vertical logo on mobile, horizontal on larger screens -->
       <img 
-        src="{{ url_for('static', path='images/logos/logo_v5_vertical2.png') }}" 
-        alt="Tradleware Logo Vertical" 
-        class="h-56 w-full max-w-xs object-contain block sm:hidden"
-      >
-      <img 
         src="{{ url_for('static', path='images/logos/logo_v5_horizontal.png') }}" 
-        alt="Tradleware Logo Horizontal" 
-        class="w-[600px] h-[200px] min-w-[600px] min-h-[200px] object-contain hidden sm:block mx-auto"
+        alt="Tradleware Logo" 
+        class="w-full max-w-xs sm:max-w-lg md:max-w-2xl h-auto object-contain mx-auto"
       >
       <!-- Logout button always below logo -->
       <div class="mt-4 w-full flex justify-center">
@@ -225,16 +220,12 @@
     <div class="mb-3">
       {% if is_secure %}
       <p class="text-green-300">
-        <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
-        </svg>
+        <span class="text-lg mr-1">🔐</span>
         Your connection is encrypted
       </p>
       {% else %}
       <p class="text-red-400">
-        <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 015.905-.75 1 1 0 001.937-.5A5.002 5.002 0 0010 2z"/>
-        </svg>
+        <span class="text-lg mr-1">🚨</span>
         Your connection is not encrypted
       </p>
       {% endif %}
