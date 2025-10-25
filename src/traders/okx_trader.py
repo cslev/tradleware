@@ -32,7 +32,6 @@ class OKXTrader(BaseExchangeTrader):
     okx_options = {
       'defaultType': self.default_type,
       'subAccount': self.subaccount_name, # CRITICAL: This tells ccxt to target the subaccount
-
     }
     # self.logger.info(f"OKX options: {okx_options}")
     # self.logger.info(f"exchange details:\napiKey:{self.api_key}\nsecret:{self.secret_key}\npassword:{self.passphrase}\noptions:{okx_options}")
@@ -147,7 +146,7 @@ class OKXTrader(BaseExchangeTrader):
       order_execution_strategy (str): 'market' for immediate execution, 'maker_limit' for limit order.
       max_slippage (float): Maximum allowed slippage for market orders (0.0 to 1.0).
     """
-    self.logger.info(f"\nAttempting to convert {spend_percentage*100}% of {self.fiat_currency} to {self.stablecoin_currency} via {self.fiat_stablecoin_pair}...")
+    self.logger.info(f"\nAttempting to convert {spend_percentage*100}% of {self.fiat_currency} to {self.stablecoin_currency} via {self.stablecoin_fiat_pair}...")
     if not 0.0 < spend_percentage <= 1.0:
       self.logger.error("❌ spend_percentage must be between 0.0 (exclusive) and 1.0 (inclusive).")
       return 0.0
@@ -184,7 +183,7 @@ class OKXTrader(BaseExchangeTrader):
     # 2. Add slippage protection for market orders
     if order_execution_strategy == 'market':
       # Get current market price before placing order
-      ticker = await self._safe_api_call(self.exchange.fetch_ticker, self.fiat_stablecoin_pair)
+      ticker = await self._safe_api_call(self.exchange.fetch_ticker, self.stablecoin_fiat_pair)
       if not ticker:
         self.logger.error("Could not fetch ticker for slippage calculation")
         return 0.0
@@ -194,7 +193,7 @@ class OKXTrader(BaseExchangeTrader):
 
     # 3. Place the order
     stablecoin_order = await self.create_order(
-      symbol=self.fiat_stablecoin_pair,
+      symbol=self.stablecoin_fiat_pair,
       side='buy',
       spend_percentage=spend_percentage,
       order_execution_strategy=order_execution_strategy
@@ -211,7 +210,7 @@ class OKXTrader(BaseExchangeTrader):
       # Wait a moment and fetch the order details
       await asyncio.sleep(1)
       try:
-        updated_order = await self._safe_api_call(self.exchange.fetch_order, order_id, self.fiat_stablecoin_pair)
+        updated_order = await self._safe_api_call(self.exchange.fetch_order, order_id, self.stablecoin_fiat_pair)
         if updated_order:
           stablecoin_order = updated_order
           self.logger.info(f"Updated order status: {stablecoin_order.get('status')}, filled: {stablecoin_order.get('filled', 0)}")
@@ -440,22 +439,22 @@ class OKXTrader(BaseExchangeTrader):
       ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
       # normalize ticker to a dict-like object (tests may return Mock)
       if ticker is None:
-          self.logger.error(f"Could not fetch market price for {symbol} to calculate buy amount.")
-          return None
+        self.logger.error(f"Could not fetch market price for {symbol} to calculate buy amount.")
+        return None
       if not isinstance(ticker, dict):
-          # try mapping conversion, then attribute extraction, else empty
+        # try mapping conversion, then attribute extraction, else empty
+        try:
+          ticker = dict(ticker)
+        except Exception:
           try:
-              ticker = dict(ticker)
+            ticker = {k: getattr(ticker, k) for k in ('ask', 'bid', 'last') if hasattr(ticker, k)}
           except Exception:
-              try:
-                  ticker = {k: getattr(ticker, k) for k in ('ask', 'bid', 'last') if hasattr(ticker, k)}
-              except Exception:
-                  ticker = {}
+            ticker = {}
       # pick best available price field
       expected_price = ticker.get('ask') or ticker.get('last') or ticker.get('bid')
       if expected_price is None:
-          self.logger.error(f"Could not determine price from ticker for {symbol}: {ticker}")
-          return None
+        self.logger.error(f"Could not determine price from ticker for {symbol}: {ticker}")
+        return None
       # Convert quote amount (USDT) to base amount (BTC)
       base_amount = amount_to_trade / expected_price
       amount_to_trade = base_amount

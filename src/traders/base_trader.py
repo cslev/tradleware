@@ -53,7 +53,7 @@ class BaseExchangeTrader(ABC):
     self.passphrase_env = f'{account_identifier}_{exchange_id.upper()}_PASSPHRASE'
     self.subaccount_name_env = f'{account_identifier}_{exchange_id.upper()}_SUBACCOUNT_NAME' # Generic for subaccounts/portfolios
     self.hostname_env = f'{account_identifier}_{exchange_id.upper()}_HOSTNAME'
-    self.fiat_stablecoin_pair_env = f'{account_identifier}_{exchange_id.upper()}_FIAT_STABLECOIN_PAIR'
+    self.stablecoin_fiat_pair_env = f'{account_identifier}_{exchange_id.upper()}_STABLECOIN_FIAT_PAIR'
     self.crypto_stablecoin_pair_env = f'{account_identifier}_{exchange_id.upper()}_CRYPTO_STABLECOIN_PAIR'
     self.tradleware_api_key = get_env(f"{account_identifier}_{exchange_id.upper()}_TRADLEWARE_API_KEY")
 
@@ -62,7 +62,7 @@ class BaseExchangeTrader(ABC):
     self.passphrase = get_env(self.passphrase_env)
     self.subaccount_name = get_env(self.subaccount_name_env)
     self.hostname = get_env(self.hostname_env)
-    self.fiat_stablecoin_pair = get_env(self.fiat_stablecoin_pair_env)
+    self.stablecoin_fiat_pair = get_env(self.stablecoin_fiat_pair_env)
     self.crypto_stablecoin_pair = get_env(self.crypto_stablecoin_pair_env)
 
 
@@ -71,9 +71,9 @@ class BaseExchangeTrader(ABC):
     required_vars = [
       (self.api_key_env, self.api_key),
       (self.secret_key_env, self.secret_key),
-      (self.passphrase_env, self.passphrase), # Critical for OKX
-      (self.subaccount_name_env, self.subaccount_name),
-      (self.fiat_stablecoin_pair_env, self.fiat_stablecoin_pair),
+      # (self.passphrase_env, self.passphrase), # Critical for OKX
+      # (self.subaccount_name_env, self.subaccount_name),
+      (self.stablecoin_fiat_pair_env, self.stablecoin_fiat_pair),
       (self.crypto_stablecoin_pair_env, self.crypto_stablecoin_pair),
 
     ]
@@ -89,14 +89,14 @@ class BaseExchangeTrader(ABC):
         f"Please ensure the following are set in your .env file: {', '.join(missing_vars)}."
       )
 
-    self.stablecoin_currency = self.fiat_stablecoin_pair.split("/")[0]
-    self.fiat_currency = self.fiat_stablecoin_pair.split("/")[1]
-    # Validate and derive fiat_currency AFTER fiat_stablecoin_pair is confirmed to exist
+    self.stablecoin_currency = self.stablecoin_fiat_pair.split("/")[0]
+    self.fiat_currency = self.stablecoin_fiat_pair.split("/")[1]
+    # Validate and derive fiat_currency AFTER stablecoin_fiat_pair is confirmed to exist
     try:
-      parts = self.fiat_stablecoin_pair.split("/")
+      parts = self.stablecoin_fiat_pair.split("/")
       if len(parts) != 2 or not parts[1]:
         raise ValueError(
-          f"Invalid format for {self.fiat_stablecoin_pair_env} ('{self.fiat_stablecoin_pair}'). "
+          f"Invalid format for {self.stablecoin_fiat_pair_env} ('{self.stablecoin_fiat_pair}'). "
           f"Expected 'BASE/QUOTE' format (e.g., 'USDT/SGD') for the stablecoin pair."
           )
       self.fiat_currency = parts[1]
@@ -104,7 +104,7 @@ class BaseExchangeTrader(ABC):
       # This should ideally be caught by the `missing_vars` check, but provides a safeguard
       # if the variable exists but is malformed.
       raise ValueError(
-        f"Error processing {self.fiat_stablecoin_pair_env} ('{self.fiat_stablecoin_pair}'): "
+        f"Error processing {self.stablecoin_fiat_pair_env} ('{self.stablecoin_fiat_pair}'): "
         f"Could not determine fiat currency. Please ensure it's in 'BASE/QUOTE' format. Error: {e}"
         ) from e
 
