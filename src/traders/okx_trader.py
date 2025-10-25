@@ -1,5 +1,6 @@
+import asyncio # Imported for asyncio.sleep
 from typing import Dict, Any
-import asyncio # Imported for asyncio.iscoroutinefunction for debugging
+from typing import Optional, List
 
 import ccxt
 from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
@@ -55,16 +56,7 @@ class OKXTrader(BaseExchangeTrader):
     """
     self.logger.info(f"Fetching balance for OKX subaccount: {self.subaccount_name}...")
 
-    ############ DEBUG - can remove after confirmed it's working #############
-    # DEBUG: Print the type of the method before passing it to _safe_api_call
-    self.logger.debug(f"Type of self.exchange.fetch_balance before _safe_api_call: {type(self.exchange.fetch_balance)}")
-    # This check is useful for diagnostics, keep it if you want
-    if not asyncio.iscoroutinefunction(self.exchange.fetch_balance):
-      self.logger.error(f"ERROR: self.exchange.fetch_balance is not an async function! Type: {type(self.exchange.fetch_balance)}")
-      # If it's not an async function, it might be a dictionary or None, leading to the await error.
-      # This is very unusual for ccxt methods.
-      return None
-    ############################# DEBUG END ###################################
+    # Call via _safe_api_call to keep exception handling consistent
     balance = await self._safe_api_call(self.exchange.fetch_balance)
     if balance:
       self.logger.info(f"Balance for {self.subaccount_name}:\n")
@@ -80,7 +72,7 @@ class OKXTrader(BaseExchangeTrader):
 
 
 
-  async def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = None):
+  async def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = None) -> Optional[List[Dict[str, Any]]]:
     """
     Fetches all open orders for the OKX subaccount.
 
@@ -215,8 +207,8 @@ class OKXTrader(BaseExchangeTrader):
         if updated_order:
           stablecoin_order = updated_order
           self.logger.info(f"Updated order status: {stablecoin_order.get('status')}, filled: {stablecoin_order.get('filled', 0)}")
-      except Exception as e:
-        self.logger.warning(f"Could not fetch updated order details: {e}")
+      except Exception as exc:
+        self.logger.warning(f"Could not fetch updated order details: {exc}")
 
     # Check order status - for market orders, status might be 'closed' or 'filled'
     order_status = stablecoin_order.get('status')
@@ -280,16 +272,19 @@ class OKXTrader(BaseExchangeTrader):
     # 2. Determine base and quote currencies and market limits/precision
     market = None
     try:
-      # Load market info if not already loaded, or refresh it
-      await self.exchange.load_markets(reload=True)
+      # Load (reload) markets via _safe_api_call so errors are logged & handled consistently
+      load_result = await self._safe_api_call(self.exchange.load_markets, True)
+      if load_result is None and not getattr(self.exchange, "markets", None):
+        self.logger.error(f"Failed to (re)load markets for {symbol}. Aborting order creation.")
+        return None
       market = self.exchange.market(symbol)
       base_currency = market['base']
       quote_currency = market['quote']
-    except ccxt.ExchangeError as e:
-      self.logger.error(f"Exchange error loading market for {symbol}: {e}")
+    except ccxt.ExchangeError as exc:
+      self.logger.error(f"Exchange error loading market for {symbol}: {exc}")
       return None
-    except Exception as e:
-      self.logger.error(f"Error loading market for {symbol}: {e}")
+    except Exception as exc:
+      self.logger.error(f"Error loading market for {symbol}: {exc}")
       return None
 
     if not market:
