@@ -119,35 +119,35 @@ class CustomLogger:
   def debug(self, message, exc_info=False):
     self.logger.debug(message, exc_info=exc_info)
     if self.gotify_url and self.gotify_token and logging.DEBUG >= self.gotify_log_level:
-       self.send_gotify_notification(title="🐛 Debug Notification",
+      self.send_gotify_notification(title="🐛 Debug Notification",
                                   message=message,
                                   priority=1)  # Low priority for debug messages
 
   def info(self, message, exc_info=False):
     self.logger.info(message, exc_info=exc_info)
     if self.gotify_url and self.gotify_token and logging.INFO >= self.gotify_log_level:
-       self.send_gotify_notification(title="ℹ️ Info Notification",
+      self.send_gotify_notification(title="ℹ️ Info Notification",
                                   message=message,
                                   priority=5)  # Normal priority for info messages
 
   def warning(self, message, exc_info=False):
     self.logger.warning(message, exc_info=exc_info)
     if self.gotify_url and self.gotify_token and logging.WARNING >= self.gotify_log_level:
-       self.send_gotify_notification(title="⚠️ Warning Notification",
+      self.send_gotify_notification(title="⚠️ Warning Notification",
                                   message=message,
                                   priority=7)  # High priority for warning messages
 
   def error(self, message, exc_info=False):
     self.logger.error(message, exc_info=exc_info)
     if self.gotify_url and self.gotify_token and logging.ERROR >= self.gotify_log_level:
-       self.send_gotify_notification(title="❌ Error Notification",
+      self.send_gotify_notification(title="❌ Error Notification",
                                   message=message,
                                   priority=9)  # Very high priority for error messages
 
   def critical(self, message, exc_info=False):
     self.logger.critical(message, exc_info=exc_info)
     if self.gotify_url and self.gotify_token and logging.CRITICAL >= self.gotify_log_level:
-       self.send_gotify_notification(title="🚨 Critical Notification",
+      self.send_gotify_notification(title="🚨 Critical Notification",
                                   message=message,
                                   priority=10)  # Maximum priority for critical messages
 
@@ -157,7 +157,7 @@ class CustomLogger:
     """
     self.logger.log(SUCCESS_LEVEL, message, exc_info=exc_info)
     if self.gotify_url and self.gotify_token and (SUCCESS_LEVEL >= self.gotify_log_level or self.gotify_log_level <= logging.WARNING):
-       self.send_gotify_notification(title="✅ Success Notification",
+      self.send_gotify_notification(title="✅ Success Notification",
                                   message=message,
                                   priority=6)  # Medium-high priority for success messages
 
