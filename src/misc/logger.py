@@ -70,9 +70,26 @@ class CustomLogger:
     self.logger = logging.getLogger(name)
     self.logger.setLevel(logging.DEBUG)
 
-    self.gotify_url = gotify_url or get_env('GOTIFY_SERVER_URL')
-    self.gotify_token = gotify_token or get_env('GOTIFY_APP_TOKEN')
-    self.gotify_log_level = int(gotify_log_level or get_env('GOTIFY_LOG_LEVEL', str(logging.WARNING)))
+    # Helper: prefer explicit arg if non-empty, otherwise read env and treat empty string as unset (None)
+    def _coerce_str_arg(arg_val, env_key, default=None):
+      if arg_val is not None and str(arg_val).strip() != "":
+        return str(arg_val).strip()
+      env_val = get_env(env_key, default if default is not None else "")
+      return env_val.strip() if isinstance(env_val, str) and env_val.strip() != "" else None
+
+    self.gotify_url = _coerce_str_arg(gotify_url, 'GOTIFY_SERVER_URL')
+    self.gotify_token = _coerce_str_arg(gotify_token, 'GOTIFY_APP_TOKEN')
+
+    # Parse log level safely (accept int/string), fall back to logging.WARNING on failure
+    level_src = None
+    if gotify_log_level is not None and str(gotify_log_level).strip() != "":
+      level_src = str(gotify_log_level).strip()
+    else:
+      level_src = get_env('GOTIFY_LOG_LEVEL', str(logging.WARNING))
+    try:
+      self.gotify_log_level = int(level_src)
+    except Exception:
+      self.gotify_log_level = logging.WARNING
     print(f"Logger initialized by {name} - gotify_url: {self.gotify_url}, gotify_token: {self.gotify_token}, gotify_log_level: {self.gotify_log_level}")
 
     # Create console handler
@@ -101,60 +118,48 @@ class CustomLogger:
 
   def debug(self, message, exc_info=False):
     self.logger.debug(message, exc_info=exc_info)
-    if(self.gotify_url is not None and
-       self.gotify_token is not None and
-       logging.DEBUG >= self.gotify_log_level):
-      self.send_gotify_notification(title="🐛 Debug Notification",
-                                 message=message,
-                                 priority=1)  # Low priority for debug messages
+    if self.gotify_url and self.gotify_token and logging.DEBUG >= self.gotify_log_level:
+       self.send_gotify_notification(title="🐛 Debug Notification",
+                                  message=message,
+                                  priority=1)  # Low priority for debug messages
 
   def info(self, message, exc_info=False):
     self.logger.info(message, exc_info=exc_info)
-    if(self.gotify_url is not None and
-       self.gotify_token is not None and
-       logging.INFO >= self.gotify_log_level):
-      self.send_gotify_notification(title="ℹ️ Info Notification",
-                                 message=message,
-                                 priority=5)  # Normal priority for info messages
+    if self.gotify_url and self.gotify_token and logging.INFO >= self.gotify_log_level:
+       self.send_gotify_notification(title="ℹ️ Info Notification",
+                                  message=message,
+                                  priority=5)  # Normal priority for info messages
 
   def warning(self, message, exc_info=False):
     self.logger.warning(message, exc_info=exc_info)
-    if(self.gotify_url is not None and
-       self.gotify_token is not None and
-       logging.WARNING >= self.gotify_log_level):
-      self.send_gotify_notification(title="⚠️ Warning Notification",
-                                 message=message,
-                                 priority=7)  # High priority for warning messages
+    if self.gotify_url and self.gotify_token and logging.WARNING >= self.gotify_log_level:
+       self.send_gotify_notification(title="⚠️ Warning Notification",
+                                  message=message,
+                                  priority=7)  # High priority for warning messages
 
   def error(self, message, exc_info=False):
     self.logger.error(message, exc_info=exc_info)
-    if(self.gotify_url is not None and
-       self.gotify_token is not None and
-       logging.ERROR >= self.gotify_log_level):
-      self.send_gotify_notification(title="❌ Error Notification",
-                                 message=message,
-                                 priority=9)  # Very high priority for error messages
+    if self.gotify_url and self.gotify_token and logging.ERROR >= self.gotify_log_level:
+       self.send_gotify_notification(title="❌ Error Notification",
+                                  message=message,
+                                  priority=9)  # Very high priority for error messages
 
   def critical(self, message, exc_info=False):
     self.logger.critical(message, exc_info=exc_info)
-    if(self.gotify_url is not None and
-       self.gotify_token is not None and
-       logging.CRITICAL >= self.gotify_log_level):
-      self.send_gotify_notification(title="🚨 Critical Notification",
-                                 message=message,
-                                 priority=10)  # Maximum priority for critical messages
+    if self.gotify_url and self.gotify_token and logging.CRITICAL >= self.gotify_log_level:
+       self.send_gotify_notification(title="🚨 Critical Notification",
+                                  message=message,
+                                  priority=10)  # Maximum priority for critical messages
 
   def success(self, message, exc_info=False):
     """
     Logs a message with the custom SUCCESS level.
     """
     self.logger.log(SUCCESS_LEVEL, message, exc_info=exc_info)
-    if(self.gotify_url is not None and
-       self.gotify_token is not None and
-       (SUCCESS_LEVEL >= self.gotify_log_level or self.gotify_log_level <= logging.WARNING)):
-      self.send_gotify_notification(title="✅ Success Notification",
-                                 message=message,
-                                 priority=6)  # Medium-high priority for success messages
+    if self.gotify_url and self.gotify_token and (SUCCESS_LEVEL >= self.gotify_log_level or self.gotify_log_level <= logging.WARNING):
+       self.send_gotify_notification(title="✅ Success Notification",
+                                  message=message,
+                                  priority=6)  # Medium-high priority for success messages
 
 
   def send_gotify_notification(self,
@@ -211,10 +216,7 @@ class CustomLogger:
     return False
 # Example usage
 if __name__ == "__main__":
-  logger1 = CustomLogger('MyClass',
-                         gotify_url="https://gotify.nakedon.top",
-                         gotify_token="ACRBIPN6e3U4VL6",
-                         gotify_log_level=logging.DEBUG)
+  logger1 = CustomLogger('MyClass')
   logger2 = CustomLogger('AnotherClass')
   logger3 = CustomLogger('ThirdClass')
 
