@@ -109,7 +109,7 @@ Before running the container, you need to set up your `.env` file with the neces
 | `{IDENTIFIER}_OKX_PASSPHRASE` | ✅ Yes | - | OKX exchange passphrase |
 | `{IDENTIFIER}_OKX_HOSTNAME` | No | `www.okx.com` | OKX API hostname |
 | `{IDENTIFIER}_OKX_SUBACCOUNT_NAME` | ✅ Yes | - | OKX subaccount name to use |
-| `{IDENTIFIER}_OKX_FIAT_STABLECOIN_PAIR` | ✅ Yes | - | Fiat to stablecoin trading pair (e.g., `USDT/SGD`) |
+| `{IDENTIFIER}_OKX_STABLECOIN_FIAT_PAIR` | ✅ Yes | - | Fiat to stablecoin trading pair (e.g., `USDT/SGD`) |
 | `{IDENTIFIER}_OKX_CRYPTO_STABLECOIN_PAIR` | ✅ Yes | - | Crypto to stablecoin trading pair (e.g., `BTC/USDT`) |
 | `{IDENTIFIER}_OKX_TRADLEWARE_API_KEY` | ✅ Yes | - | Webhook authentication key. Generate with `openssl rand -hex 32` |
 
@@ -133,7 +133,7 @@ Before running the container, you need to set up your `.env` file with the neces
    MYBTCBOT_OKX_PASSPHRASE="your-passphrase"
    MYBTCBOT_OKX_HOSTNAME="www.okx.com"
    MYBTCBOT_OKX_SUBACCOUNT_NAME="YourSubaccountName"
-   MYBTCBOT_OKX_FIAT_STABLECOIN_PAIR="USDT/SGD"
+   MYBTCBOT_OKX_STABLECOIN_FIAT_PAIR="USDT/SGD"
    MYBTCBOT_OKX_CRYPTO_STABLECOIN_PAIR="BTC/USDT"
    
    # Generate webhook API key (use: openssl rand -hex 32)
