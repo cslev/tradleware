@@ -41,19 +41,22 @@
     
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"> <!-- Changed gap-6 to gap-8 -->
       {% for trader_id, trader in traders.items() %}
-      <div class="bg-white rounded-lg shadow-lg overflow-hidden">
-        <!-- Header with Exchange Logo -->
-        <div class="relative h-32 bg-gray-900 flex flex-col justify-between p-4">
-          <img src="{{ url_for('static', path='images/crypto_exchanges/' + trader.exchange_id + '.png') }}" 
-               alt="{{ trader.exchange_id }} logo"
-               class="absolute inset-0 w-full h-full object-cover">  <!-- Changed object-contain to object-cover and removed p-2 -->
-          <div class="relative z-10">
-            <h2 class="text-xl font-bold text-white">{{ trader.exchange_id.upper() }}</h2>
-          </div>
-          <div class="relative z-10">
-            <p class="text-sm text-white/80">Bot ID: {{ trader_id }}</p>
-          </div>
-        </div>
+      <div class="relative w-full">
+        <!-- offset border (double-border effect, like login page) -->
+        <div class="absolute w-full h-full border-2 rounded-lg" style="top: 8px; left: 6px; border-color: #555555;"></div>
+        <div class="neon-card rounded-lg overflow-hidden relative z-10">
+         <!-- Header with Exchange Logo -->
+         <div class="relative h-32 bg-gray-900 flex flex-col justify-between p-4 rounded-t-lg overflow-hidden">
+           <img src="{{ url_for('static', path='images/crypto_exchanges/' + trader.exchange_id + '.png') }}" 
+                alt="{{ trader.exchange_id }} logo"
+                class="absolute inset-0 w-full h-full object-cover">  <!-- Changed object-contain to object-cover and removed p-2 -->
+           <div class="relative z-10">
+             <h2 class="text-xl font-bold text-white">{{ trader.exchange_id.upper() }}</h2>
+           </div>
+           <div class="relative z-10">
+             <p class="text-sm text-white/80">Bot ID: {{ trader_id }}</p>
+           </div>
+         </div>
 
         <!-- Connection Status -->
         <div id="status-{{ trader_id }}" class="border-l-4 px-4 py-2 text-sm">
@@ -211,7 +214,7 @@
         </div>
       </div>
       {% endfor %}
-    </div>
+     </div>
   </div>
 
   <!-- Add this just before the closing </body> tag -->

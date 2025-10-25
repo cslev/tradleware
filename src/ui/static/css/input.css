@@ -202,3 +202,42 @@ html {
   padding: 0;
 }
 
+.neon-card {
+  /* Keep only a transparent background with a neon border + outer glow */
+  background: white;
+  border: 2px solid rgba(0, 212, 255, 0.95); /* neon blue border */
+  border-radius: 0.5rem;
+  box-shadow: 0 0 18px rgba(0, 212, 255, 0.45);
+  overflow: visible;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+  position: relative; /* needed for pseudo-element */
+}
+
+/* subtle glow layer (starts invisible) */
+.neon-card::before {
+  content: "";
+  position: absolute;
+  inset: -6px; /* extend beyond border for smoother halo */
+  border-radius: inherit;
+  background: radial-gradient(ellipse at center, rgba(0,212,255,0.18) 0%, rgba(0,212,255,0.06) 35%, transparent 60%);
+  opacity: 0;
+  filter: blur(14px);
+  transition: opacity 180ms ease, transform 180ms ease;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.neon-card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 0 34px rgba(0, 212, 255, 0.75),   /* stronger outer glow */
+    0 8px 10px rgba(0, 0, 0, 0.35);      /* soft lift shadow */
+}
+
+/* show the glow layer on hover for a brightened background effect
+.neon-card:hover::before {
+  opacity: 1;
+  transform: scale(1.02);
+  filter: blur(18px);
+} */
+
