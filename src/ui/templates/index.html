@@ -8,27 +8,27 @@
   <link href="{{ url_for('static', path='css/output.css') }}" rel="stylesheet">
   <script src="https://unpkg.com/heroicons@2.0.18/24/solid/index.js"></script>
 </head>
-<body class="min-h-screen dashboard-page">
+<body class="min-h-screen dashboard-page flex flex-col">  <!-- make body a column flex container so footer can sit at bottom -->
   <!-- Hidden data for JavaScript -->
   <script id="trader-ids" type="application/json">{{ traders.keys() | list | tojson | safe }}</script>
   <script id="log-refresh-interval" type="application/json">{{ log_refresh_interval }}</script>
   <script id="webhook-path" type="text/plain">{{ webhook_path }}</script>
   
-  <div class="container mx-auto p-12">  <!-- Changed p-6 to p-12 for bigger padding -->
-    <!-- Header with logo and logout button -->
-    <div class="flex flex-col items-center mb-12 w-full">
-      <!-- Show vertical logo on mobile, horizontal on larger screens -->
-      <img 
-        src="{{ url_for('static', path='images/logos/logo_v5_horizontal.png') }}" 
-        alt="Tradleware Logo" 
-        class="max-w-md sm:max-w-lg md:max-w-xl w-full h-auto object-contain mx-auto"
-      >
-      <!-- Logout button always below logo -->
-      <div class="mt-4 w-full flex justify-center">
-        <a href="/logout" class="login-button text-white font-bold rounded-full flex items-center uppercase tracking-wider
-          px-3 py-2 text-xs gap-1 w-full max-w-xs justify-center
-        ">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <main class="container mx-auto p-12 flex-grow">  <!-- main now grows to fill space -->
+     <!-- Header with logo and logout button -->
+     <div class="flex flex-col items-center mb-12 w-full">
+       <!-- Show vertical logo on mobile, horizontal on larger screens -->
+       <img 
+         src="{{ url_for('static', path='images/logos/logo_v5_horizontal.png') }}" 
+         alt="Tradleware Logo" 
+         class="max-w-md sm:max-w-lg md:max-w-xl w-full h-auto object-contain mx-auto"
+       >
+       <!-- Logout button always below logo -->
+       <div class="mt-4 w-full flex justify-center">
+         <a href="/logout" class="login-button text-white font-bold rounded-full flex items-center uppercase tracking-wider
+           px-3 py-2 text-xs gap-1 w-full max-w-xs justify-center
+         ">
+           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
           </svg>
           <span>Logout</span>
@@ -39,14 +39,14 @@
     <!-- Remove or comment out the text heading since we have logo now -->
     <!-- <h1 class="text-3xl font-bold text-white mb-8">Trading Configurations</h1> -->
     
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"> <!-- Changed gap-6 to gap-8 -->
+    <!-- Grid layout: fixed responsive columns, items won't collapse -->
+  <div class="trader-grid flex flex-wrap justify-center gap-8 items-start">
       {% for trader_id, trader in traders.items() %}
-      <div class="relative w-full">
-        <!-- offset border (double-border effect, like login page) -->
-        <div class="absolute w-full h-full border-2 rounded-lg" style="top: 8px; left: 6px; border-color: #555555;"></div>
-        <div class="neon-card rounded-lg overflow-hidden relative z-10">
+      <div class="card-col">
+        <div class="neon-card rounded-lg overflow-hidden">
          <!-- Header with Exchange Logo -->
-         <div class="relative h-32 bg-gray-900 flex flex-col justify-between p-4 rounded-t-lg overflow-hidden">
+
+         <div class="relative h-40 bg-gray-900 flex flex-col justify-between p-4 rounded-t-lg overflow-hidden">
            <img src="{{ url_for('static', path='images/crypto_exchanges/' + trader.exchange_id + '.png') }}" 
                 alt="{{ trader.exchange_id }} logo"
                 class="absolute inset-0 w-full h-full object-cover">  <!-- Changed object-contain to object-cover and removed p-2 -->
@@ -58,210 +58,181 @@
            </div>
          </div>
 
-        <!-- Connection Status -->
-        <div id="status-{{ trader_id }}" class="border-l-4 px-4 py-2 text-sm">
-          <!-- Will be updated by JS -->
-          <div class="flex items-center space-x-2">
-            <div class="w-2 h-2 rounded-full bg-gray-400"></div>
-            <span>Checking connection...</span>
-          </div>
-        </div>
+         <!-- Connection Status: moved below logo and bot ID -->
+         <div id="status-{{ trader_id }}" class="border-l-4 px-4 py-2 text-sm">
+           <!-- Will be updated by JS -->
+           <div class="flex items-center space-x-2">
+             <div class="w-2 h-2 rounded-full bg-gray-400"></div>
+             <span>Checking connection...</span>
+           </div>
+         </div>
 
-        <!-- Main Content -->
-        <div class="p-4 space-y-4">
-          <!-- Subaccount Section -->
-          <div>
-            <p class="text-sm text-gray-500">Subaccount</p>
-            <p class="font-medium">{{ trader.subaccount_name }}</p>
+        <!-- Tabs Section: placed directly below connection status -->
+        <div class="mt-1">
+          <div class="tabs flex gap-2 mb-2">
+            <button class="tab-btn px-3 py-1 rounded bg-gray-100 text-gray-700 font-medium" onclick="showTab('{{ trader_id }}', 'summary')">Summary</button>
+            <button class="tab-btn px-3 py-1 rounded bg-gray-100 text-gray-700 font-medium" onclick="showTab('{{ trader_id }}', 'webhook')">Webhook Details</button>
+            <button class="tab-btn px-3 py-1 rounded bg-gray-100 text-gray-700 font-medium" onclick="showTab('{{ trader_id }}', 'logs')">Recent Logs</button>
           </div>
-
-          <!-- Balance Section with Neon Blue Background -->
-          <div class="bg-gradient-to-r from-blue-400/20 to-cyan-400/20 border border-blue-300/50 rounded-lg p-4 shadow-lg">
-            <div class="flex justify-between items-center mb-3">
-              <h3 class="text-sm font-semibold text-blue-800">Account Balances</h3>
-              <button onclick="refreshBalance('{{ trader_id }}')"
-                      class="p-1 rounded-full hover:bg-blue-100/50 transition-colors">
-                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
-            </div>
-            
-            <div class="space-y-3">
-              <!-- FIAT Balance Row with Elbow Down Arrow -->
-              <div class="flex justify-between items-center">
-                <p id="fiat-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">FIAT:</p>
-                <div class="flex items-center space-x-2">
-                  <p id="fiat-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
-                  <button 
-                    onclick="convertFiatToStablecoin('{{ trader_id }}', event)"
-                    title="Convert fiat currency to stable coin"
-                    class="p-1 rounded-full border border-pink-400 hover:bg-pink-100 hover:border-pink-500 transition-colors text-pink-500 hover:text-pink-700">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-pink-500">
-                      <path d="m3 16 4 4 4-4"></path>
-                      <path d="M7 20V4"></path>
-                      <path d="M17 10V4h-2"></path>
-                      <path d="M15 10h4"></path>
-                      <rect x="15" y="14" width="4" height="6" ry="2"></rect>
+          <div class="tab-content" id="tab-summary-{{ trader_id }}">
+            <div class="p-4 space-y-4">
+              <!-- Subaccount Section -->
+              <div>
+                <p class="text-sm text-gray-500">Subaccount</p>
+                <p class="font-medium">{{ trader.subaccount_name }}</p>
+              </div>
+              <!-- Balance Section with Neon Blue Background -->
+              <div class="bg-gradient-to-r from-blue-400/20 to-cyan-400/20 border border-blue-300/50 rounded-lg p-4 shadow-lg">
+                <div class="flex justify-between items-center mb-3">
+                  <h3 class="text-sm font-semibold text-blue-800">Account Balances</h3>
+                  <button onclick="refreshBalance('{{ trader_id }}')"
+                          class="p-1 rounded-full hover:bg-blue-100/50 transition-colors">
+                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                   </button>
                 </div>
-              </div>
-              
-              <!-- Stablecoin Balance Row -->
-              <div class="flex justify-between items-center">
-                <p id="stablecoin-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">Stablecoin:</p>
-                <p id="stablecoin-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
-              </div>
-              
-              <!-- Crypto Balance Row -->
-              <div class="flex justify-between items-center">
-                <p id="crypto-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">Crypto:</p>
-                <p id="crypto-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Configuration Details -->
-          <div class="space-y-2 text-sm">
-            <div class="flex justify-between items-center">
-              <span class="text-gray-500">FIAT/Stablecoin Pair:</span>
-              <span class="font-mono">{{ trader.fiat_stablecoin_pair or 'Not configured' }}</span>
-            </div>
-            <div class="flex justify-between items-center">
-              <span class="text-gray-500">Exchange API Key:</span>
-              <span class="font-mono">{{ trader.api_key[:8] }}...{{ trader.api_key[-8:] }}</span>
-            </div>
-            <div class="flex justify-between items-center">
-              <span class="text-gray-500">Exchange Hostname:</span>
-              <span class="font-mono">{{ trader.hostname }}</span>
-            </div>
-            <div class="flex justify-between items-center">
-              <span class="text-gray-500">Webhook URL:</span>
-              <span class="font-mono text-xs webhook-url"></span>
-            </div>
-            <div class="flex justify-between items-center">
-              <span class="text-gray-500">Tradleware API Key:</span>
-              <span class="font-mono">
-                {% if trader.tradleware_api_key %}
-                  {{ trader.tradleware_api_key[:8] }}...{{ trader.tradleware_api_key[-8:] }}
-                {% else %}
-                  Not configured
-                {% endif %}
-              </span>
-            </div>
-          </div>
-
-
-          <!-- Webhook Example Dropdown -->
-          <div class="bg-gray-50 rounded-lg mt-4">
-            <button 
-              onclick="toggleCollapse('webhook-{{ trader_id }}')"
-              class="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
-            >
-              <span>Webhook details</span>
-              <svg id="arrow-webhook-{{ trader_id }}" class="w-4 h-4 transition-transform duration-200"
-                   xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-              </svg>
-            </button>
-            <div id="webhook-{{ trader_id }}" class="collapse-content">
-              <div class="px-4 py-2">
-                <h3 class="font-medium text-cyan-700 mb-2">Webhook JSON TradingView Example</h3>
-                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{% raw %}
-{
-  "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
-  "trader_id": "MYBTCBOT_OKX",
-  "ticker": "{{ticker}}",
-  "action": "{{strategy.order.action}}",
-  "timestamp": "{{time}}",
-  "alert_name": "{{strategy.order.comment}}"
-}
-{% endraw %}</pre>
-                <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test locally</h3>
-                <pre id="curl-example-{{ trader_id }}" class="bg-gray-100 p-2 rounded text-xs overflow-x-auto curl-example"></pre>
-              </div>
-            </div>
-          </div>
-
-
-          <!-- Debug Section -->
-          <div id="details-{{ trader_id }}" class="mt-4">
-            <div class="bg-gray-50 rounded-lg">
-              <button 
-                onclick="toggleCollapse('collapse-{{ trader_id }}')"
-                class="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
-              >
-                <span>Recent Logs</span>
-                <svg id="arrow-{{ trader_id }}" class="w-4 h-4 transition-transform duration-200"
-                     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                </svg>
-              </button>
-              <div id="collapse-{{ trader_id }}" class="collapse-content">
-                <div class="px-4 py-2">
-              
-                  <div class="debug-log-container">
-                    <pre id="debug-log-{{ trader_id }}" class="whitespace-pre-wrap text-cyan-600 text-xs m-0">Loading logs...</pre>
+                <div class="space-y-3">
+                  <div class="flex justify-between items-center">
+                    <p id="fiat-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">FIAT:</p>
+                    <div class="flex items-center space-x-2">
+                      <p id="fiat-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
+                      <button 
+                        onclick="convertFiatToStablecoin('{{ trader_id }}', event)"
+                        title="Convert fiat currency to stable coin"
+                        class="p-1 rounded-full border border-pink-400 hover:bg-pink-100 hover:border-pink-500 transition-colors text-pink-500 hover:text-pink-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-pink-500">
+                          <path d="m3 16 4 4 4-4"></path>
+                          <path d="M7 20V4"></path>
+                          <path d="M17 10V4h-2"></path>
+                          <path d="M15 10h4"></path>
+                          <rect x="15" y="14" width="4" height="6" ry="2"></rect>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
+                  <div class="flex justify-between items-center">
+                    <p id="stablecoin-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">Stablecoin:</p>
+                    <p id="stablecoin-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <p id="crypto-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">Crypto:</p>
+                    <p id="crypto-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
+                  </div>
+                </div>
+              </div>
+              <!-- Configuration Details -->
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-500">FIAT/Stablecoin Pair:</span>
+                  <span class="font-mono">{{ trader.stablecoin_fiat_pair or 'Not configured' }}</span>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-500">Exchange API Key:</span>
+                  <span class="font-mono">{{ trader.api_key[:8] }}...{{ trader.api_key[-8:] }}</span>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-500">Exchange Hostname:</span>
+                  <span class="font-mono">{{ trader.hostname }}</span>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-500">Webhook URL:</span>
+                  <span class="font-mono text-xs webhook-url"></span>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-500">Tradleware API Key:</span>
+                  <span class="font-mono">
+                    {% if trader.tradleware_api_key %}
+                      {{ trader.tradleware_api_key[:8] }}...{{ trader.tradleware_api_key[-8:] }}
+                    {% else %}
+                      Not configured
+                    {% endif %}
+                  </span>
                 </div>
               </div>
             </div>
           </div>
+          <div class="tab-content hidden" id="tab-webhook-{{ trader_id }}">
+            <div class="px-2 py-2">
+              <h3 class="font-medium text-cyan-700 mb-2">Webhook JSON TradingView Example</h3>
+                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{% raw %}
+  {
+    "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
+    "trader_id": "{% endraw %}{{ trader_id }}{% raw %}",
+    "ticker": "{{ticker}}",
+    "action": "{{strategy.order.action}}",
+    "timestamp": "{{time}}",
+    "alert_name": "{{strategy.order.comment}}"
+  }
+  {% endraw %}</pre>
+              <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test locally</h3>
+              <pre id="curl-example-{{ trader_id }}" class="bg-gray-100 p-2 rounded text-xs overflow-x-auto curl-example"></pre>
+            </div>
+          </div>
+          <div class="tab-content hidden" id="tab-logs-{{ trader_id }}">
+            <div class="debug-log-container">
+              <pre id="debug-log-{{ trader_id }}" class="whitespace-pre-wrap text-cyan-600 text-xs m-0">Loading logs...</pre>
+            </div>
+          </div>
+        </div>
+
+
 
 
         </div>
       </div>
       {% endfor %}
      </div>
-  </div>
+  </main>
 
-  <!-- Add this just before the closing </body> tag -->
-  <div class="w-full text-center mt-16 mb-4 text-sm" style="z-index:2; position:relative;">
-    <!-- Connection Security Status -->
-    <div class="mb-3">
-      {% if is_secure %}
-      <p class="text-green-300">
-        <span class="text-lg mr-1">🔐</span>
-        Your connection is encrypted
-      </p>
-      {% else %}
-      <p class="text-red-400">
-        <span class="text-lg mr-1">🚨</span>
-        Your connection is not encrypted
-      </p>
-      {% endif %}
+  <!-- Footer always placed after main content; main is flex-grow so footer sits at bottom for short content -->
+  <footer class="w-full text-center mt-8 mb-4 text-sm">
+    <div class="w-full text-center mt-16 mb-4 text-sm" style="z-index:2; position:relative;">
+      <!-- Connection Security Status -->
+      <div class="mb-3">
+        {% if is_secure %}
+        <p class="text-green-300">
+          <span class="text-lg mr-1">🔐</span>
+          Your connection is encrypted
+        </p>
+        {% else %}
+        <p class="text-red-400">
+          <span class="text-lg mr-1">🚨</span>
+          Your connection is not encrypted
+        </p>
+        {% endif %}
+        
+        {% if is_trusted_ip %}
+        <p class="text-green-300 mt-2">
+          <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+          </svg>
+          Accessing from trusted IP: <span class="font-mono">{{ client_ip }}</span>
+        </p>
+        {% else %}
+        <p class="text-yellow-400 mt-2">
+          <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+          </svg>
+          Not from trusted IP: <span class="font-mono">{{ client_ip }}</span>
+        </p>
+        {% endif %}
+      </div>
       
-      {% if is_trusted_ip %}
-      <p class="text-green-300 mt-2">
-        <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-        </svg>
-        Accessing from trusted IP: <span class="font-mono">{{ client_ip }}</span>
+      <!-- Version Information -->
+      <p class="text-gray-400 mb-3">
+        Your Tradleware version is: <span class="font-mono text-cyan-100">{{ version }}</span>
       </p>
-      {% else %}
-      <p class="text-yellow-400 mt-2">
-        <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
-        </svg>
-        Not from trusted IP: <span class="font-mono">{{ client_ip }}</span>
+      
+      <!-- Webhook Information -->
+      <p class="text-white">
+        Webhooks should be sent to <span class="font-mono text-cyan-100 footer-webhook-url"></span>
       </p>
-      {% endif %}
     </div>
-    
-    <!-- Version Information -->
-    <p class="text-gray-400 mb-3">
-      Your Tradleware version is: <span class="font-mono text-cyan-100">{{ version }}</span>
-    </p>
-    
-    <!-- Webhook Information -->
-    <p class="text-white">
-      Webhooks should be sent to <span class="font-mono text-cyan-100 footer-webhook-url"></span>
-    </p>
-  </div>
-  
-  <!-- Import the external JavaScript file -->
-  <script src="{{ url_for('static', path='js/main.js') }}"></script>
-</body>
-</html>
+  </footer>
+
+   <!-- Import the external JavaScript file -->
+   <script src="{{ url_for('static', path='js/main.js') }}"></script>
+ </body>
+ </html>

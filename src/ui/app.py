@@ -25,6 +25,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
 from src.traders.okx_trader import OKXTrader
+from src.traders.ir_trader import IRTrader
 
 
 # Application version
@@ -38,6 +39,7 @@ TRADLEWARE_VERSION = "v1.1"
 # Trading configuration
 EXCHANGE_TRADER_CLASSES = {
   'okx': OKXTrader,
+  'ir': IRTrader,
   # 'coinbasepro': CoinbaseProTrader,
   # Add other exchanges here as you create their trader classes
   # 'binance': BinanceTrader,
@@ -61,6 +63,7 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
     config_strings = [cfg.strip() for cfg in active_configs_str.split(',') if cfg.strip()]
 
     logger.info("\n--- Initializing Traders ---")
+    logger.debug("Active trading configurations: " + ", ".join(config_strings))
     for config_str in config_strings:
       parts = config_str.split('_')
       if len(parts) < 2:
@@ -100,7 +103,8 @@ app = FastAPI(
 # Load environment variables from .env file
 # Explicitly point to the .env file in the project root
 env_path = Path(__file__).parent.parent.parent / '.env'
-load_dotenv(dotenv_path=env_path)
+print(f"======> Loading .env from: {env_path}")
+load_dotenv(dotenv_path=env_path, override=True)
 
 # Add session middleware for authentication
 # Generate a secure session key or use one from environment
@@ -312,8 +316,8 @@ async def get_balance(request: Request, trader_id: str):
   traders[trader_id].logger.debug(f"asking for balance of {trader_id}")
   try:
     raw_balance = await traders[trader_id].fetch_balance()
-    fiat = traders[trader_id].fiat_stablecoin_pair.split('/')[1]  # Extract fiat currency from the pair
-    stablecoin = traders[trader_id].fiat_stablecoin_pair.split('/')[0]  # Extract stablecoin from the pair
+    fiat = traders[trader_id].stablecoin_fiat_pair.split('/')[1]  # Extract fiat currency from the pair
+    stablecoin = traders[trader_id].stablecoin_fiat_pair.split('/')[0]  # Extract stablecoin from the pair
     crypto = traders[trader_id].crypto_stablecoin_pair.split('/')[0]  # Extract crypto symbol from the trader
 
     # logger.debug(f"Raw balance for {trader_id}: {raw_balance}")

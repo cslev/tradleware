@@ -1,3 +1,66 @@
+/* Slick tab button styles for card tabs */
+.tab-btn {
+  border: 1.5px solid #d1d5db; /* gray border */
+  background: #fff;
+  color: #374151; /* gray text */
+  border-radius: 0.75rem 0.75rem 0 0;
+  font-weight: 500;
+  font-size: 0.95rem;
+  padding: 0.25rem 0;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+  margin-bottom: -2px;
+  position: relative;
+  z-index: 1;
+  border-bottom: none;
+  flex: 1 1 0;
+  text-align: center;
+}
+.tab-btn.active, .tab-btn.bg-cyan-100.text-cyan-700 {
+  background: #fff;
+  border-top: 1.5px solid #000000;
+  border-left: 1.5px solid #000000;
+  border-right: 1.5px solid #000000;
+  border-bottom: none;
+  color: #222;
+  z-index: 2;
+  box-shadow:
+    0 -12px 24px -8px rgba(0,0,0,0.35), /* top black glow, even more upwards */
+    -8px -6px 24px -12px rgba(0,0,0,0.22), /* left black glow, further up */
+    8px -6px 24px -12px rgba(0,0,0,0.22);  /* right black glow, further up */
+}
+/* .tabs {
+  /* margin-bottom: 0.5rem; */
+/* } */
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+/* Tab pane below the tabs: black top border for separation */
+.tab-content {
+  min-height: 450px;
+  max-height: 450px;
+  overflow: hidden;
+  background: #fff;
+  border-top: 1.5px solid #000000;
+  box-shadow: 0 -12px 24px -8px rgba(0,0,0,0.35);
+  margin-top: -7px;
+}
+/* Fix card height expansion: align cards to top, not stretch */
+.trader-grid {
+  align-items: flex-start;
+}
+/* Dropdown collapse fix: only show .collapse-content when .open is present */
+.collapse-content {
+  display: none;
+  transition: max-height 0.3s ease;
+  overflow: hidden;
+}
+.collapse-content.open {
+  display: block;
+}
 /* Tradleware/src/ui/static/css/input.css */
 @import "tailwindcss";
 
@@ -97,21 +160,23 @@
 
 /* Collapsible content styles */
 .collapse-content {
-  max-height: 0;
+  display: none;
+  width: 100%;
   overflow: hidden;
-  transition: max-height 0.2s ease-out;
+  transition: max-height 0.3s ease;
 }
 
 .collapse-content.open {
-  max-height: 400px; /* Increased height for more content */
+  display: block;
+  width: 100%;
 }
 
 /* Debug log container styling */
 .debug-log-container {
-  max-height: 300px;
+  max-height: 450px;
   overflow-y: auto;
   overflow-x: hidden;
-  background-color: #f3f4f6;
+  background-color: #000;
   border-radius: 0.375rem;
   padding: 0.5rem;
   border: 1px solid #d1d5db;
@@ -123,17 +188,17 @@
 }
 
 .debug-log-container::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: #ffffff;
   border-radius: 3px;
 }
 
 .debug-log-container::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: #ffffff;
   border-radius: 3px;
 }
 
 .debug-log-container::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: #ffffff;
 }
 
 /* Default log text color */
@@ -202,42 +267,41 @@ html {
   padding: 0;
 }
 
-.neon-card {
-  /* Keep only a transparent background with a neon border + outer glow */
-  background: white;
-  border: 2px solid rgba(0, 212, 255, 0.95); /* neon blue border */
-  border-radius: 0.5rem;
-  box-shadow: 0 0 18px rgba(0, 212, 255, 0.45);
-  overflow: visible;
-  transition: box-shadow 160ms ease, transform 160ms ease;
-  position: relative; /* needed for pseudo-element */
+/* Ensure card columns use border-box so padding does not reduce available width */
+.card-col {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0 0.75rem 0 0.75rem; /* Remove bottom margin */
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
 }
 
-/* subtle glow layer (starts invisible) */
-.neon-card::before {
-  content: "";
-  position: absolute;
-  inset: -6px; /* extend beyond border for smoother halo */
-  border-radius: inherit;
-  background: radial-gradient(ellipse at center, rgba(0,212,255,0.18) 0%, rgba(0,212,255,0.06) 35%, transparent 60%);
-  opacity: 0;
-  filter: blur(14px);
-  transition: opacity 180ms ease, transform 180ms ease;
-  pointer-events: none;
-  z-index: -1;
+.neon-card {
+  width: 400px;           /* Fixed width for all cards */
+  max-width: 100vw;       /* Prevent overflow on small screens */
+  min-width: 320px;       /* Sensible minimum for mobile */
+  min-height: 0;          /* Remove forced min-height */
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: #fff;
+  border: 2px solid rgba(0, 212, 255, 0.95); /* neon blue border */
+  border-radius: 0.5rem;
+  box-shadow: 0 0 18px rgba(0, 212, 255, 0.45); /* outer glow only */
+  overflow: hidden;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+  position: relative;
 }
 
 .neon-card:hover {
   transform: translateY(-4px);
-  box-shadow:
-    0 0 34px rgba(0, 212, 255, 0.75),   /* stronger outer glow */
-    0 8px 10px rgba(0, 0, 0, 0.35);      /* soft lift shadow */
+  box-shadow: 0 0 26px rgba(0, 212, 255, 0.6);
 }
 
-/* show the glow layer on hover for a brightened background effect
-.neon-card:hover::before {
-  opacity: 1;
-  transform: scale(1.02);
-  filter: blur(18px);
-} */
 
+
+/* small safeguard: when using tailwind responsive widths, keep columns from shrinking too far */
+@media (min-width: 1024px) {
+  .card-col { min-width: 400px; } /* on large screens ensure sensible minimum */
+}

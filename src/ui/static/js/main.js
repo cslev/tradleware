@@ -1,12 +1,51 @@
+// Tab switching for card tabs
+function showTab(traderId, tab) {
+  const tabs = ['summary', 'webhook', 'logs'];
+  tabs.forEach(t => {
+    const content = document.getElementById(`tab-${t}-${traderId}`);
+    if (content) {
+      if (t === tab) {
+        content.classList.remove('hidden');
+      } else {
+        content.classList.add('hidden');
+      }
+    }
+  });
+  // Highlight active tab button for this card only
+  document.querySelectorAll(`.tab-btn`).forEach(btn => {
+    if (btn.getAttribute('onclick')?.includes(`'${traderId}', '${tab}'`)) {
+      btn.classList.add('bg-cyan-100', 'text-cyan-700');
+    } else if (btn.getAttribute('onclick')?.includes(`'${traderId}'`)) {
+      btn.classList.remove('bg-cyan-100', 'text-cyan-700');
+    }
+  });
+}
+
+// Set default tab to Summary for all cards on page load
+document.addEventListener('DOMContentLoaded', () => {
+  const traderIds = JSON.parse(document.getElementById('trader-ids').textContent);
+  traderIds.forEach(traderId => {
+    showTab(traderId, 'summary');
+  });
+  // ...existing code...
+});
 // Fix the toggle function for collapsible
 function toggleCollapse(elementId) {
   const content = document.getElementById(elementId);
-  const arrowId = elementId.includes('webhook') ? `arrow-webhook-${elementId.split('-')[1]}` : `arrow-${elementId.split('-')[1]}`;
-  const arrow = document.getElementById(arrowId);
-  
-  content.classList.toggle('open');
-  if (arrow) {
-    arrow.style.transform = content.classList.contains('open') ? 'rotate(180deg)' : '';
+  // Extract traderId from elementId (supports IDs like 'collapse-TRADERID' and 'webhook-TRADERID')
+  const match = elementId.match(/^(collapse|webhook)-(.+)$/);
+  let arrowId = null;
+  if (match) {
+    const type = match[1];
+    const traderId = match[2];
+    arrowId = type === 'webhook' ? `arrow-webhook-${traderId}` : `arrow-${traderId}`;
+  }
+  const arrow = arrowId ? document.getElementById(arrowId) : null;
+  if (content) {
+    content.classList.toggle('open');
+    if (arrow) {
+      arrow.style.transform = content.classList.contains('open') ? 'rotate(180deg)' : '';
+    }
   }
 }
 
@@ -84,14 +123,22 @@ async function refreshBalance(traderId) {
       const balance = data.balance;
       
       // Update labels with dynamic units
-      fiatLabelElement.textContent = `${balance.fiat_unit}:`;
-      stablecoinLabelElement.textContent = `${balance.stablecoin_unit}:`;
-      cryptoLabelElement.textContent = `${balance.crypto_unit}:`;
+  fiatLabelElement.textContent = `FIAT - ${balance.fiat_unit}:`;
+  stablecoinLabelElement.textContent = `Stablecoin - ${balance.stablecoin_unit}:`;
+  cryptoLabelElement.textContent = `Crypto - ${balance.crypto_unit}:`;
       
       // Update individual balances
-      fiatElement.textContent = balance.fiat || '0.00';
-      stablecoinElement.textContent = balance.stablecoin || '0.00';
-      cryptoElement.textContent = balance.crypto || '0.00';
+      fiatElement.textContent = formatNumber(balance.fiat);
+      stablecoinElement.textContent = formatNumber(balance.stablecoin);
+      cryptoElement.textContent = formatNumber(balance.crypto);
+
+      function formatNumber(val) {
+        if (val === undefined || val === null || isNaN(val)) return '0.00';
+        // If string, try to parse
+        let num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val;
+        if (isNaN(num)) return val;
+        return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+      }
       
       statusElement.innerHTML = `
         <div class="flex items-center space-x-2">
