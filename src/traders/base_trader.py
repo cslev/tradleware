@@ -3,7 +3,8 @@ from collections import deque
 from datetime import datetime
 from typing import Optional
 # Log the full traceback for debugging
-import traceback
+# import traceback
+import inspect
 
 import ccxt
 
@@ -166,16 +167,19 @@ class BaseExchangeTrader(ABC):
     return list(self.log_buffer)
 
 
-  async def _safe_api_call(self,
-                           api_method,
-                           *args,
-                           **kwargs):
+  async def _safe_api_call(self, api_method, *args, **kwargs):
     """
-    Helper method to wrap asynchronous API calls with common error handling.
-    This prevents the application from crashing on network or exchange errors.
+    Call an API method and handle common ccxt exceptions.
+    Accepts both async functions (coroutines) and sync callables (for tests/mocks).
     """
     try:
-      return await api_method(*args, **kwargs)
+      result = api_method(*args, **kwargs)
+      # If the call returned an awaitable (coroutine/future), await it
+      if inspect.isawaitable(result):
+        return await result
+      # otherwise return the result directly (sync function / Mock returning value for pytest!)
+      return result
+
     except ccxt.AuthenticationError as e:
       self.logger.critical(f"Authentication error for {self.account_identifier} ({self.exchange_id}). Check API keys/passphrase: {e}")
       raise # Re-raise AuthenticationError, as it's often a critical config issue
@@ -202,6 +206,7 @@ class BaseExchangeTrader(ABC):
 
       self.logger.critical(f"Full traceback:\n{traceback.format_exc()}")
       return None # Return None for truly unhandled, generic exceptions to prevent hard crash
+
 
 
   # --- NEW METHOD TO ADD ---
