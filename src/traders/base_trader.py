@@ -3,7 +3,7 @@ from collections import deque
 from datetime import datetime
 from typing import Optional
 # Log the full traceback for debugging
-# import traceback
+import traceback
 import inspect
 
 import ccxt
