@@ -76,8 +76,13 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
       trader_class = EXCHANGE_TRADER_CLASSES.get(exchange_id_str)
       if trader_class:
         try:
-          traders[config_str] = trader_class(account_identifier=account_identifier)
+          trader = trader_class(account_identifier=account_identifier)
+          traders[config_str] = trader
           logger.info(f"Initialized trader: {config_str}")
+          try:
+            await trader.post_init()
+          except Exception as exc:
+            logger.error(f"Could not check pair support for {config_str}: {exc}")
         except Exception as exc:
           logger.error(f"Failed to initialize {config_str}: {str(exc)}")
   else:
@@ -348,6 +353,7 @@ async def get_balance(request: Request, trader_id: str):
 
 @app.post(f"/{WEBHOOK_PATH}")
 async def handle_webhook(request: Request):
+
   """
   Handles incoming webhooks with per-bot API key authentication.
   Expects JSON with: api_key, trader_id, ticker, action, timestamp, alert_name.
@@ -444,7 +450,30 @@ async def handle_webhook(request: Request):
 
   # Format timestamp for logging
   timestamp_str = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
-  trader.logger.info(f"Webhook received: \ntrader_id={trader_id}, \nticker={ticker}, \naction={action}, \ntimestamp={timestamp_str}, \nalert_name={alert_name}")
+  trader.logger.info(f"Webhook received payload: {json.dumps(data, indent=2)}")
+
+  ###############################################
+  ##### CHECK IF ORDER SIZE is SENT
+  ###############################################
+  # Parse spend_percentage from webhook, default to 1.0 if not provided
+  order_size_raw = data.get("order_size")
+  if order_size_raw is None:
+    order_size = 100.0
+  elif isinstance(order_size_raw, (int, float)):
+    order_size = float(order_size_raw)
+  elif isinstance(order_size_raw, str):
+    try:
+      order_size = float(order_size_raw.strip())
+    except ValueError:
+      trader.logger.warning(f"Invalid order_size string: {order_size_raw}, defaulting to 100")
+      order_size = 100.0
+  else:
+    trader.logger.warning(f"Unrecognized order_size type: {type(order_size_raw)}, defaulting to 100")
+    order_size = 100.0
+  if not 0.0 < order_size <= 100.0:
+    trader.logger.warning(f"order_size out of range: {order_size}, defaulting to 100")
+    order_size = 100.0
+  spend_percentage = order_size / 100.0
 
   ################################################
   #### CHECK IF ACTION SIGNAL IS BUY OR SELL
@@ -491,14 +520,13 @@ async def handle_webhook(request: Request):
         }
 
       trader.logger.info(f"Buy signal validation passed. Available {stablecoin_symbol} balance: {available_stablecoin}")
-
       # Execute the buy order
       try:
-        trader.logger.info(f"Executing BUY order for {ticker} with 100% of available {stablecoin_symbol}")
+        trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
         order_result = await trader.create_order(
           symbol=ticker,
           side='buy',
-          spend_percentage=1.0,  # Use 100% of available stablecoin
+          spend_percentage=spend_percentage,  # Use 100% of available stablecoin
           order_execution_strategy='market'  # Market order for immediate execution
         )
 
@@ -569,11 +597,11 @@ async def handle_webhook(request: Request):
 
       # Execute the sell order
       try:
-        trader.logger.info(f"Executing SELL order for {ticker} with 100% of available {crypto_symbol}")
+        trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
         order_result = await trader.create_order(
           symbol=ticker,
           side='sell',
-          spend_percentage=1.0,  # Use 100% of available crypto
+          spend_percentage=spend_percentage,  # Use 100% of available crypto
           order_execution_strategy='market'  # Market order for immediate execution
         )
 
