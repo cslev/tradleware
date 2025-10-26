@@ -40,6 +40,8 @@ Whether you're running sophisticated algorithmic strategies or simple indicator-
 - **Gotify Notifications**: Real-time push notifications for trading events
 - **Convert Functionality**: Automatic fiat to stablecoin conversion
 
+![Tradleware v2.0 Dashboard](screenshots/tradleware_v2.png)
+
 ## Docker Deployment
 
 The easiest way to run Tradleware is using Docker. You have two options:
