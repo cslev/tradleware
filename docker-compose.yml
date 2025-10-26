@@ -5,10 +5,12 @@ services:
       dockerfile: Dockerfile
       tags:
         - "cslev/tradleware:latest"
+        - "cslev/tradleware:v2.0"
       args:
         - BUILDKIT_INLINE_CACHE=1
       cache_from:
         - "cslev/tradleware:latest"
+        - "cslev/tradleware:v2.0"
     image: cslev/tradleware:latest
     container_name: tradleware
     restart: unless-stopped
