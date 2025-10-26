@@ -64,6 +64,7 @@ class BaseExchangeTrader(ABC):
     self.hostname = get_env(self.hostname_env)
     self.stablecoin_fiat_pair = get_env(self.stablecoin_fiat_pair_env)
     self.crypto_stablecoin_pair = get_env(self.crypto_stablecoin_pair_env)
+    self.trading_pair_valid = None
 
 
     # --- Implement Validation Here ---
@@ -109,7 +110,7 @@ class BaseExchangeTrader(ABC):
         ) from e
 
     self.exchange = None # This will be initialized by concrete subclasses
-
+    self.markets = None # To be loaded asynchronously after initialization
     # Add log buffer for this trader (keep last 50 messages)
     self.log_buffer = deque(maxlen=50)
 
@@ -126,6 +127,33 @@ class BaseExchangeTrader(ABC):
     self._setup_log_buffer()
 
     self.logger.info(f"Base credentials loaded for {self.account_identifier} on {self.exchange_id}.")
+
+
+  async def post_init(self):
+    """
+    Asynchronous post-initialization: checks if crypto_stablecoin_pair is supported, rewrites to UNSUPPORTED if not.
+    """
+    try:
+      self.markets = await self.exchange.load_markets()
+      if self.crypto_stablecoin_pair in self.markets:
+        self.trading_pair_valid = True
+        self.logger.success(f"Pair supported: {self.crypto_stablecoin_pair}")
+      else:
+        self.trading_pair_valid = False
+        self.logger.error(f"Pair not supported: {self.crypto_stablecoin_pair}")
+        # Parse crypto symbol (before '/')
+        crypto = self.crypto_stablecoin_pair.split("/")[0] if "/" in self.crypto_stablecoin_pair else self.crypto_stablecoin_pair
+        # Find all available pairs for this crypto
+        available_pairs = [pair for pair in self.markets.keys() if pair.startswith(f"{crypto}/")]
+        if available_pairs:
+          self.logger.warning(f"Available pairs for {crypto}: {', '.join(available_pairs)}")
+        else:
+          self.logger.warning(f"No available pairs found for {crypto}.")
+    except Exception as exc:
+      self.trading_pair_valid = None
+      self.logger.error(f"Error checking pair support: {exc}")
+
+
 
 
   def _setup_log_buffer(self):
