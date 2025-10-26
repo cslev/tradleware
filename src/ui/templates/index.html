@@ -79,7 +79,13 @@
               <!-- Subaccount Section -->
               <div>
                 <p class="text-sm text-gray-500">Subaccount</p>
-                <p class="font-medium">{{ trader.subaccount_name }}</p>
+                <p class="font-medium">
+                  {% if trader.subaccount_name %}
+                    {{ trader.subaccount_name }}
+                  {% else %}
+                    <span class="text-orange-500">[Not Available - UNDEFINED]</span>
+                  {% endif %}
+                </p>
               </div>
               <!-- Balance Section with Neon Blue Background -->
               <div class="bg-gradient-to-r from-blue-400/20 to-cyan-400/20 border border-blue-300/50 rounded-lg p-4 shadow-lg">
@@ -125,8 +131,16 @@
               <!-- Configuration Details -->
               <div class="space-y-2 text-sm">
                 <div class="flex justify-between items-center">
-                  <span class="text-gray-500">FIAT/Stablecoin Pair:</span>
+                  <span class="text-gray-500">Stablecoin/Fiat Pair:</span>
                   <span class="font-mono">{{ trader.stablecoin_fiat_pair or 'Not configured' }}</span>
+                </div>
+                <div class="flex justify-between items-center">
+                  <span class="text-gray-500">Trading Pair:</span>
+                  {% if trader.trading_pair_valid is defined and trader.trading_pair_valid is not none and not trader.trading_pair_valid %}
+                    <span class="font-mono text-red-600 animate-blink">UNSUPPORTED: {{ trader.crypto_stablecoin_pair }}</span>
+                  {% else %}
+                    <span class="font-mono">{{ trader.crypto_stablecoin_pair or 'Not configured' }}</span>
+                  {% endif %}
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-gray-500">Exchange API Key:</span>
@@ -161,10 +175,12 @@
     "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
     "trader_id": "{% endraw %}{{ trader_id }}{% raw %}",
     "ticker": "{{ticker}}",
+    "order_size": 100,
     "action": "{{strategy.order.action}}",
     "timestamp": "{{time}}",
     "alert_name": "{{strategy.order.comment}}"
-  }
+    },
+    
   {% endraw %}</pre>
               <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test locally</h3>
               <pre id="curl-example-{{ trader_id }}" class="bg-gray-100 p-2 rounded text-xs overflow-x-auto curl-example"></pre>

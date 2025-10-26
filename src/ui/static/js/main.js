@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
       curlPre.textContent =
         `curl -X POST ${webhookUrl}?alert_name=MyStrategyAlert \\
   -H "Content-Type: application/json" \\
-  -d '{\n    "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",\n    "trader_id": "${traderId}",\n    "ticker": "BTC/USDT",\n    "action": "buy",\n    "timestamp": "1700000000",\n    "alert_name": "MyStrategyAlertFromBody"\n  }'`;
+  -d '{\n    "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",\n    "trader_id": "${traderId}",\n    "ticker": "BTC/USDT",\n    "order_size": 100,\n    "action": "buy",\n    "timestamp": "1700000000",\n    "alert_name": "MyStrategyAlertFromBody"\n  }'`;
     }
   });
   

@@ -1,3 +1,13 @@
+/* Blinking animation for unsupported pairs */
+.animate-blink {
+  animation: blink-flash 1s steps(1, end) infinite;
+}
+
+@keyframes blink-flash {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
+  100% { opacity: 1; }
+}
 /* Slick tab button styles for card tabs */
 .tab-btn {
   border: 1.5px solid #d1d5db; /* gray border */
@@ -40,8 +50,8 @@
 
 /* Tab pane below the tabs: black top border for separation */
 .tab-content {
-  min-height: 450px;
-  max-height: 450px;
+  min-height: 470px;
+  max-height: 470px;
   overflow: hidden;
   background: #fff;
   border-top: 1.5px solid #000000;
@@ -173,7 +183,7 @@
 
 /* Debug log container styling */
 .debug-log-container {
-  max-height: 450px;
+  max-height: 470px;
   overflow-y: auto;
   overflow-x: hidden;
   background-color: #000;
