@@ -103,7 +103,7 @@ Before running the container, you need to set up your `.env` file with the neces
 | `GOTIFY_SERVER_URL` | No | - | Your Gotify server URL (e.g., `https://gotify.example.com`) |
 | `GOTIFY_APP_TOKEN` | No | - | Gotify application token for sending notifications |
 | `GOTIFY_LOG_LEVEL` | No | `30` | Minimum log level for Gotify notifications (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL) |
-| **Per-Bot Exchange Configuration** (Replace `{IDENTIFIER}` with your bot name, e.g., `MYBOT`) |
+| **OKX Bot Exchange Configuration** (Replace `{IDENTIFIER}` with your bot name, e.g., `MYBOT`) |
 | `{IDENTIFIER}_OKX_API_KEY` | ✅ Yes | - | OKX exchange API key |
 | `{IDENTIFIER}_OKX_SECRET_KEY` | ✅ Yes | - | OKX exchange secret key |
 | `{IDENTIFIER}_OKX_PASSPHRASE` | ✅ Yes | - | OKX exchange passphrase |
@@ -112,6 +112,13 @@ Before running the container, you need to set up your `.env` file with the neces
 | `{IDENTIFIER}_OKX_STABLECOIN_FIAT_PAIR` | ✅ Yes | - | Fiat to stablecoin trading pair (e.g., `USDT/SGD`) |
 | `{IDENTIFIER}_OKX_CRYPTO_STABLECOIN_PAIR` | ✅ Yes | - | Crypto to stablecoin trading pair (e.g., `BTC/USDT`) |
 | `{IDENTIFIER}_OKX_TRADLEWARE_API_KEY` | ✅ Yes | - | Webhook authentication key. Generate with `openssl rand -hex 32` |
+| **Independent Reserve Bot Exchange Configuration** (Replace `{IDENTIFIER}` with your bot name, e.g., `TRADLEWAREBOT`) |
+| `{IDENTIFIER}_IR_API_KEY` | ✅ Yes | - | Independent Reserve exchange API key |
+| `{IDENTIFIER}_IR_SECRET_KEY` | ✅ Yes | - | Independent Reserve exchange secret key |
+| `{IDENTIFIER}_IR_HOSTNAME` | No | `api.independentreserve.com` | IR API hostname |
+| `{IDENTIFIER}_IR_STABLECOIN_FIAT_PAIR` | ✅ Yes | - | Fiat to stablecoin trading pair (e.g., `SGD/SGD`) (no stablecoin to crypto is supported at IR) |
+| `{IDENTIFIER}_IR_CRYPTO_STABLECOIN_PAIR` | ✅ Yes | - | Crypto to stablecoin trading pair (e.g., `ETH/SGD`) (no stablecoin to crypto is supported at IR)|
+| `{IDENTIFIER}_IR_TRADLEWARE_API_KEY` | ✅ Yes | - | Webhook authentication key. Generate with `openssl rand -hex 32` |
 
 #### Quick Setup
 
@@ -163,6 +170,22 @@ Before running the container, you need to set up your `.env` file with the neces
 5. **Optional: Configure UI refresh rate**:
    ```env
    LOG_REFRESH_INTERVAL_MS=5000  # 5 seconds
+   ```
+
+6. **Configure Independent Reserve bot(s)**:
+   ```env
+   # Active bot configurations (comma-separated)
+   ACTIVE_TRADING_CONFIGS="MYBTCBOT_IR"
+   
+   # Independent Reserve Exchange Configuration
+   MYBTCBOT_IR_API_KEY="your-api-key"
+   MYBTCBOT_IR_SECRET_KEY="your-secret-key"
+   MYBTCBOT_IR_HOSTNAME="api.independentreserve.com"
+   MYBTCBOT_IR_STABLECOIN_FIAT_PAIR="USDT/SGD"
+   MYBTCBOT_IR_CRYPTO_STABLECOIN_PAIR="ETH/USDT"
+   
+   # Generate webhook API key (use: openssl rand -hex 32)
+   MYBTCBOT_IR_TRADLEWARE_API_KEY="your-generated-api-key"
    ```
 
 ### Run the Container
