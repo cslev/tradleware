@@ -33,7 +33,7 @@ Whether you're running sophisticated algorithmic strategies or simple indicator-
 
 ## Features
 
-- **Multi-Exchange Support**: Currently supports OKX, extensible for other exchanges
+- **Multi-Exchange Support**: OKX, Independent Reserve, and more coming (extensible for other exchanges)
 - **Web UI**: FastAPI-based web interface for monitoring and controlling trading bots
 - **Real-time Logging**: Color-coded logs with real-time updates in the web interface
 - **Webhook Integration**: Secure webhook endpoints for automated trading signals
