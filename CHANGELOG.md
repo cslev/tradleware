@@ -5,9 +5,26 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.1] - 2025-10-20
+## [v2.0] - 2025-10-26
 
 ### 🎉 Major Release
+
+![Tradleware v2.0 Dashboard](screenshots/tradleware_v2.png)
+
+- UI layout bugfixes for multi-bot support
+- Card redesign and neon/cyberpunk style improvements
+- Tabbed dashboard view: summary, webhook details, logs
+- Added support for Independent Reserve exchange
+- Trading pair support check: logs available markets if configured pair is unsupported
+- If trading pair is unsupported, bot shows flashing red 'UNSUPPORTED' text in dashboard
+- Webhook now supports 'order_size' to buy/sell a percentage of available assets
+
+---
+
+## [v1.1] - 2025-10-20
+
+### 🎉 Minor Release
+![Tradleware v1.1 Dashboard](screenshots/tradleware_v1.png)
 
 - Mobile friendly look for dashboard and login page
 - Smart detection of HTTPS secure access, including support for proxied setups and Cloudflare Tunnel (uses X-Forwarded-Proto header)
