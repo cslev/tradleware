@@ -53,7 +53,6 @@ class IRTrader(BaseExchangeTrader):
     }
 
     # Initialize ccxt async exchange instance
-    # Note: ccxt exchange class name may vary; adjust if your ccxt build uses a different id.
     self.exchange = ccxt_async.independentreserve({
       "apiKey": self.api_key,
       "secret": self.secret_key,

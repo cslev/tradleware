@@ -47,8 +47,6 @@ class OKXTrader(BaseExchangeTrader):
 
     self.logger.success(f"OKXTrader initialized for {self.account_identifier} (Subaccount: {self.subaccount_name})")
 
-
-
   async def fetch_balance(self) -> Dict[str, Any]:
     """
     Fetches and prints the balance for the initialized OKX subaccount.
