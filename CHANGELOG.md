@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Trading pair support check: logs available markets if configured pair is unsupported
 - If trading pair is unsupported, bot shows flashing red 'UNSUPPORTED' text in dashboard
 - Webhook now supports 'order_size' to buy/sell a percentage of available assets
+- Added LOG_LEVEL environment variable to control general log verbosity (console and file logs)
+- LOG_LEVEL and GOTIFY_LOG_LEVEL are now fully independent for logging and notification filtering
+- Suppressed dashboard access logs for IP 127.0.0.1 to avoid log spam from Docker health checks
+- Improved trusted IP logging: skips log entry for 127.0.0.1
+- Updated documentation and .env files to clarify logging configuration
 
 ---
 
