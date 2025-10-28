@@ -1,5 +1,5 @@
 // Tab switching for card tabs
-function showTab(traderId, tab) {
+window.showTab = function(traderId, tab) {
   const tabs = ['summary', 'webhook', 'logs'];
   tabs.forEach(t => {
     const content = document.getElementById(`tab-${t}-${traderId}`);
