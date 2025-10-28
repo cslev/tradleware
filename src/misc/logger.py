@@ -68,7 +68,6 @@ class CustomLogger:
                gotify_log_level:int=logging.WARNING
                ):
     self.logger = logging.getLogger(name)
-    self.logger.setLevel(logging.DEBUG)
 
     # Helper: prefer explicit arg if non-empty, otherwise read env and treat empty string as unset (None)
     def _coerce_str_arg(arg_val, env_key, default=None):
@@ -80,7 +79,7 @@ class CustomLogger:
     self.gotify_url = _coerce_str_arg(gotify_url, 'GOTIFY_SERVER_URL')
     self.gotify_token = _coerce_str_arg(gotify_token, 'GOTIFY_APP_TOKEN')
 
-    # Parse log level safely (accept int/string), fall back to logging.WARNING on failure
+    # Parse gotify log level safely (accept int/string), fall back to logging.WARNING on failure
     level_src = None
     if gotify_log_level is not None and str(gotify_log_level).strip() != "":
       level_src = str(gotify_log_level).strip()
@@ -90,16 +89,24 @@ class CustomLogger:
       self.gotify_log_level = int(level_src)
     except Exception:
       self.gotify_log_level = logging.WARNING
-    print(f"Logger initialized by {name} - gotify_url: {self.gotify_url}, gotify_token: {self.gotify_token}, gotify_log_level: {self.gotify_log_level}")
+
+    # Parse general log level from env (LOG_LEVEL), default to DEBUG if not set
+    log_level_src = get_env('LOG_LEVEL', str(logging.DEBUG))
+    try:
+      self.general_log_level = int(str(log_level_src).strip())
+    except Exception:
+      self.general_log_level = logging.DEBUG
+
+    self.logger.setLevel(self.general_log_level)
+    print(f"Logger initialized by {name} - gotify_url: {self.gotify_url}, gotify_token: {self.gotify_token}, gotify_log_level: {self.gotify_log_level}, general_log_level: {self.general_log_level}")
 
     # Create console handler
     ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.DEBUG)
+    ch.setLevel(self.general_log_level)
     # Create a formatter with the current log level colors
     formatter = ColoredFormatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
                                  datefmt='%Y-%m-%d %H:%M:%S')
     ch.setFormatter(formatter)
-
 
     # File handler
     # --- Determine logs directory one level above this file ---
@@ -108,7 +115,7 @@ class CustomLogger:
     logs_dir.mkdir(parents=True, exist_ok=True)
     logfile = logs_dir / logfile_name
     fh = logging.FileHandler(logfile, mode='a') #rewrite the logfile always
-    fh.setLevel(logging.DEBUG)
+    fh.setLevel(self.general_log_level)
     fh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
                                       datefmt='%Y-%m-%d %H:%M:%S'))
 

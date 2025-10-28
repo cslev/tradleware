@@ -178,7 +178,8 @@ def is_authenticated(request: Request) -> bool:
 
   # Check if IP is trusted first (bypass authentication)
   if is_trusted_ip(client_ip):
-    logger.debug(f"Access granted from trusted IP: {client_ip}")
+    if client_ip != "127.0.0.1":
+      logger.debug(f"Access granted from trusted IP: {client_ip}")
     return True
 
   # Check session authentication
@@ -275,10 +276,12 @@ async def read_root(request: Request):
 
   # Check authentication
   if not is_authenticated(request):
-    logger.info(f"Unauthenticated access attempt to dashboard from IP: {client_ip}")
+    if client_ip != "127.0.0.1":
+      logger.warning(f"Unauthenticated access attempt to dashboard from IP: {client_ip}")
     return RedirectResponse(url="/login", status_code=303)
 
-  logger.debug(f"Dashboard accessed from IP: {client_ip}")
+  if client_ip != "127.0.0.1":
+    logger.debug(f"Dashboard accessed from IP: {client_ip}")
 
   # Get log refresh interval from environment (default to 5000ms = 5 seconds)
   log_refresh_interval = int(get_env('LOG_REFRESH_INTERVAL_MS', '5000'))
