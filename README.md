@@ -105,6 +105,7 @@ Before running the container, you need to set up your `.env` file with the neces
 | `GOTIFY_SERVER_URL` | No | - | Your Gotify server URL (e.g., `https://gotify.example.com`) |
 | `GOTIFY_APP_TOKEN` | No | - | Gotify application token for sending notifications |
 | `GOTIFY_LOG_LEVEL` | No | `30` | Minimum log level for Gotify notifications (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL) |
+| `LOG_LEVEL` | No | `10` | Minimum log level for general logging (console and file logs). Independent from GOTIFY_LOG_LEVEL. (10=DEBUG, 20=INFO, 25=SUCCESS, 30=WARNING, 40=ERROR, 50=CRITICAL) |
 | **OKX Bot Exchange Configuration** (Replace `{IDENTIFIER}` with your bot name, e.g., `MYBOT`) |
 | `{IDENTIFIER}_OKX_API_KEY` | ✅ Yes | - | OKX exchange API key |
 | `{IDENTIFIER}_OKX_SECRET_KEY` | ✅ Yes | - | OKX exchange secret key |
@@ -174,7 +175,12 @@ Before running the container, you need to set up your `.env` file with the neces
    LOG_REFRESH_INTERVAL_MS=5000  # 5 seconds
    ```
 
-6. **Configure Independent Reserve bot(s)**:
+6. **Optional: Configure general log level**:
+   ```env
+   LOG_LEVEL=10  # 10=DEBUG, 20=INFO, 25=SUCCESS, 30=WARNING, 40=ERROR, 50=CRITICAL
+   ```
+
+7. **Configure Independent Reserve bot(s)**:
    ```env
    # Active bot configurations (comma-separated)
    ACTIVE_TRADING_CONFIGS="MYBTCBOT_IR"
