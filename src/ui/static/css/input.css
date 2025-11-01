@@ -25,6 +25,14 @@
   flex: 1 1 0;
   text-align: center;
 }
+
+/* Smaller font on mobile to prevent tab wrapping */
+@media (max-width: 768px) {
+  .tab-btn {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.25rem;
+  }
+}
 .tab-btn.active, .tab-btn.bg-cyan-100.text-cyan-700 {
   background: #fff;
   border-top: 1.5px solid #000000;
@@ -281,15 +289,24 @@ html {
 .card-col {
   box-sizing: border-box;
   padding: 0;
-  margin: 0 0.75rem 0 0.75rem; /* Remove bottom margin */
+  margin: 0 0.75rem 1rem 0.75rem; /* Add bottom margin back for spacing */
   display: flex;
   justify-content: center;
   align-items: stretch;
+  width: 400px; /* Fixed width for desktop */
+}
+
+/* Add side padding on mobile devices */
+@media (max-width: 768px) {
+  .card-col {
+    width: calc(100vw - 2rem); /* Full width minus margins on mobile */
+    margin: 0 1rem 1rem 1rem; /* Add more horizontal margin on mobile */
+  }
 }
 
 .neon-card {
-  width: 400px;           /* Fixed width for all cards */
-  max-width: 100vw;       /* Prevent overflow on small screens */
+  width: 100%;            /* Take full width of parent card-col */
+  max-width: 100%;        /* Ensure it doesn't exceed parent */
   min-width: 320px;       /* Sensible minimum for mobile */
   min-height: 0;          /* Remove forced min-height */
   display: flex;
@@ -302,6 +319,13 @@ html {
   overflow: hidden;
   transition: box-shadow 160ms ease, transform 160ms ease;
   position: relative;
+}
+
+/* On mobile, ensure minimum width is respected */
+@media (max-width: 768px) {
+  .neon-card {
+    min-width: 280px; /* Smaller minimum on mobile */
+  }
 }
 
 .neon-card:hover {

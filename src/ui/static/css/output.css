@@ -30,6 +30,12 @@
   flex: 1 1 0;
   text-align: center;
 }
+@media (max-width: 768px) {
+  .tab-btn {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.25rem;
+  }
+}
 .tab-btn.active, .tab-btn.bg-cyan-100.text-cyan-700 {
   background: #fff;
   border-top: 1.5px solid #000000;
@@ -621,9 +627,6 @@
   .p-8 {
     padding: calc(var(--spacing) * 8);
   }
-  .p-12 {
-    padding: calc(var(--spacing) * 12);
-  }
   .px-2 {
     padding-inline: calc(var(--spacing) * 2);
   }
@@ -858,6 +861,11 @@
       max-width: var(--container-lg);
     }
   }
+  .sm\:p-8 {
+    @media (width >= 40rem) {
+      padding: calc(var(--spacing) * 8);
+    }
+  }
   .sm\:py-3 {
     @media (width >= 40rem) {
       padding-block: calc(var(--spacing) * 3);
@@ -883,6 +891,11 @@
   .md\:max-w-xl {
     @media (width >= 48rem) {
       max-width: var(--container-xl);
+    }
+  }
+  .md\:p-12 {
+    @media (width >= 48rem) {
+      padding: calc(var(--spacing) * 12);
     }
   }
 }
@@ -1048,14 +1061,21 @@ html {
 .card-col {
   box-sizing: border-box;
   padding: 0;
-  margin: 0 0.75rem 0 0.75rem;
+  margin: 0 0.75rem 1rem 0.75rem;
   display: flex;
   justify-content: center;
   align-items: stretch;
+  width: 400px;
+}
+@media (max-width: 768px) {
+  .card-col {
+    width: calc(100vw - 2rem);
+    margin: 0 1rem 1rem 1rem;
+  }
 }
 .neon-card {
-  width: 400px;
-  max-width: 100vw;
+  width: 100%;
+  max-width: 100%;
   min-width: 320px;
   min-height: 0;
   display: flex;
@@ -1068,6 +1088,11 @@ html {
   overflow: hidden;
   transition: box-shadow 160ms ease, transform 160ms ease;
   position: relative;
+}
+@media (max-width: 768px) {
+  .neon-card {
+    min-width: 280px;
+  }
 }
 .neon-card:hover {
   transform: translateY(-4px);
