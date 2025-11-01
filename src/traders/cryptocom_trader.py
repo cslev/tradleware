@@ -1,9 +1,14 @@
 import asyncio # Imported for asyncio.sleep
+
+from pathlib import Path
 from typing import Dict, Any
 from typing import Optional, List
+import traceback
 
 import ccxt
 from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
+
+from dotenv import load_dotenv
 
 from src.traders.base_trader import BaseExchangeTrader  # Changed from traders.base_trader
 from src.misc.logger import CustomLogger
@@ -32,7 +37,7 @@ class CryptocomTrader(BaseExchangeTrader):
     cryptocom_options = {
       'defaultType': self.default_type,
     }
-    
+
     # Add subaccount support if configured
     if self.subaccount_name:
       cryptocom_options['subAccount'] = self.subaccount_name
@@ -423,7 +428,7 @@ class CryptocomTrader(BaseExchangeTrader):
           # Set the required parameter to avoid KeyError
           if 'createMarketBuyOrderRequiresPrice' not in self.exchange.options:
             self.exchange.options['createMarketBuyOrderRequiresPrice'] = False
-          
+
           order = await self._safe_api_call(self.exchange.createMarketBuyOrderWithCost, symbol, amount_to_trade, params)
           if order:
             if isinstance(order, dict):
@@ -434,7 +439,7 @@ class CryptocomTrader(BaseExchangeTrader):
               order_id = getattr(order, 'id', 'unknown')
               status = getattr(order, 'status', 'unknown')
               filled_amount = getattr(order, 'filled', None)
-            
+
             filled_str = f"{filled_amount}" if filled_amount is not None else "N/A"
             self.logger.success(f"Order placed successfully! Order ID: {order_id}")
             self.logger.success(f"  Status: {status}, Filled: {filled_str} {base_currency}")
@@ -443,7 +448,7 @@ class CryptocomTrader(BaseExchangeTrader):
           return order
       except (AttributeError, ccxt.NotSupported, KeyError) as e:
         self.logger.warning(f"createMarketBuyOrderWithCost not supported or failed ({e}), converting to base amount")
-      
+
       # Fallback: Convert to base amount using ticker price
       ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
       if ticker is None:
@@ -457,19 +462,19 @@ class CryptocomTrader(BaseExchangeTrader):
             ticker = {k: getattr(ticker, k) for k in ('ask', 'bid', 'last') if hasattr(ticker, k)}
           except Exception:
             ticker = {}
-      
+
       expected_price = ticker.get('ask') or ticker.get('last') or ticker.get('bid')
       if expected_price is None:
         self.logger.error(f"Could not determine price from ticker for {symbol}: {ticker}")
         return None
-      
+
       # Store original cost for reference
       original_cost = amount_to_trade
-      
+
       # Only apply buffer for crypto/stablecoin pairs, not for fiat/stablecoin conversions
       # Fiat conversions are automatically calculated by exchange, but crypto trades need dust for fees
       is_crypto_pair = symbol == self.crypto_stablecoin_pair
-      
+
       if is_crypto_pair:
         # Apply a 0.5% buffer to account for exchange fees (leaves dust for fees)
         # This prevents "insufficient balance" errors when exchange deducts fees from quote currency
@@ -482,7 +487,7 @@ class CryptocomTrader(BaseExchangeTrader):
         base_amount = amount_to_trade / expected_price
         amount_to_trade = base_amount
         self.logger.info(f"Fallback: Calculated {amount_to_trade:.8f} {base_currency} at market price {expected_price:.8f} for {original_cost:.2f} {quote_currency} (fiat conversion - no buffer)")
-      
+
       price = None
 
     # Apply amount precision - this should only be applied once, to the base currency amount
@@ -516,7 +521,7 @@ class CryptocomTrader(BaseExchangeTrader):
         cost = getattr(order, 'cost', None)
 
       self.logger.success(f"Order placed successfully! Order ID: {order_id}")
-      
+
       # Show meaningful trade information based on buy/sell
       if side == 'buy':
         if filled and average:
@@ -555,13 +560,8 @@ class CryptocomTrader(BaseExchangeTrader):
 
 
 if __name__ == "__main__":
-  """
-  Test script for CryptocomTrader - Run this file directly to test basic functionality.
-  Requires environment variables to be set in .env file.
-  """
-  import asyncio
-  from pathlib import Path
-  from dotenv import load_dotenv
+  # Test script for CryptocomTrader - Run this file directly to test basic functionality.
+  # Requires environment variables to be set in .env file.
 
   # Load environment variables from .env file
   env_path = Path(__file__).parent.parent.parent / '.env'
@@ -573,34 +573,35 @@ if __name__ == "__main__":
     # Get the first active CRYPTOCOM config from environment
     active_configs = get_env('ACTIVE_TRADING_CONFIGS', '')
     cryptocom_configs = [c.strip() for c in active_configs.split(',') if 'CRYPTOCOM' in c.upper()]
-    
+
     if not cryptocom_configs:
       print("❌ No CRYPTOCOM configurations found in ACTIVE_TRADING_CONFIGS")
       print("   Please add a CRYPTOCOM config to your .env file")
       return
-    
+
     account_identifier = cryptocom_configs[0].rsplit('_', 1)[0]
     print(f"\n{'='*60}")
     print(f"Testing CryptocomTrader with account: {account_identifier}")
     print(f"{'='*60}\n")
-    
+
     trader = None
     try:
       # Initialize trader
       trader = CryptocomTrader(account_identifier=account_identifier)
       await trader.post_init()
-      
+
       # Test 1: Fetch balance
       print("\n--- Test 1: Fetching Balance ---")
       balance = await trader.fetch_balance()
-      
+      print(f"Balance fetched successfully: {balance}")
+
       # Test 2: Check trading pair validity
-      print(f"\n--- Test 2: Trading Pair Validity ---")
+      print("\n--- Test 2: Trading Pair Validity ---")
       print(f"Configured pair: {trader.crypto_stablecoin_pair}")
       print(f"Pair valid: {trader.trading_pair_valid}")
-      
+
       # Test 3: Fetch open orders
-      print(f"\n--- Test 3: Fetching Open Orders ---")
+      print("\n--- Test 3: Fetching Open Orders ---")
       orders = await trader.fetch_open_orders(trader.crypto_stablecoin_pair)
       if orders:
         print(f"Found {len(orders)} open orders")
@@ -608,28 +609,27 @@ if __name__ == "__main__":
           print(f"  Order {order.get('id')}: {order.get('side')} {order.get('amount')} @ {order.get('price')}")
       else:
         print("No open orders found")
-      
+
       # Test 4: List fiat markets (optional)
       if trader.fiat_currency:
         print(f"\n--- Test 4: Listing {trader.fiat_currency} Markets ---")
         fiat_markets = await trader.list_fiat_markets(trader.fiat_currency)
         if fiat_markets:
           print(f"Found {len(fiat_markets)} {trader.fiat_currency} markets")
-      
+
       print(f"\n{'='*60}")
       print("✅ All tests completed successfully!")
       print(f"{'='*60}\n")
-      
+
     except Exception as e:
       print(f"\n❌ Error during testing: {e}")
-      import traceback
       traceback.print_exc()
-    
+
     finally:
       # Clean up
       if trader:
         await trader.close()
         print("Connection closed.")
-  
+
   # Run the test
   asyncio.run(test_cryptocom_trader())
