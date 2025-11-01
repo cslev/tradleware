@@ -26,6 +26,7 @@ from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
 from src.traders.okx_trader import OKXTrader
 from src.traders.ir_trader import IRTrader
+from src.traders.cryptocom_trader import CryptocomTrader
 
 
 # Application version
@@ -40,6 +41,7 @@ TRADLEWARE_VERSION = "v2.0"
 EXCHANGE_TRADER_CLASSES = {
   'okx': OKXTrader,
   'ir': IRTrader,
+  'cryptocom': CryptocomTrader,
   # 'coinbasepro': CoinbaseProTrader,
   # Add other exchanges here as you create their trader classes
   # 'binance': BinanceTrader,
