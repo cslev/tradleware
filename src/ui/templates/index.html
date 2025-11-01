@@ -104,6 +104,24 @@
                     <p id="fiat-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">FIAT:</p>
                     <div class="flex items-center space-x-2">
                       <p id="fiat-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
+                      {% set fiat_currency = trader.stablecoin_fiat_pair.split('/')[1] if trader.stablecoin_fiat_pair else '' %}
+                      {% set stablecoin_currency = trader.stablecoin_fiat_pair.split('/')[0] if trader.stablecoin_fiat_pair else '' %}
+                      {% if fiat_currency == stablecoin_currency %}
+                      <!-- Disable button when fiat equals stablecoin -->
+                      <button 
+                        disabled
+                        title="No conversion needed - fiat and stablecoin are the same"
+                        class="p-1 rounded-full border border-gray-300 bg-gray-100 cursor-not-allowed opacity-50">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-400">
+                          <path d="m3 16 4 4 4-4"></path>
+                          <path d="M7 20V4"></path>
+                          <path d="M17 10V4h-2"></path>
+                          <path d="M15 10h4"></path>
+                          <rect x="15" y="14" width="4" height="6" ry="2"></rect>
+                        </svg>
+                      </button>
+                      {% else %}
+                      <!-- Normal enabled button when fiat differs from stablecoin -->
                       <button 
                         onclick="convertFiatToStablecoin('{{ trader_id }}', event)"
                         title="Convert fiat currency to stable coin"
@@ -116,6 +134,7 @@
                           <rect x="15" y="14" width="4" height="6" ry="2"></rect>
                         </svg>
                       </button>
+                      {% endif %}
                     </div>
                   </div>
                   <div class="flex justify-between items-center">
