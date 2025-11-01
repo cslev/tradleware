@@ -329,6 +329,10 @@ class IRTrader(BaseExchangeTrader):
         # Check if exchange supports createMarketBuyOrderWithCost
         if hasattr(self.exchange, 'createMarketBuyOrderWithCost'):
           self.logger.info(f"Using createMarketBuyOrderWithCost to spend exact {amount_to_trade} {quote}")
+          # Set the required parameter to avoid KeyError
+          if 'createMarketBuyOrderRequiresPrice' not in self.exchange.options:
+            self.exchange.options['createMarketBuyOrderRequiresPrice'] = False
+          
           order = await self._safe_api_call(self.exchange.createMarketBuyOrderWithCost, symbol, amount_to_trade, params)
           if order:
             # Log order details
@@ -347,8 +351,8 @@ class IRTrader(BaseExchangeTrader):
           else:
             self.logger.error(f"❌ Failed to place order for {symbol}.")
           return order
-      except Exception:
-        self.logger.info("createMarketBuyOrderWithCost not supported, using standard market order")
+      except Exception as e:
+        self.logger.info(f"createMarketBuyOrderWithCost not supported or failed ({e}), using standard market order")
       
       # Fallback: convert to base amount using ticker price
       ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
@@ -365,6 +369,8 @@ class IRTrader(BaseExchangeTrader):
       except Exception:
         self.logger.error("Invalid ticker price for conversion")
         return None
+      
+      # IR trader uses full amount - no buffer needed (exchange handles properly)
       base_amount = (amount_to_trade / expected_price) if expected_price else 0.0
       amount_to_trade = base_amount
       self.logger.info(f"Converting to base amount: {amount_to_trade} {base} at market price {expected_price}")
@@ -388,14 +394,33 @@ class IRTrader(BaseExchangeTrader):
       if isinstance(order, dict):
         oid = order.get("id", "unknown")
         status = order.get("status", "unknown")
-        price_out = order.get("price")
-        amount_out = order.get("amount")
+        filled = order.get("filled", 0)
+        average = order.get("average", None)
+        cost = order.get("cost", None)
       else:
         oid = getattr(order, "id", "unknown")
         status = getattr(order, "status", "unknown")
-        price_out = getattr(order, "price", None)
-        amount_out = getattr(order, "amount", None)
-      self.logger.success(f"Order placed: {oid} status={status} price={price_out or 'N/A'} amount={amount_out or 'N/A'}")
+        filled = getattr(order, "filled", 0)
+        average = getattr(order, "average", None)
+        cost = getattr(order, "cost", None)
+      
+      self.logger.success(f"Order placed successfully! Order ID: {oid}")
+      
+      # Show meaningful trade information based on buy/sell
+      if side == 'buy':
+        if filled and average:
+          self.logger.success(f"  ✅ Bought {filled:.8f} {base} for {filled * average:.2f} {quote} @ avg price {average:.8f}")
+        elif filled and cost:
+          self.logger.success(f"  ✅ Bought {filled:.8f} {base} for {cost:.2f} {quote}")
+        else:
+          self.logger.success(f"  Status: {status}, Filled: {filled} {base}")
+      else:  # sell
+        if filled and average:
+          self.logger.success(f"  ✅ Sold {filled:.8f} {base} for {filled * average:.2f} {quote} @ avg price {average:.8f}")
+        elif filled and cost:
+          self.logger.success(f"  ✅ Sold {filled:.8f} {base} for {cost:.2f} {quote}")
+        else:
+          self.logger.success(f"  Status: {status}, Filled: {filled} {base}")
     else:
       self.logger.error("Order call returned no result")
 
@@ -420,3 +445,84 @@ class IRTrader(BaseExchangeTrader):
     if res:
       self.logger.success(f"Order {order_id} cancelled.")
     return res
+
+
+if __name__ == "__main__":
+  """
+  Test script for IRTrader - Run this file directly to test basic functionality.
+  Requires environment variables to be set in .env file.
+  """
+  import asyncio
+  from pathlib import Path
+  from dotenv import load_dotenv
+
+  # Load environment variables from .env file
+  env_path = Path(__file__).parent.parent.parent / '.env'
+  print(f"Loading .env from: {env_path}")
+  load_dotenv(dotenv_path=env_path, override=True)
+
+  async def test_ir_trader():
+    """Test basic IR trader functionality"""
+    # Get the first active IR config from environment
+    active_configs = get_env('ACTIVE_TRADING_CONFIGS', '')
+    ir_configs = [c.strip() for c in active_configs.split(',') if '_IR' in c.upper()]
+    
+    if not ir_configs:
+      print("❌ No IR configurations found in ACTIVE_TRADING_CONFIGS")
+      print("   Please add an IR config to your .env file")
+      return
+    
+    account_identifier = ir_configs[0].rsplit('_', 1)[0]
+    print(f"\n{'='*60}")
+    print(f"Testing IRTrader with account: {account_identifier}")
+    print(f"{'='*60}\n")
+    
+    trader = None
+    try:
+      # Initialize trader
+      trader = IRTrader(account_identifier=account_identifier)
+      await trader.post_init()
+      
+      # Test 1: Fetch balance
+      print("\n--- Test 1: Fetching Balance ---")
+      balance = await trader.fetch_balance()
+      
+      # Test 2: Check trading pair validity
+      print(f"\n--- Test 2: Trading Pair Validity ---")
+      print(f"Configured pair: {trader.crypto_stablecoin_pair}")
+      print(f"Pair valid: {trader.trading_pair_valid}")
+      
+      # Test 3: Fetch open orders
+      print(f"\n--- Test 3: Fetching Open Orders ---")
+      orders = await trader.fetch_open_orders(trader.crypto_stablecoin_pair)
+      if orders:
+        print(f"Found {len(orders)} open orders")
+        for order in orders[:3]:  # Show first 3
+          print(f"  Order {order.get('id')}: {order.get('side')} {order.get('amount')} @ {order.get('price')}")
+      else:
+        print("No open orders found")
+      
+      # Test 4: List fiat markets (optional)
+      if trader.fiat_currency:
+        print(f"\n--- Test 4: Listing {trader.fiat_currency} Markets ---")
+        fiat_markets = await trader.list_fiat_markets(trader.fiat_currency)
+        if fiat_markets:
+          print(f"Found {len(fiat_markets)} {trader.fiat_currency} markets")
+      
+      print(f"\n{'='*60}")
+      print("✅ All tests completed successfully!")
+      print(f"{'='*60}\n")
+      
+    except Exception as e:
+      print(f"\n❌ Error during testing: {e}")
+      import traceback
+      traceback.print_exc()
+    
+    finally:
+      # Clean up
+      if trader:
+        await trader.close()
+        print("Connection closed.")
+  
+  # Run the test
+  asyncio.run(test_ir_trader())
