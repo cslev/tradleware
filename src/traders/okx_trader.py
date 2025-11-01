@@ -438,6 +438,10 @@ class OKXTrader(BaseExchangeTrader):
         # Check if exchange supports createMarketBuyOrderWithCost
         if hasattr(self.exchange, 'createMarketBuyOrderWithCost'):
           self.logger.info(f"Using createMarketBuyOrderWithCost to spend exact {amount_to_trade} {quote_currency}")
+          # Set the required parameter to avoid KeyError
+          if 'createMarketBuyOrderRequiresPrice' not in self.exchange.options:
+            self.exchange.options['createMarketBuyOrderRequiresPrice'] = False
+          
           order = await self._safe_api_call(self.exchange.createMarketBuyOrderWithCost, symbol, amount_to_trade, params)
           if order:
             # Log order details
@@ -456,8 +460,8 @@ class OKXTrader(BaseExchangeTrader):
           else:
             self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
           return order
-      except (AttributeError, ccxt.NotSupported):
-        self.logger.info("createMarketBuyOrderWithCost not supported, using standard market order with cost parameter")
+      except (AttributeError, ccxt.NotSupported, KeyError) as e:
+        self.logger.info(f"createMarketBuyOrderWithCost not supported or failed ({e}), using standard market order with cost parameter")
       
       # Fallback: Use standard create_order with cost in params for OKX
       # OKX accepts 'sz' (size) parameter which can be the quote currency amount for market buys
@@ -511,18 +515,33 @@ class OKXTrader(BaseExchangeTrader):
       if isinstance(order, dict):
         order_id = order.get('id', 'unknown')
         status = order.get('status', 'unknown')
-        price = order.get('price', None)
-        amount = order.get('amount', None)
+        filled = order.get('filled', 0)
+        average = order.get('average', None)
+        cost = order.get('cost', None)
       else:
         order_id = getattr(order, 'id', 'unknown')
         status = getattr(order, 'status', 'unknown')
-        price = getattr(order, 'price', None)
-        amount = getattr(order, 'amount', None)
+        filled = getattr(order, 'filled', 0)
+        average = getattr(order, 'average', None)
+        cost = getattr(order, 'cost', None)
 
-      price_str = f"{price}" if price is not None else "N/A"
-      amount_str = f"{amount}" if amount is not None else "N/A"
       self.logger.success(f"Order placed successfully! Order ID: {order_id}")
-      self.logger.success(f"  Status: {status}, Price: {price_str}, Amount: {amount_str}")
+      
+      # Show meaningful trade information based on buy/sell
+      if side == 'buy':
+        if filled and average:
+          self.logger.success(f"  ✅ Bought {filled:.8f} {base_currency} for {filled * average:.2f} {quote_currency} @ avg price {average:.8f}")
+        elif filled and cost:
+          self.logger.success(f"  ✅ Bought {filled:.8f} {base_currency} for {cost:.2f} {quote_currency}")
+        else:
+          self.logger.success(f"  Status: {status}, Filled: {filled} {base_currency}")
+      else:  # sell
+        if filled and average:
+          self.logger.success(f"  ✅ Sold {filled:.8f} {base_currency} for {filled * average:.2f} {quote_currency} @ avg price {average:.8f}")
+        elif filled and cost:
+          self.logger.success(f"  ✅ Sold {filled:.8f} {base_currency} for {cost:.2f} {quote_currency}")
+        else:
+          self.logger.success(f"  Status: {status}, Filled: {filled} {base_currency}")
     else:
       self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
     return order
@@ -543,3 +562,84 @@ class OKXTrader(BaseExchangeTrader):
     if cancel_result:
       self.logger.success(f"Order {order_id} cancelled successfully! Status: {cancel_result['status']}")
     return cancel_result
+
+
+if __name__ == "__main__":
+  """
+  Test script for OKXTrader - Run this file directly to test basic functionality.
+  Requires environment variables to be set in .env file.
+  """
+  import asyncio
+  from pathlib import Path
+  from dotenv import load_dotenv
+
+  # Load environment variables from .env file
+  env_path = Path(__file__).parent.parent.parent / '.env'
+  print(f"Loading .env from: {env_path}")
+  load_dotenv(dotenv_path=env_path, override=True)
+
+  async def test_okx_trader():
+    """Test basic OKX trader functionality"""
+    # Get the first active OKX config from environment
+    active_configs = get_env('ACTIVE_TRADING_CONFIGS', '')
+    okx_configs = [c.strip() for c in active_configs.split(',') if 'OKX' in c.upper()]
+    
+    if not okx_configs:
+      print("❌ No OKX configurations found in ACTIVE_TRADING_CONFIGS")
+      print("   Please add an OKX config to your .env file")
+      return
+    
+    account_identifier = okx_configs[0].split('_')[0]
+    print(f"\n{'='*60}")
+    print(f"Testing OKXTrader with account: {account_identifier}")
+    print(f"{'='*60}\n")
+    
+    trader = None
+    try:
+      # Initialize trader
+      trader = OKXTrader(account_identifier=account_identifier)
+      await trader.post_init()
+      
+      # Test 1: Fetch balance
+      print("\n--- Test 1: Fetching Balance ---")
+      balance = await trader.fetch_balance()
+      
+      # Test 2: Check trading pair validity
+      print(f"\n--- Test 2: Trading Pair Validity ---")
+      print(f"Configured pair: {trader.crypto_stablecoin_pair}")
+      print(f"Pair valid: {trader.trading_pair_valid}")
+      
+      # Test 3: Fetch open orders
+      print(f"\n--- Test 3: Fetching Open Orders ---")
+      orders = await trader.fetch_open_orders(trader.crypto_stablecoin_pair)
+      if orders:
+        print(f"Found {len(orders)} open orders")
+        for order in orders[:3]:  # Show first 3
+          print(f"  Order {order.get('id')}: {order.get('side')} {order.get('amount')} @ {order.get('price')}")
+      else:
+        print("No open orders found")
+      
+      # Test 4: List fiat markets (optional)
+      if trader.fiat_currency:
+        print(f"\n--- Test 4: Listing {trader.fiat_currency} Markets ---")
+        fiat_markets = await trader.list_fiat_markets(trader.fiat_currency)
+        if fiat_markets:
+          print(f"Found {len(fiat_markets)} {trader.fiat_currency} markets")
+      
+      print(f"\n{'='*60}")
+      print("✅ All tests completed successfully!")
+      print(f"{'='*60}\n")
+      
+    except Exception as e:
+      print(f"\n❌ Error during testing: {e}")
+      import traceback
+      traceback.print_exc()
+    
+    finally:
+      # Clean up
+      if trader:
+        await trader.close()
+        print("Connection closed.")
+  
+  # Run the test
+  asyncio.run(test_okx_trader())
