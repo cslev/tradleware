@@ -282,7 +282,9 @@ class IRTrader(BaseExchangeTrader):
 
       if order_execution_strategy == "market":
         order_type = "market"
+        # Use full spend_cost - let exchange handle fees (matching OKX behavior)
         amount_to_trade = spend_cost
+        self.logger.info(f"Calculated market buy cost: {amount_to_trade} {quote}")
       elif order_execution_strategy == "maker_limit":
         # get price and compute base amount
         ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
@@ -319,8 +321,36 @@ class IRTrader(BaseExchangeTrader):
         price = bid * 1.0001
         order_type = "limit"
 
-    # convert market buy cost->amount if needed (many exchanges accept cost for market buy; handle as OKX did)
+    # convert market buy cost->amount if needed
+    # For IR, check if exchange supports cost-based market buy orders
     if order_type == "market" and side == "buy":
+      # Try to use cost-based ordering if supported (similar to OKX approach)
+      try:
+        # Check if exchange supports createMarketBuyOrderWithCost
+        if hasattr(self.exchange, 'createMarketBuyOrderWithCost'):
+          self.logger.info(f"Using createMarketBuyOrderWithCost to spend exact {amount_to_trade} {quote}")
+          order = await self._safe_api_call(self.exchange.createMarketBuyOrderWithCost, symbol, amount_to_trade, params)
+          if order:
+            # Log order details
+            if isinstance(order, dict):
+              order_id = order.get('id', 'unknown')
+              status = order.get('status', 'unknown')
+              filled_amount = order.get('filled', None)
+            else:
+              order_id = getattr(order, 'id', 'unknown')
+              status = getattr(order, 'status', 'unknown')
+              filled_amount = getattr(order, 'filled', None)
+            
+            filled_str = f"{filled_amount}" if filled_amount is not None else "N/A"
+            self.logger.success(f"Order placed successfully! Order ID: {order_id}")
+            self.logger.success(f"  Status: {status}, Filled: {filled_str} {base}")
+          else:
+            self.logger.error(f"❌ Failed to place order for {symbol}.")
+          return order
+      except Exception:
+        self.logger.info("createMarketBuyOrderWithCost not supported, using standard market order")
+      
+      # Fallback: convert to base amount using ticker price
       ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
       if not ticker:
         self.logger.error("Could not fetch ticker to convert market buy cost")
@@ -337,6 +367,7 @@ class IRTrader(BaseExchangeTrader):
         return None
       base_amount = (amount_to_trade / expected_price) if expected_price else 0.0
       amount_to_trade = base_amount
+      self.logger.info(f"Converting to base amount: {amount_to_trade} {base} at market price {expected_price}")
       price = None
 
     # apply precision
