@@ -327,7 +327,7 @@ class OKXTrader(BaseExchangeTrader):
 
       if order_execution_strategy == 'market':
         order_type = 'market'
-        # For market buy, amount parameter in ccxt is usually the 'cost' (quote currency amount)
+        # Use full spend_cost - let exchange handle fees
         amount_to_trade = spend_cost
         self.logger.info(f"Calculated market buy cost: {amount_to_trade} {quote_currency}")
 
@@ -432,35 +432,70 @@ class OKXTrader(BaseExchangeTrader):
 
     # Apply amount precision as the final step
     if order_type == 'market' and side == 'buy':
-      # For OKX market buy orders, we need to convert quote amount to base amount
-      # Get current market price to convert USDT to BTC amount
-      ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
-      # normalize ticker to a dict-like object (tests may return Mock)
-      if ticker is None:
-        self.logger.error(f"Could not fetch market price for {symbol} to calculate buy amount.")
-        return None
-      if not isinstance(ticker, dict):
-        # try mapping conversion, then attribute extraction, else empty
-        try:
-          ticker = dict(ticker)
-        except Exception:
-          try:
-            ticker = {k: getattr(ticker, k) for k in ('ask', 'bid', 'last') if hasattr(ticker, k)}
-          except Exception:
-            ticker = {}
-      # pick best available price field
-      expected_price = ticker.get('ask') or ticker.get('last') or ticker.get('bid')
-      if expected_price is None:
-        self.logger.error(f"Could not determine price from ticker for {symbol}: {ticker}")
-        return None
-      # Convert quote amount (USDT) to base amount (BTC)
-      base_amount = amount_to_trade / expected_price
-      amount_to_trade = base_amount
-      self.logger.info(f"Converting {amount_to_trade:.8f} {base_currency} at market price {expected_price}")
-
-      # For market orders, price should remain None (let exchange determine execution price)
+      # For OKX market buy orders, use createMarketBuyOrderWithCost to spend exact quote amount
+      # This avoids precision loss from converting to base amount
+      try:
+        # Check if exchange supports createMarketBuyOrderWithCost
+        if hasattr(self.exchange, 'createMarketBuyOrderWithCost'):
+          self.logger.info(f"Using createMarketBuyOrderWithCost to spend exact {amount_to_trade} {quote_currency}")
+          order = await self._safe_api_call(self.exchange.createMarketBuyOrderWithCost, symbol, amount_to_trade, params)
+          if order:
+            # Log order details
+            if isinstance(order, dict):
+              order_id = order.get('id', 'unknown')
+              status = order.get('status', 'unknown')
+              filled_amount = order.get('filled', None)
+            else:
+              order_id = getattr(order, 'id', 'unknown')
+              status = getattr(order, 'status', 'unknown')
+              filled_amount = getattr(order, 'filled', None)
+            
+            filled_str = f"{filled_amount}" if filled_amount is not None else "N/A"
+            self.logger.success(f"Order placed successfully! Order ID: {order_id}")
+            self.logger.success(f"  Status: {status}, Filled: {filled_str} {base_currency}")
+          else:
+            self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
+          return order
+      except (AttributeError, ccxt.NotSupported):
+        self.logger.info("createMarketBuyOrderWithCost not supported, using standard market order with cost parameter")
+      
+      # Fallback: Use standard create_order with cost in params for OKX
+      # OKX accepts 'sz' (size) parameter which can be the quote currency amount for market buys
+      self.logger.info(f"Using standard market order with cost: {amount_to_trade} {quote_currency}")
+      # Don't convert to base amount - pass quote amount directly and set createMarketBuyOrderRequiresPrice to false
+      params['createMarketBuyOrderRequiresPrice'] = False
+      
+      # For OKX, we can pass the quote amount directly as amount for market buy orders
+      # The exchange will interpret it as the cost to spend
+      amount_to_trade_final = amount_to_trade
       price = None
+      
+      self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Cost={amount_to_trade_final} {quote_currency} (Market Order)")
+      
+      # Place the order with cost parameter
+      order = await self._safe_api_call(self.exchange.create_order, symbol, order_type, side, amount_to_trade_final, price, params)
+      if order:
+        # Defensive logging: order may be a dict or an object and fields may be missing (mocks/tests)
+        if isinstance(order, dict):
+          order_id = order.get('id', 'unknown')
+          status = order.get('status', 'unknown')
+          filled_amount = order.get('filled', None)
+        else:
+          order_id = getattr(order, 'id', 'unknown')
+          status = getattr(order, 'status', 'unknown')
+          filled_amount = getattr(order, 'filled', None)
 
+        filled_str = f"{filled_amount}" if filled_amount is not None else "N/A"
+        self.logger.success(f"Order placed successfully! Order ID: {order_id}")
+        self.logger.success(f"  Status: {status}, Filled: {filled_str} {base_currency}")
+      else:
+        self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
+      return order
+    
+    # For non-market-buy orders, apply standard precision and place order
+    amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
+
+    # For non-market-buy orders, apply standard precision and place order
     amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
 
     # Consistent logging - show price only if it's a limit order
