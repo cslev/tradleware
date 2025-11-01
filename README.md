@@ -14,7 +14,14 @@
   <img src="https://img.shields.io/badge/cost-FREE%20💰-brightgreen.svg" alt="Free">
 </p>
 
+
+
 **Tradleware** is a **free, open-source autotrading middleware** that bridges the gap between your trading strategies and cryptocurrency/stock exchanges—built with **privacy-and-security-by-design** from Singapore 🇸🇬 with love (with a Hungarian researcher's obsession with efficiency, paprika-level debugging, and the belief that if it's worth automating, it's worth over-engineering at 3 AM with coffee ☕🇭🇺).
+
+## High-level Architecture of Tradleware
+<p align="center">
+  <img src="src/ui/static/images/architecture_v2.1.jpg" alt="Tradleware architecture" width="800">
+</p>
 
 Take full control of your automated trading without compromising your security. Tradleware runs entirely on **your own infrastructure**, meaning your exchange API keys never leave your servers. No third-party services. No data sharing. No subscription fees. Just you, your strategies, and your trades.
 
