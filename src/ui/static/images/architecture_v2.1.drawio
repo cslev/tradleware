@@ -141,7 +141,7 @@
             <mxPoint x="-34" y="23" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="oZsA-r_y0uMlmHHEVttR-11" value="" style="html=1;verticalLabelPosition=bottom;align=center;labelBackgroundColor=#ffffff;verticalAlign=top;strokeWidth=2;strokeColor=light-dark(#F54DAE,#F54DAE);shadow=0;dashed=0;shape=mxgraph.ios7.icons.lightbulb;" vertex="1" parent="1">
+        <mxCell id="oZsA-r_y0uMlmHHEVttR-11" value="" style="html=1;verticalLabelPosition=bottom;align=center;labelBackgroundColor=#ffffff;verticalAlign=top;strokeWidth=2;strokeColor=light-dark(#F54DAE,#F54DAE);shadow=1;dashed=0;shape=mxgraph.ios7.icons.lightbulb;" vertex="1" parent="1">
           <mxGeometry x="567.2" y="492.15" width="22.8" height="29.7" as="geometry" />
         </mxCell>
         <mxCell id="oZsA-r_y0uMlmHHEVttR-14" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EBEBEB;sketch=1;curveFitting=1;jiggle=2;gradientColor=none;fillStyle=zigzag-line;shadow=1;" vertex="1" parent="1">
