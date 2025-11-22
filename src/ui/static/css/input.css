@@ -247,6 +247,12 @@
   color: #0891b2; /* cyan-600 */
 }
 
+/* Color CRITICAL messages pink */
+.debug-log-container pre .log-critical {
+  color: #ec4899; /* pink-500 */
+  font-weight: 700;
+}
+
 /* Body background and overlay - only for dashboard pages with .dashboard-page class */
 body.dashboard-page::before {
   content: '';

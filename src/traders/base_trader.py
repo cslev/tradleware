@@ -163,6 +163,7 @@ class BaseExchangeTrader(ABC):
     original_error = self.logger.error
     original_warning = self.logger.warning
     original_success = self.logger.success
+    original_critical = self.logger.critical
 
     def info_with_buffer(msg):
       self._add_to_buffer("INFO", msg)
@@ -180,10 +181,15 @@ class BaseExchangeTrader(ABC):
       self._add_to_buffer("SUCCESS", msg)
       return original_success(msg)
 
+    def critical_with_buffer(msg):
+      self._add_to_buffer("CRITICAL", msg)
+      return original_critical(msg)
+
     self.logger.info = info_with_buffer
     self.logger.error = error_with_buffer
     self.logger.warning = warning_with_buffer
     self.logger.success = success_with_buffer
+    self.logger.critical = critical_with_buffer
 
   def _add_to_buffer(self, level: str, message: str):
     """Add a log message to this trader's buffer"""

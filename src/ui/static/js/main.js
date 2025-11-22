@@ -64,7 +64,9 @@ async function refreshLogs(traderId) {
             if (logs && logs.length > 0) {
                 // Process each log line to add color classes
                 const coloredLogs = logs.map(log => {
-                    if (log.includes('] ERROR:')) {
+                    if (log.includes('] CRITICAL:')) {
+                        return `<span class="log-critical">${log}</span>`;
+                    } else if (log.includes('] ERROR:')) {
                         return `<span class="log-error">${log}</span>`;
                     } else if (log.includes('] WARNING:')) {
                         return `<span class="log-warning">${log}</span>`;

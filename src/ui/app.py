@@ -350,7 +350,9 @@ async def get_balance(request: Request, trader_id: str):
     return {"balance": balance}
   except Exception as exc:
     error_msg = str(exc)
+    # Log to both main logger and trader's logger so it appears in Recent Logs
     logger.error(f"Error for {trader_id}: {error_msg}")
+    traders[trader_id].logger.error(f"❌ Error fetching balance: {error_msg}")
     return JSONResponse(
       status_code=500,
       content={"error": error_msg}
