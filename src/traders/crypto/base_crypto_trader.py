@@ -11,10 +11,10 @@ import ccxt
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env  # Import centralized get_env helper
 
-class BaseExchangeTrader(ABC):
+class BaseCryptoTrader(ABC):
   """
-  Abstract base class for interacting with cryptocurrency exchanges.
-  Handles generic environment variable loading and defines common trading methods.
+  Abstract base class for cryptocurrency exchange traders.
+  Handles CCXT integration, trading pairs, and crypto-specific trading operations.
   """
   VALID_ORDER_TYPES = ['market', 'maker_limit']
   VALID_MARKET_TYPES = ['spot', 'future', 'swap']
@@ -28,12 +28,12 @@ class BaseExchangeTrader(ABC):
                default_type: str = 'spot',
                logger: Optional[CustomLogger] = None):
     """
-    Initializes the BaseExchangeTrader with account and exchange details.
+    Initializes the BaseCryptoTrader with account and exchange details.
 
     Args:
       account_identifier (str): A unique name for this specific trading setup
                                 (e.g., "MYBOT", "MANUAL_TRADER").
-      exchange_id (str): The ID of the exchange (e.g., "OKX", "COINBASEPRO").
+      exchange_id (str): The ID of the exchange (e.g., "OKX", "IR", "CRYPTOCOM").
       default_type (str): The default market type (e.g., 'spot', 'future', 'swap').
       logger (CustomLogger): The logger instance for printing and logging
     """

@@ -10,11 +10,11 @@ from ccxt import async_support as ccxt_async # Use an alias to avoid name collis
 
 from dotenv import load_dotenv
 
-from src.traders.base_trader import BaseExchangeTrader  # Changed from traders.base_trader
+from src.traders.crypto.base_crypto_trader import BaseCryptoTrader  # Changed from traders.base_trader
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env  # Import centralized get_env helper
 
-class CryptocomTrader(BaseExchangeTrader):
+class CryptocomTrader(BaseCryptoTrader):
   """
   Concrete trader class for the Crypto.com exchange.
   Handles Crypto.com-specific initialization and API calls.

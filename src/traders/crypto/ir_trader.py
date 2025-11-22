@@ -7,12 +7,12 @@ import traceback
 from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
 
 from dotenv import load_dotenv
-from src.traders.base_trader import BaseExchangeTrader
+from src.traders.crypto.base_crypto_trader import BaseCryptoTrader
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
 
 
-class IRTrader(BaseExchangeTrader):
+class IRTrader(BaseCryptoTrader):
   """
   Independent Reserve trader (ccxt). Mirrors OKXTrader behaviour for basic operations:
   - fetch_balance

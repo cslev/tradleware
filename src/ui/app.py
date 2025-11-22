@@ -24,9 +24,9 @@ from starlette.middleware.sessions import SessionMiddleware
 # First-party imports
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
-from src.traders.okx_trader import OKXTrader
-from src.traders.ir_trader import IRTrader
-from src.traders.cryptocom_trader import CryptocomTrader
+from src.traders.crypto.okx_trader import OKXTrader
+from src.traders.crypto.ir_trader import IRTrader
+from src.traders.crypto.cryptocom_trader import CryptocomTrader
 
 
 # Application version
