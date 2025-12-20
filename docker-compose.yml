@@ -5,12 +5,12 @@ services:
       dockerfile: Dockerfile
       tags:
         - "cslev/tradleware:latest"
-        - "cslev/tradleware:v2.0"
+        - "cslev/tradleware:v2.1"
       args:
         - BUILDKIT_INLINE_CACHE=1
       cache_from:
         - "cslev/tradleware:latest"
-        - "cslev/tradleware:v2.0"
+        - "cslev/tradleware:v2.1"
     image: cslev/tradleware:latest
     container_name: tradleware
     restart: unless-stopped
@@ -24,7 +24,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
       # Mount logs directory to persist logs
-      - ./logs:/app/src/logs:rw
+      - ./tradleware_data/logs:/app/src/logs:rw
     user: "1000:1000"  # Match the tradleware user from Dockerfile
     networks:
       - tradleware-network
