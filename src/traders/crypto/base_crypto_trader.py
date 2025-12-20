@@ -73,7 +73,7 @@ class BaseCryptoTrader(ABC):
       (self.api_key_env, self.api_key),
       (self.secret_key_env, self.secret_key),
       # (self.passphrase_env, self.passphrase), # Critical for OKX
-      # (self.subaccount_name_env, self.subaccount_name),
+      # (self.subaccount_name_env, self.subaccount_name), # Optional for exchanges without subaccounts
       (self.stablecoin_fiat_pair_env, self.stablecoin_fiat_pair),
       (self.crypto_stablecoin_pair_env, self.crypto_stablecoin_pair),
 
@@ -115,7 +115,7 @@ class BaseCryptoTrader(ABC):
     self.log_buffer = deque(maxlen=50)
 
     # Add some initial logs for testing
-    self._add_to_buffer("INFO", f"Trader {account_identifier} initialized")
+    self._add_to_buffer("INFO", f"CRYPTO trader {account_identifier} initialized for {self.crypto_stablecoin_pair}")
 
     # Create a custom logger for this trader that also writes to buffer
     self.logger = CustomLogger(
