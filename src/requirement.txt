@@ -7,3 +7,5 @@ python-multipart
 jinja2
 aiohttp
 itsdangerous
+pytz
+ib_insync
