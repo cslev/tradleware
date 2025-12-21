@@ -39,7 +39,7 @@ class IBKRTrader(BaseStockTrader):
     self.gateway_host = get_env('IBKR_GATEWAY_HOST', '127.0.0.1')
     # With extrange/ibkr image, API is always on port 8888 (auto-forwarded)
     self.gateway_port = int(get_env('IBKR_GATEWAY_PORT', '8888'))
-    self.account_id = get_env(f'{account_identifier}_ACCOUNT_ID')
+    self.account_id = get_env(f'{account_identifier}_IBKR_ACCOUNT_ID')
     
     # IB client
     self.ib = IB()
@@ -83,8 +83,80 @@ class IBKRTrader(BaseStockTrader):
     pass
 
   async def fetch_positions(self) -> Dict[str, Any]:
-    """Placeholder - to be implemented"""
-    return {}
+    """
+    Get position details with unrealized P&L for this symbol.
+
+    Returns:
+      Dictionary with position information:
+      {
+        'symbol': str,
+        'quantity': int,
+        'unrealized_pnl': float,
+        'unrealized_pnl_pct': float
+      }
+    """
+    try:
+      if not self.is_connected:
+        await self.connect()
+
+      # Get all positions
+      all_positions = self.ib.positions()
+      self.logger.debug(f"All positions: {all_positions}")
+
+      # Filter positions for our specific account
+      positions = [p for p in all_positions if p.account == self.account_id]
+      self.logger.debug(f"Positions for account {self.account_id}: {positions}")  
+      # Debug: log positions for this account
+      self.logger.info(f"Total positions for account {self.account_id}: {len(positions)}")
+      for p in positions:
+        self.logger.info(f"  Position: {p.contract.symbol} - {p.position} shares @ ${p.avgCost}")
+      
+      # Find position for our symbol
+      target_pos = next((p for p in positions if p.contract.symbol == self.symbol), None)
+      self.logger.debug(target_pos)
+      if not target_pos:
+        self.logger.info(f"No position found for {self.symbol}")
+        return {
+          'symbol': self.symbol,
+          'quantity': 0,
+          'unrealized_pnl': 0.0,
+          'unrealized_pnl_pct': 0.0
+        }
+      
+      # Get position details
+      quantity = int(target_pos.position)
+      avg_cost = float(target_pos.avgCost)
+      total_cost = quantity * avg_cost
+      
+      # Get real-time P&L data
+      import asyncio
+      account = self.ib.wrapper.accounts[0] if self.ib.wrapper.accounts else self.account_id
+      pnl_stream = self.ib.reqPnLSingle(account, "", target_pos.contract.conId)
+      
+      # Wait for P&L data to arrive
+      await asyncio.sleep(1)
+      
+      unrealized_pnl = float(pnl_stream.unrealizedPnL) if pnl_stream.unrealizedPnL else 0.0
+      unrealized_pnl_pct = (unrealized_pnl / abs(total_cost) * 100) if total_cost != 0 else 0.0
+      
+      self.logger.info(f"Position: {quantity} shares, cost: ${total_cost:.2f}, P&L: ${unrealized_pnl:.2f} ({unrealized_pnl_pct:.2f}%)")
+      
+      return {
+        'symbol': self.symbol,
+        'quantity': quantity,
+        'unrealized_pnl': unrealized_pnl,
+        'unrealized_pnl_pct': unrealized_pnl_pct
+      }
+     
+      
+    except Exception as e:
+      self.logger.error(f"Error fetching positions: {e}")
+      return {
+        'symbol': self.symbol,
+        'quantity': 0,
+        'unrealized_pnl': 0.0,
+        'unrealized_pnl_pct': 0.0
+      }
 
   async def fetch_account_value(self) -> Dict[str, Any]:
     """Placeholder - to be implemented"""
@@ -183,7 +255,7 @@ async def main():
   
   # Initialize trader
   trader = IBKRTrader(
-    account_identifier="TESTBOT",
+    account_identifier="MYPLTRBOT",
     symbol="PLTR",
     extended_hours=False
   )
@@ -196,9 +268,18 @@ async def main():
     input("\nPress Enter to continue to next test...")
     
     # Test 2: Fetch market price
-    print("\n[TEST 2] Fetching market price")
+    print("\n[TEST 2] Fetching market price for symbol set for the bot...")
     price = await trader.get_market_price()
     print(f"✓ Current price: ${price}")
+    input("\nPress Enter to continue...")
+    # Test 4: Fetch positions with P&L for our symbol
+    print(f"\n[TEST 4] Fetching position details for {trader.symbol}...")
+    position = await trader.fetch_positions()
+    print(f"✓ Position Details:")
+    print(f"  Symbol: {position['symbol']}")
+    print(f"  Quantity: {position['quantity']} shares")
+    print(f"  Unrealized P&L: ${position['unrealized_pnl']:.2f}")
+    print(f"  Unrealized P&L %: {position['unrealized_pnl_pct']:.2f}%")
     input("\nPress Enter to continue...")
     
     print("\n" + "=" * 60)
