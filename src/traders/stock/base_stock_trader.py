@@ -14,6 +14,8 @@ class BaseStockTrader(ABC):
   Handles market hours validation, position tracking, and stock-specific trading operations.
   """
   
+  bot_type = "stock"  # Used by GUI to distinguish from crypto bots
+  
   def __init__(self,
                account_identifier: str,
                broker_id: str,
@@ -70,25 +72,25 @@ class BaseStockTrader(ABC):
     original_success = self.logger.success
     original_critical = self.logger.critical
 
-    def info_with_buffer(msg):
+    def info_with_buffer(msg, **kwargs):
       self._add_to_buffer("INFO", msg)
-      return original_info(msg)
+      return original_info(msg, **kwargs)
 
-    def error_with_buffer(msg):
+    def error_with_buffer(msg, **kwargs):
       self._add_to_buffer("ERROR", msg)
-      return original_error(msg)
+      return original_error(msg, **kwargs)
 
-    def warning_with_buffer(msg):
+    def warning_with_buffer(msg, **kwargs):
       self._add_to_buffer("WARNING", msg)
-      return original_warning(msg)
+      return original_warning(msg, **kwargs)
 
-    def success_with_buffer(msg):
+    def success_with_buffer(msg, **kwargs):
       self._add_to_buffer("SUCCESS", msg)
-      return original_success(msg)
+      return original_success(msg, **kwargs)
 
-    def critical_with_buffer(msg):
+    def critical_with_buffer(msg, **kwargs):
       self._add_to_buffer("CRITICAL", msg)
-      return original_critical(msg)
+      return original_critical(msg, **kwargs)
 
     self.logger.info = info_with_buffer
     self.logger.error = error_with_buffer
