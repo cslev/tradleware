@@ -1,3 +1,6 @@
+import asyncio
+import math
+
 from typing import Optional, Dict, Any, List
 from ib_async import IB, Stock, MarketOrder, LimitOrder
 
@@ -40,6 +43,7 @@ class IBKRTrader(BaseStockTrader):
     # With extrange/ibkr image, API is always on port 8888 (auto-forwarded)
     self.gateway_port = int(get_env('IBKR_GATEWAY_PORT', '8888'))
     self.account_id = get_env(f'{account_identifier}_IBKR_ACCOUNT_ID')
+    self.tradleware_api_key = get_env(f'{account_identifier}_IBKR_TRADLEWARE_API_KEY')
     
     # IB client
     self.ib = IB()
@@ -107,15 +111,15 @@ class IBKRTrader(BaseStockTrader):
       positions = [p for p in all_positions if p.account == self.account_id]
       self.logger.debug(f"Positions for account {self.account_id}: {positions}")  
       # Debug: log positions for this account
-      self.logger.info(f"Total positions for account {self.account_id}: {len(positions)}")
+      self.logger.debug(f"Total positions for account {self.account_id}: {len(positions)}")
       for p in positions:
+        self.logger.debug(f" Position p is: {p}")
         self.logger.info(f"  Position: {p.contract.symbol} - {p.position} shares @ ${p.avgCost}")
       
       # Find position for our symbol
       target_pos = next((p for p in positions if p.contract.symbol == self.symbol), None)
-      self.logger.debug(target_pos)
       if not target_pos:
-        self.logger.info(f"No position found for {self.symbol}")
+        self.logger.warning(f"No position found for {self.symbol}")
         return {
           'symbol': self.symbol,
           'quantity': 0,
@@ -129,14 +133,24 @@ class IBKRTrader(BaseStockTrader):
       total_cost = quantity * avg_cost
       
       # Get real-time P&L data
-      import asyncio
+      
       account = self.ib.wrapper.accounts[0] if self.ib.wrapper.accounts else self.account_id
       pnl_stream = self.ib.reqPnLSingle(account, "", target_pos.contract.conId)
       
-      # Wait for P&L data to arrive
-      await asyncio.sleep(1)
+      # Wait for P&L data to arrive with retry logic
+      unrealized_pnl = 0.0
+      for attempt in range(5):  # Try up to 5 times
+        await asyncio.sleep(0.5)  # Wait 0.5 seconds between attempts
+        
+        if pnl_stream.unrealizedPnL is not None and not math.isnan(pnl_stream.unrealizedPnL):
+          unrealized_pnl = float(pnl_stream.unrealizedPnL)
+          self.logger.debug(f"Got P&L data on attempt {attempt + 1}: ${unrealized_pnl:.2f}")
+          break
+        else:
+          self.logger.info(f"Waiting for P&L data... attempt {attempt + 1}/5")
+      else:
+        self.logger.warning(f"P&L data not available after 2.5 seconds, using 0.0")
       
-      unrealized_pnl = float(pnl_stream.unrealizedPnL) if pnl_stream.unrealizedPnL else 0.0
       unrealized_pnl_pct = (unrealized_pnl / abs(total_cost) * 100) if total_cost != 0 else 0.0
       
       self.logger.info(f"Position: {quantity} shares, cost: ${total_cost:.2f}, P&L: ${unrealized_pnl:.2f} ({unrealized_pnl_pct:.2f}%)")
@@ -150,7 +164,7 @@ class IBKRTrader(BaseStockTrader):
      
       
     except Exception as e:
-      self.logger.error(f"Error fetching positions: {e}")
+      self.logger.error(f"Error fetching positions: {e}", exc_info=True)
       return {
         'symbol': self.symbol,
         'quantity': 0,
@@ -190,20 +204,22 @@ class IBKRTrader(BaseStockTrader):
       self.ib.reqMarketDataType(3)  # Delayed data (free)
       tickers = await self.ib.reqTickersAsync(contract)
       
+      symbol_str = contract.symbol if contract else (symbol or self.symbol)
+      
       if tickers:
         ticker = tickers[0]
         if ticker.marketPrice() and ticker.marketPrice() > 0:
-          self.logger.info(f"Got delayed market price for {symbol}")
+          self.logger.info(f"Got delayed market price for {symbol_str}")
           return float(ticker.marketPrice())
         if ticker.last and ticker.last > 0:
-          self.logger.info(f"Got last price for {symbol}")
+          self.logger.info(f"Got last price for {symbol_str}")
           return float(ticker.last)
         if ticker.close and ticker.close > 0:
-          self.logger.info(f"Got close price for {symbol}")
+          self.logger.info(f"Got close price for {symbol_str}")
           return float(ticker.close)
       
       # Fallback: Get recent historical data (always available)
-      self.logger.info(f"Falling back to historical data for {symbol}")
+      self.logger.info(f"Falling back to historical data for {symbol_str}")
       bars = await self.ib.reqHistoricalDataAsync(
         contract,
         endDateTime='',
@@ -216,14 +232,14 @@ class IBKRTrader(BaseStockTrader):
       
       if bars and len(bars) > 0:
         last_bar = bars[-1]
-        self.logger.info(f"Got historical close price for {symbol}: ${last_bar.close}")
+        self.logger.info(f"Got historical close price for {symbol_str}: ${last_bar.close}")
         return float(last_bar.close)
       
-      self.logger.warning(f"No price data available for {symbol}")
+      self.logger.warning(f"No price data available for {symbol_str}")
       return None
         
     except Exception as e:
-      self.logger.error(f"Error fetching market price for {symbol}: {e}")
+      self.logger.error(f"Error fetching market price for {symbol_str if 'symbol_str' in locals() else (symbol or self.symbol)}: {e}")
       return None
 
   async def create_order(self, side: str, quantity: int, order_type: str = 'market', limit_price: Optional[float] = None) -> Optional[Dict[str, Any]]:
@@ -247,17 +263,19 @@ async def main():
   """
   Test function to verify IBKR trader initialization and connection.
   """
-  import asyncio
-  
   print("=" * 60)
   print("IBKR Trader Test - Init & Connect Only")
   print("=" * 60)
+  
+  # Create logger instance
+  logger = CustomLogger(name="IBKRTraderTest")
   
   # Initialize trader
   trader = IBKRTrader(
     account_identifier="MYPLTRBOT",
     symbol="PLTR",
-    extended_hours=False
+    extended_hours=False,
+    logger=logger
   )
   
   try:
@@ -275,11 +293,11 @@ async def main():
     # Test 4: Fetch positions with P&L for our symbol
     print(f"\n[TEST 4] Fetching position details for {trader.symbol}...")
     position = await trader.fetch_positions()
-    print(f"✓ Position Details:")
-    print(f"  Symbol: {position['symbol']}")
-    print(f"  Quantity: {position['quantity']} shares")
-    print(f"  Unrealized P&L: ${position['unrealized_pnl']:.2f}")
-    print(f"  Unrealized P&L %: {position['unrealized_pnl_pct']:.2f}%")
+    logger.success(f"✓ Position Details:")
+    logger.success(f"  Symbol: {position['symbol']}")
+    logger.success(f"  Quantity: {position['quantity']} shares")
+    logger.success(f"  Unrealized P&L: ${position['unrealized_pnl']:.2f}")
+    logger.success(f"  Unrealized P&L %: {position['unrealized_pnl_pct']:.2f}%")
     input("\nPress Enter to continue...")
     
     print("\n" + "=" * 60)
