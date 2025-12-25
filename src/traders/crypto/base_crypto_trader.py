@@ -16,6 +16,9 @@ class BaseCryptoTrader(ABC):
   Abstract base class for cryptocurrency exchange traders.
   Handles CCXT integration, trading pairs, and crypto-specific trading operations.
   """
+  
+  bot_type = "crypto"  # Used by GUI to distinguish from stock bots
+  
   VALID_ORDER_TYPES = ['market', 'maker_limit']
   VALID_MARKET_TYPES = ['spot', 'future', 'swap']
   VALID_ORDER_SIDES = ['buy', 'sell']  # New constant
@@ -165,25 +168,25 @@ class BaseCryptoTrader(ABC):
     original_success = self.logger.success
     original_critical = self.logger.critical
 
-    def info_with_buffer(msg):
+    def info_with_buffer(msg, **kwargs):
       self._add_to_buffer("INFO", msg)
-      return original_info(msg)
+      return original_info(msg, **kwargs)
 
-    def error_with_buffer(msg):
+    def error_with_buffer(msg, **kwargs):
       self._add_to_buffer("ERROR", msg)
-      return original_error(msg)
+      return original_error(msg, **kwargs)
 
-    def warning_with_buffer(msg):
+    def warning_with_buffer(msg, **kwargs):
       self._add_to_buffer("WARNING", msg)
-      return original_warning(msg)
+      return original_warning(msg, **kwargs)
 
-    def success_with_buffer(msg):
+    def success_with_buffer(msg, **kwargs):
       self._add_to_buffer("SUCCESS", msg)
-      return original_success(msg)
+      return original_success(msg, **kwargs)
 
-    def critical_with_buffer(msg):
+    def critical_with_buffer(msg, **kwargs):
       self._add_to_buffer("CRITICAL", msg)
-      return original_critical(msg)
+      return original_critical(msg, **kwargs)
 
     self.logger.info = info_with_buffer
     self.logger.error = error_with_buffer
