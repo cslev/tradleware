@@ -100,28 +100,30 @@ class CustomLogger:
     self.logger.setLevel(self.general_log_level)
     print(f"Logger initialized by {name} - gotify_url: {self.gotify_url}, gotify_token: {self.gotify_token}, gotify_log_level: {self.gotify_log_level}, general_log_level: {self.general_log_level}")
 
-    # Create console handler
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(self.general_log_level)
-    # Create a formatter with the current log level colors
-    formatter = ColoredFormatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
-                                 datefmt='%Y-%m-%d %H:%M:%S')
-    ch.setFormatter(formatter)
+    # Only add handlers if they don't already exist (avoid duplicates)
+    if not self.logger.handlers:
+      # Create console handler
+      ch = logging.StreamHandler(sys.stdout)
+      ch.setLevel(self.general_log_level)
+      # Create a formatter with the current log level colors
+      formatter = ColoredFormatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
+                                   datefmt='%Y-%m-%d %H:%M:%S')
+      ch.setFormatter(formatter)
 
-    # File handler
-    # --- Determine logs directory one level above this file ---
-    base_dir = Path(__file__).resolve().parent.parent
-    logs_dir = base_dir / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    logfile = logs_dir / logfile_name
-    fh = logging.FileHandler(logfile, mode='a') #rewrite the logfile always
-    fh.setLevel(self.general_log_level)
-    fh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
-                                      datefmt='%Y-%m-%d %H:%M:%S'))
+      # File handler
+      # --- Determine logs directory one level above this file ---
+      base_dir = Path(__file__).resolve().parent.parent
+      logs_dir = base_dir / "logs"
+      logs_dir.mkdir(parents=True, exist_ok=True)
+      logfile = logs_dir / logfile_name
+      fh = logging.FileHandler(logfile, mode='a') #rewrite the logfile always
+      fh.setLevel(self.general_log_level)
+      fh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
+                                        datefmt='%Y-%m-%d %H:%M:%S'))
 
-    # Add the handlers to the logger
-    self.logger.addHandler(ch)
-    self.logger.addHandler(fh)
+      # Add the handlers to the logger
+      self.logger.addHandler(ch)
+      self.logger.addHandler(fh)
 
   def debug(self, message, exc_info=False):
     self.logger.debug(message, exc_info=exc_info)
