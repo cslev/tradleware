@@ -339,6 +339,35 @@ html {
   box-shadow: 0 0 26px rgba(0, 212, 255, 0.6);
 }
 
+/* Pink neon variant for stock trading bots */
+.neon-card-pink {
+  width: 100%;
+  max-width: 100%;
+  min-width: 320px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: #fff;
+  border: 2px solid rgba(255, 20, 147, 0.95); /* neon pink border */
+  border-radius: 0.5rem;
+  box-shadow: 0 0 18px rgba(255, 20, 147, 0.45); /* pink outer glow */
+  overflow: hidden;
+  transition: box-shadow 160ms ease, transform 160ms ease;
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .neon-card-pink {
+    min-width: 280px;
+  }
+}
+
+.neon-card-pink:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0 26px rgba(255, 20, 147, 0.6);
+}
+
 
 
 /* small safeguard: when using tailwind responsive widths, keep columns from shrinking too far */
