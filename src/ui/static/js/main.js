@@ -127,7 +127,7 @@ async function refreshBalance(traderId) {
       // Update labels with dynamic units
   fiatLabelElement.textContent = `FIAT - ${balance.fiat_unit}:`;
   stablecoinLabelElement.textContent = `Stablecoin - ${balance.stablecoin_unit}:`;
-  cryptoLabelElement.textContent = `Crypto - ${balance.crypto_unit}:`;
+  cryptoLabelElement.innerHTML = `Crypto - <span class="font-bold">${balance.crypto_unit}</span>:`;
       
       // Update individual balances
       fiatElement.textContent = formatNumber(balance.fiat);
@@ -154,6 +154,93 @@ async function refreshBalance(traderId) {
     fiatElement.textContent = 'Error';
     stablecoinElement.textContent = 'Error';
     cryptoElement.textContent = 'Error';
+    
+    statusElement.innerHTML = `
+      <div class="flex items-center space-x-2">
+        <div class="w-2 h-2 rounded-full bg-red-500"></div>
+        <span class="text-red-700">Connection Error</span>
+      </div>`;
+  }
+}
+
+// Function to refresh position data for stock traders
+async function refreshPosition(traderId) {
+  const quantityElement = document.getElementById(`position-quantity-${traderId}`);
+  const priceElement = document.getElementById(`position-price-${traderId}`);
+  const pnlElement = document.getElementById(`position-pnl-${traderId}`);
+  const pnlPctElement = document.getElementById(`position-pnl-pct-${traderId}`);
+  const marketStatusElement = document.getElementById(`market-status-${traderId}`);
+  const canTradeElement = document.getElementById(`can-trade-${traderId}`);
+  const marketOpensContainer = document.getElementById(`market-opens-container-${traderId}`);
+  const marketOpensElement = document.getElementById(`market-opens-${traderId}`);
+  const statusElement = document.getElementById(`status-${traderId}`);
+  
+  // Set loading state
+  quantityElement.textContent = 'Loading...';
+  priceElement.textContent = 'Loading...';
+  pnlElement.textContent = 'Loading...';
+  pnlPctElement.textContent = '';
+  marketStatusElement.textContent = 'Loading...';
+  canTradeElement.textContent = 'Loading...';
+  
+  try {
+    const response = await fetch(`/position/${traderId}`);
+    const data = await response.json();
+    
+    if (response.ok) {
+      const { position, current_price, market } = data;
+      
+      // Update position data
+      quantityElement.textContent = `${position.quantity} shares`;
+      priceElement.textContent = current_price ? `$${current_price.toFixed(2)}` : 'N/A';
+      
+      // Format P&L with color
+      const pnl = position.unrealized_pnl;
+      const pnlPct = position.unrealized_pnl_pct;
+      const pnlColor = pnl >= 0 ? 'text-green-600' : 'text-red-600';
+      const pnlSign = pnl >= 0 ? '+' : '';
+      
+      pnlElement.textContent = `${pnlSign}$${pnl.toFixed(2)}`;
+      pnlElement.className = `text-sm font-bold ${pnlColor}`;
+      pnlPctElement.textContent = ` (${pnlSign}${pnlPct.toFixed(2)}%)`;
+      pnlPctElement.className = `text-xs ${pnlColor}`;
+      
+      // Update market status
+      const statusIcons = {
+        'open': '🟢',
+        'closed': '⚫',
+        'pre-market': '🟡',
+        'after-hours': '🟡'
+      };
+      marketStatusElement.textContent = `${statusIcons[market.status] || ''} ${market.status.charAt(0).toUpperCase() + market.status.slice(1)}`;
+      canTradeElement.textContent = market.can_trade ? '✅ Yes' : '❌ No';
+      
+      // Show/hide "Opens in" based on market status
+      if (market.time_until_open) {
+        marketOpensContainer.classList.remove('hidden');
+        marketOpensContainer.classList.add('flex');
+        marketOpensElement.textContent = `⏰ ${market.time_until_open}`;
+      } else {
+        marketOpensContainer.classList.add('hidden');
+        marketOpensContainer.classList.remove('flex');
+      }
+      
+      // Update connection status
+      statusElement.innerHTML = `
+        <div class="flex items-center space-x-2">
+          <div class="w-2 h-2 rounded-full bg-green-500"></div>
+          <span class="text-green-700">Connected</span>
+        </div>`;
+        
+    } else {
+      throw new Error(data.error);
+    }
+  } catch (error) {
+    quantityElement.textContent = 'Error';
+    priceElement.textContent = 'Error';
+    pnlElement.textContent = 'Error';
+    marketStatusElement.textContent = 'Error';
+    canTradeElement.textContent = 'Error';
     
     statusElement.innerHTML = `
       <div class="flex items-center space-x-2">
@@ -226,6 +313,7 @@ async function convertFiatToStablecoin(traderId, event) {
 // Initial load and periodic refresh
 document.addEventListener('DOMContentLoaded', () => {
   const traderIds = JSON.parse(document.getElementById('trader-ids').textContent);
+  const traderTypes = JSON.parse(document.getElementById('trader-types').textContent);
   const logRefreshInterval = JSON.parse(document.getElementById('log-refresh-interval').textContent);
   const webhookPath = document.getElementById('webhook-path').textContent;
   
@@ -253,9 +341,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   
-  // Initial load
+  // Initial load - call appropriate refresh function based on trader type
   traderIds.forEach(traderId => {
-    refreshBalance(traderId);
+    const traderType = traderTypes[traderId];
+    if (traderType === 'stock') {
+      refreshPosition(traderId);
+    } else {
+      refreshBalance(traderId);
+    }
     refreshLogs(traderId);
   });
   

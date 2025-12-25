@@ -27,6 +27,7 @@ from src.misc.get_env import get_env
 from src.traders.crypto.okx_trader import OKXTrader
 from src.traders.crypto.ir_trader import IRTrader
 from src.traders.crypto.cryptocom_trader import CryptocomTrader
+from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
@@ -45,6 +46,13 @@ EXCHANGE_TRADER_CLASSES = {
   # 'coinbasepro': CoinbaseProTrader,
   # Add other exchanges here as you create their trader classes
   # 'binance': BinanceTrader,
+}
+
+# Stock broker configuration
+BROKER_TRADER_CLASSES = {
+  'ibkr': IBKRTrader,
+  # 'alpaca': AlpacaTrader,
+  # Add other stock brokers here as you create their trader classes
 }
 
 # Store active traders
@@ -73,20 +81,51 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
         continue
 
       account_identifier = "_".join(parts[:-1])
-      exchange_id_str = parts[-1].lower()
+      exchange_or_broker_id = parts[-1].lower()
 
-      trader_class = EXCHANGE_TRADER_CLASSES.get(exchange_id_str)
+      # Try crypto exchange first
+      trader_class = EXCHANGE_TRADER_CLASSES.get(exchange_or_broker_id)
       if trader_class:
         try:
           trader = trader_class(account_identifier=account_identifier)
           traders[config_str] = trader
-          logger.info(f"Initialized trader: {config_str}")
+          logger.info(f"Initialized crypto trader: {config_str}")
           try:
             await trader.post_init()
           except Exception as exc:
             logger.error(f"Could not check pair support for {config_str}: {exc}")
         except Exception as exc:
-          logger.error(f"Failed to initialize {config_str}: {str(exc)}")
+          logger.error(f"Failed to initialize crypto trader {config_str}: {str(exc)}")
+        continue
+
+      # Try stock broker
+      trader_class = BROKER_TRADER_CLASSES.get(exchange_or_broker_id)
+      if trader_class:
+        try:
+          # Stock traders need symbol and extended_hours from env
+          symbol = get_env(f'{account_identifier}_{exchange_or_broker_id.upper()}_SYMBOL')
+          extended_hours = get_env(f'{account_identifier}_{exchange_or_broker_id.upper()}_EXTENDED_HOURS', 'false').lower() == 'true'
+          
+          trader = trader_class(
+            account_identifier=account_identifier,
+            symbol=symbol,
+            extended_hours=extended_hours
+          )
+          traders[config_str] = trader
+          logger.info(f"Initialized stock trader: {config_str} (Symbol: {symbol}, Extended Hours: {extended_hours})")
+          
+          # Connect to broker
+          try:
+            await trader.connect()
+            logger.success(f"Connected stock trader: {config_str}")
+          except Exception as exc:
+            logger.error(f"Could not connect stock trader {config_str}: {exc}")
+        except Exception as exc:
+          logger.error(f"Failed to initialize stock trader {config_str}: {str(exc)}")
+        continue
+
+      # Unknown exchange/broker
+      logger.warning(f"Unknown exchange/broker ID '{exchange_or_broker_id}' in config: {config_str}. Skipping.")
   else:
     logger.error("Error: ACTIVE_TRADING_CONFIGS environment variable is not set. "
           "Please define which accounts to load (e.g., 'MYBOT_OKX,MYBOT_COINBASEPRO').")
@@ -208,7 +247,7 @@ def is_request_secure(request: Request) -> bool:
 async def login_page(request: Request):
   """Display the login page"""
   # Get client IP address
-  client_ip = request.client.host if request.client else "unknown"
+  client_ip = get_client_ip(request)
   logger.debug(f"Login page accessed from IP: {client_ip}")
 
   # If already authenticated, redirect to dashboard
@@ -274,7 +313,7 @@ async def logout(request: Request):
 async def read_root(request: Request):
   """Renders the main index.html page with trader cards."""
   # Get client IP address
-  client_ip = request.client.host if request.client else "unknown"
+  client_ip = get_client_ip(request)
 
   # Check authentication
   if not is_authenticated(request):
@@ -323,6 +362,16 @@ async def get_balance(request: Request, trader_id: str):
       status_code=404,
       content={"error": f"Trader {trader_id} not found"}
     )
+  
+  trader = traders[trader_id]
+  
+  # Check if it's a stock trader
+  if trader.bot_type == "stock":
+    return JSONResponse(
+      status_code=400,
+      content={"error": f"Use /position/{trader_id} endpoint for stock traders"}
+    )
+  
   traders[trader_id].logger.debug(f"asking for balance of {trader_id}")
   try:
     raw_balance = await traders[trader_id].fetch_balance()
@@ -353,6 +402,73 @@ async def get_balance(request: Request, trader_id: str):
     # Log to both main logger and trader's logger so it appears in Recent Logs
     logger.error(f"Error for {trader_id}: {error_msg}")
     traders[trader_id].logger.error(f"❌ Error fetching balance: {error_msg}")
+    return JSONResponse(
+      status_code=500,
+      content={"error": error_msg}
+    )
+
+@app.get("/position/{trader_id}")
+async def get_position(request: Request, trader_id: str):
+  """Fetch position and market data for a stock trader"""
+  # Check authentication
+  if not is_authenticated(request):
+    return JSONResponse(status_code=401, content={"error": "Authentication required"})
+
+  if trader_id not in traders:
+    return JSONResponse(
+      status_code=404,
+      content={"error": f"Trader {trader_id} not found"}
+    )
+  
+  trader = traders[trader_id]
+  
+  # Check if it's a stock trader
+  if trader.bot_type != "stock":
+    return JSONResponse(
+      status_code=400,
+      content={"error": f"Use /balance/{trader_id} endpoint for crypto traders"}
+    )
+  
+  try:
+    # Fetch position data
+    position = await trader.fetch_positions()
+    
+    # Fetch current price
+    current_price = await trader.get_market_price()
+    
+    # Get market status
+    market_status = trader.get_market_status()
+    can_trade = trader.can_trade_now()
+    time_until_open = trader.get_time_until_market_opens()
+    
+    # Ensure JSON-safe values (handle None, NaN, Infinity)
+    import math
+    def make_json_safe(value):
+      if value is None:
+        return 0.0
+      if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+          return 0.0
+      return value
+    
+    return {
+      "position": {
+        "symbol": position['symbol'],
+        "quantity": position['quantity'],
+        "unrealized_pnl": make_json_safe(position['unrealized_pnl']),
+        "unrealized_pnl_pct": make_json_safe(position['unrealized_pnl_pct'])
+      },
+      "current_price": make_json_safe(current_price),
+      "market": {
+        "status": market_status,
+        "can_trade": can_trade,
+        "time_until_open": time_until_open
+      }
+    }
+  except Exception as exc:
+    error_msg = str(exc)
+    logger.error(f"Error fetching position for {trader_id}: {error_msg}")
+    trader.logger.error(f"❌ Error fetching position: {error_msg}")
     return JSONResponse(
       status_code=500,
       content={"error": error_msg}
