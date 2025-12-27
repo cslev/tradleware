@@ -1,5 +1,6 @@
 import asyncio
 import math
+from datetime import datetime
 
 from typing import Optional, Dict, Any, List
 from ib_async import IB, Stock, MarketOrder, LimitOrder
@@ -77,6 +78,9 @@ class IBKRTrader(BaseStockTrader):
         clientId=hash(self.account_identifier) % 1000  # Unique client ID per bot
       )
       
+      # Register error handler for connection issues
+      self.ib.errorEvent += self._on_error
+      
       # Create stock contract
       self.contract = Stock(self.symbol, 'SMART', 'USD')
       await self.ib.qualifyContractsAsync(self.contract)
@@ -147,11 +151,24 @@ class IBKRTrader(BaseStockTrader):
       target_pos = next((p for p in positions if p.contract.symbol == self.symbol), None)
       if not target_pos:
         self.logger.warning(f"No position found for {self.symbol}")
+        
+        # Still get cash balance even if no position
+        cash_balance = 0.0
+        try:
+          account_summary = await self.ib.accountSummaryAsync()
+          for item in account_summary:
+            if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
+              cash_balance = float(item.value)
+              break
+        except Exception as e:
+          self.logger.warning(f"Error fetching cash balance: {e}")
+        
         return {
           'symbol': self.symbol,
           'quantity': 0,
           'unrealized_pnl': 0.0,
-          'unrealized_pnl_pct': 0.0
+          'unrealized_pnl_pct': 0.0,
+          'cash': cash_balance
         }
       
       # Get position details
@@ -199,13 +216,26 @@ class IBKRTrader(BaseStockTrader):
       
       unrealized_pnl_pct = (unrealized_pnl / abs(total_cost) * 100) if total_cost != 0 else 0.0
       
-      self.logger.info(f"Position: {quantity} shares, cost: ${total_cost:.2f}, P&L: ${unrealized_pnl:.2f} ({unrealized_pnl_pct:.2f}%)")
+      # Get account cash balance
+      cash_balance = 0.0
+      try:
+        account_summary = await self.ib.accountSummaryAsync()
+        for item in account_summary:
+          if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
+            cash_balance = float(item.value)
+            self.logger.debug(f"Cash balance: ${cash_balance:.2f}")
+            break
+      except Exception as e:
+        self.logger.warning(f"Error fetching cash balance: {e}")
+      
+      self.logger.info(f"Position: {quantity} shares, cost: ${total_cost:.2f}, P&L: ${unrealized_pnl:.2f} ({unrealized_pnl_pct:.2f}%), Cash: ${cash_balance:.2f}")
       
       return {
         'symbol': self.symbol,
         'quantity': quantity,
         'unrealized_pnl': unrealized_pnl,
-        'unrealized_pnl_pct': unrealized_pnl_pct
+        'unrealized_pnl_pct': unrealized_pnl_pct,
+        'cash': cash_balance
       }
      
       
@@ -215,7 +245,8 @@ class IBKRTrader(BaseStockTrader):
         'symbol': self.symbol,
         'quantity': 0,
         'unrealized_pnl': 0.0,
-        'unrealized_pnl_pct': 0.0
+        'unrealized_pnl_pct': 0.0,
+        'cash': 0.0
       }
 
   async def fetch_account_value(self) -> Dict[str, Any]:
@@ -288,9 +319,128 @@ class IBKRTrader(BaseStockTrader):
       self.logger.error(f"Error fetching market price for {symbol_str if 'symbol_str' in locals() else (symbol or self.symbol)}: {e}")
       return None
 
-  async def create_order(self, side: str, quantity: int, order_type: str = 'market', limit_price: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """Placeholder - to be implemented"""
-    return None
+  async def create_order(self,
+                         side: str,
+                         spend_percentage: float = 1.0,
+                         order_execution_strategy: str = 'market',
+                         limit_price: Optional[float] = None,
+                         params: dict = None) -> Optional[Dict[str, Any]]:
+    """
+    Place a buy/sell order for this symbol.
+    
+    Args:
+      side: 'buy' or 'sell' (validated by webhook handler)
+      spend_percentage: Percentage of available funds/shares to use (validated by webhook handler)
+      order_execution_strategy: 'market' or 'maker_limit'
+      limit_price: Price for limit orders (required if order_execution_strategy is 'maker_limit')
+      params: Additional IB-specific parameters
+    
+    Returns:
+      Order information dict or None on failure
+    """
+    try:
+      if not self.is_connected:
+        await self.connect()
+      
+      # For limit orders, price is required
+      if order_execution_strategy == 'maker_limit' and not limit_price:
+        raise ValueError("limit_price is required for 'maker_limit' orders")
+      
+      # Check market hours
+      if not self.can_trade_now():
+        market_status = self.get_market_status()
+        time_until_open = self.get_time_until_market_opens()
+        raise RuntimeError(
+          f"Market is {market_status}. "
+          f"{'Extended hours trading is disabled.' if market_status in ['pre-market', 'after-hours'] else f'Market opens in {time_until_open}.'}"
+        )
+      
+      # Calculate quantity based on side and spend_percentage
+      if side == 'buy':
+        # Get current price
+        current_price = await self.get_market_price()
+        if not current_price:
+          raise RuntimeError(f"Could not get current price for {self.symbol}")
+        
+        # Get account cash
+        account_summary = await self.ib.accountSummaryAsync()
+        cash_available = 0.0
+        for item in account_summary:
+          if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
+            cash_available = float(item.value)
+            break
+        
+        if cash_available <= 0:
+          raise ValueError(f"No cash available for buying. Cash: ${cash_available:.2f}")
+        
+        # Calculate quantity
+        amount_to_spend = cash_available * spend_percentage
+        quantity = int(amount_to_spend / current_price)
+        
+        if quantity <= 0:
+          raise ValueError(f"Calculated quantity is 0. Cash: ${cash_available:.2f}, Price: ${current_price:.2f}, Spend: ${amount_to_spend:.2f}")
+        
+        self.logger.info(f"Buy order: ${amount_to_spend:.2f} ({spend_percentage*100:.1f}% of ${cash_available:.2f}) → {quantity} shares @ ${current_price:.2f}")
+        
+      else:  # sell
+        # Get current position
+        position_info = await self.fetch_positions()
+        current_quantity = position_info.get('quantity', 0)
+        
+        if current_quantity <= 0:
+          raise ValueError(f"No shares to sell. Current position: {current_quantity}")
+        
+        # Calculate quantity to sell
+        quantity = int(current_quantity * spend_percentage)
+        
+        if quantity <= 0:
+          raise ValueError(f"Calculated sell quantity is 0. Position: {current_quantity}, Percentage: {spend_percentage*100:.1f}%")
+        
+        self.logger.info(f"Sell order: {quantity} shares ({spend_percentage*100:.1f}% of {current_quantity})")
+      
+      # Create the order object
+      if order_execution_strategy == 'market':
+        order = MarketOrder(side.upper(), quantity)
+        self.logger.info(f"Creating market order: {side.upper()} {quantity} shares of {self.symbol}")
+      else:  # maker_limit
+        order = LimitOrder(side.upper(), quantity, limit_price)
+        self.logger.info(f"Creating limit order: {side.upper()} {quantity} shares of {self.symbol} @ ${limit_price:.2f}")
+      
+      # Place the order
+      trade = self.ib.placeOrder(self.contract, order)
+      
+      # Wait for order to be submitted
+      await asyncio.sleep(1)
+      
+      # Get order status
+      order_status = trade.orderStatus.status if trade.orderStatus else 'Unknown'
+      filled_quantity = int(trade.orderStatus.filled) if trade.orderStatus else 0
+      avg_fill_price = float(trade.orderStatus.avgFillPrice) if trade.orderStatus and trade.orderStatus.avgFillPrice > 0 else 0.0
+      
+      self.logger.success(
+        f"Order placed successfully: {trade.order.orderId} - "
+        f"{side.upper()} {quantity} {self.symbol} - Status: {order_status}"
+      )
+      
+      return {
+        'order_id': str(trade.order.orderId),
+        'symbol': self.symbol,
+        'side': side,
+        'quantity': quantity,
+        'filled_quantity': filled_quantity,
+        'price': limit_price if order_execution_strategy == 'maker_limit' else avg_fill_price,
+        'order_type': order_execution_strategy,
+        'status': order_status,
+        'timestamp': datetime.now()
+      }
+      
+    except (ValueError, RuntimeError) as e:
+      # Expected errors with user-friendly messages
+      self.logger.error(f"Order creation failed: {e}")
+      raise
+    except Exception as e:
+      self.logger.error(f"Unexpected error creating order: {e}", exc_info=True)
+      return None
 
   async def cancel_order(self, order_id: str) -> bool:
     """Placeholder - to be implemented"""
@@ -299,6 +449,46 @@ class IBKRTrader(BaseStockTrader):
   async def fetch_open_orders(self) -> List[Dict[str, Any]]:
     """Placeholder - to be implemented"""
     return []
+
+  def _on_error(self, reqId, errorCode, errorString, contract):
+    """
+    Handle IB Gateway error events.
+    Error 1100: Connectivity between IBKR and TWS has been lost.
+    Error 1101: Connectivity restored.
+    Error 1102: Connectivity between IBKR and server has been lost and restored.
+    Error 2103: Market data farm connection is inactive but should be available upon demand.
+    Error 2104: Market data farm connection is OK.
+    Error 2105: A historical data farm is disconnected.
+    Error 2106: A historical data farm is connected.
+    Error 2158: Sec-def data farm connection is OK.
+    """
+    # Critical connection loss errors that require reconnection
+    if errorCode == 1100:
+      self.logger.error(f"Connection lost to IB Gateway (Error {errorCode}): {errorString}")
+      self.is_connected = False
+      # Note: Auto-reconnection would need to be handled by the application layer
+      # to avoid infinite loops. For now, just log and mark as disconnected.
+    
+    # Connection restored
+    elif errorCode == 1101:
+      self.logger.success(f"Connection restored to IB Gateway (Error {errorCode}): {errorString}")
+      self.is_connected = True
+    
+    # Connection lost and restored
+    elif errorCode == 1102:
+      self.logger.warning(f"Connection briefly lost and restored (Error {errorCode}): {errorString}")
+    
+    # Market data farm status (informational)
+    elif errorCode in [2103, 2104, 2105, 2106, 2108, 2158]:
+      self.logger.debug(f"Market data status (Error {errorCode}): {errorString}")
+    
+    # Other errors
+    else:
+      if reqId == -1:
+        # System-level error, not tied to a specific request
+        self.logger.warning(f"IB System Error {errorCode}: {errorString}")
+      else:
+        self.logger.warning(f"IB Error {errorCode} (reqId {reqId}): {errorString}")
 
   async def close(self):
     """
