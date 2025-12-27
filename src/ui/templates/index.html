@@ -284,6 +284,10 @@
                       <span id="position-pnl-pct-{{ trader_id }}" class="text-xs"></span>
                     </p>
                   </div>
+                  <div class="flex justify-between items-center">
+                    <p class="text-sm text-pink-700 font-medium">Cash (USD):</p>
+                    <p id="position-cash-{{ trader_id }}" class="text-sm font-bold text-pink-900">Loading...</p>
+                  </div>
                 </div>
               </div>
 
@@ -300,8 +304,11 @@
                     <span id="can-trade-{{ trader_id }}" class="font-semibold text-purple-900">Loading...</span>
                   </div>
                   <div class="flex justify-between items-center">
-                    <span class="text-purple-700">Extended Hours:</span>
-                    <span class="font-semibold text-purple-900">{{ '✅ Yes' if trader.extended_hours else '❌ No' }}</span>
+                    <span class="text-purple-700">Extended Hours:<sup class="ml-0.5 text-xs text-purple-600 cursor-help" 
+                           title="Regular: 9:30 AM-4:00 PM ET | Pre-market: 4:00 AM-9:30 AM ET | After-hours: 4:00 PM-8:00 PM ET">ⓘ</sup></span>
+                    <span class="font-semibold text-purple-900">
+                      {{ '✅ Yes' if trader.extended_hours else '❌ No' }}
+                    </span>
                   </div>
                   <div id="market-opens-container-{{ trader_id }}" class="hidden justify-between items-center">
                     <span class="text-purple-700">Opens in:</span>
