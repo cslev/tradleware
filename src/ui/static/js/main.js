@@ -169,6 +169,7 @@ async function refreshPosition(traderId) {
   const priceElement = document.getElementById(`position-price-${traderId}`);
   const pnlElement = document.getElementById(`position-pnl-${traderId}`);
   const pnlPctElement = document.getElementById(`position-pnl-pct-${traderId}`);
+  const cashElement = document.getElementById(`position-cash-${traderId}`);
   const marketStatusElement = document.getElementById(`market-status-${traderId}`);
   const canTradeElement = document.getElementById(`can-trade-${traderId}`);
   const marketOpensContainer = document.getElementById(`market-opens-container-${traderId}`);
@@ -180,6 +181,7 @@ async function refreshPosition(traderId) {
   priceElement.textContent = 'Loading...';
   pnlElement.textContent = 'Loading...';
   pnlPctElement.textContent = '';
+  cashElement.textContent = 'Loading...';
   marketStatusElement.textContent = 'Loading...';
   canTradeElement.textContent = 'Loading...';
   
@@ -192,7 +194,7 @@ async function refreshPosition(traderId) {
       
       // Update position data
       quantityElement.textContent = `${position.quantity} shares`;
-      priceElement.textContent = current_price ? `$${current_price.toFixed(2)}` : 'N/A';
+      priceElement.textContent = current_price ? `$${current_price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : 'N/A';
       
       // Format P&L with color
       const pnl = position.unrealized_pnl;
@@ -200,10 +202,14 @@ async function refreshPosition(traderId) {
       const pnlColor = pnl >= 0 ? 'text-green-600' : 'text-red-600';
       const pnlSign = pnl >= 0 ? '+' : '';
       
-      pnlElement.textContent = `${pnlSign}$${pnl.toFixed(2)}`;
+      pnlElement.textContent = `${pnlSign}$${Math.abs(pnl).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
       pnlElement.className = `text-sm font-bold ${pnlColor}`;
       pnlPctElement.textContent = ` (${pnlSign}${pnlPct.toFixed(2)}%)`;
       pnlPctElement.className = `text-xs ${pnlColor}`;
+      
+      // Update cash balance
+      const cash = position.cash || 0;
+      cashElement.textContent = `$${cash.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
       
       // Update market status
       const statusIcons = {
@@ -239,6 +245,7 @@ async function refreshPosition(traderId) {
     quantityElement.textContent = 'Error';
     priceElement.textContent = 'Error';
     pnlElement.textContent = 'Error';
+    cashElement.textContent = 'Error';
     marketStatusElement.textContent = 'Error';
     canTradeElement.textContent = 'Error';
     
