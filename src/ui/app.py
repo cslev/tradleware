@@ -456,7 +456,8 @@ async def get_position(request: Request, trader_id: str):
         "symbol": position['symbol'],
         "quantity": position['quantity'],
         "unrealized_pnl": make_json_safe(position['unrealized_pnl']),
-        "unrealized_pnl_pct": make_json_safe(position['unrealized_pnl_pct'])
+        "unrealized_pnl_pct": make_json_safe(position['unrealized_pnl_pct']),
+        "cash": make_json_safe(position.get('cash', 0.0))
       },
       "current_price": make_json_safe(current_price),
       "market": {
@@ -609,178 +610,250 @@ async def handle_webhook(request: Request):
   trader.logger.info(f"VALID Action {action} ")
 
   ######################################################
-  ## CHECK IF TICKER MATCHES THE BOT'S CONFIGURED PAIR
+  ## BRANCH BASED ON TRADER TYPE (CRYPTO vs STOCK)
   ######################################################
-  # Validate ticker symbol matches the bot's configured crypto/stablecoin pair
-  expected_ticker = trader.crypto_stablecoin_pair
-  if ticker != expected_ticker:
-    trader.logger.error(f"Invalid ticker: {ticker}")
-    raise HTTPException(
-      status_code=400,
-      detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
-    )
+  if trader.bot_type == "crypto":
+    ######################################################
+    ## CRYPTO TRADER: CHECK IF TICKER MATCHES PAIR
+    ######################################################
+    expected_ticker = trader.crypto_stablecoin_pair
+    if ticker != expected_ticker:
+      trader.logger.error(f"Invalid ticker: {ticker}, expected: {expected_ticker}")
+      raise HTTPException(
+        status_code=400,
+        detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
+      )
+    trader.logger.info(f"VALID ticker: {ticker}")
 
-  trader.logger.info(f"VALID ticker: {ticker}")
-
-  ######################################################
-  # Check if we have sufficient balance for the requested action
-  ######################################################
-  if action == "buy":
-    try:
-      # Fetch current balance to check stablecoin availability
-      raw_balance = await trader.fetch_balance()
-      free_balances = raw_balance.get('free', {})
-      stablecoin_symbol = trader.crypto_stablecoin_pair.split('/')[1]  # Extract stablecoin (e.g., USDT from BTC/USDT)
-      available_stablecoin = free_balances.get(stablecoin_symbol, 0.0)
-
-      if available_stablecoin <= 0:
-        trader.logger.warning(f"Buy signal received for {ticker} but no {stablecoin_symbol} balance available. Available: {available_stablecoin}")
-        return {
-          "status": "warning",
-          "message": f"Buy signal received but insufficient {stablecoin_symbol} balance",
-          "available_balance": available_stablecoin,
-          "processed_at": timestamp_str
-        }
-
-      trader.logger.info(f"Buy signal validation passed. Available {stablecoin_symbol} balance: {available_stablecoin}")
-      # Execute the buy order
+    ######################################################
+    # CRYPTO: Check balance and execute order
+    ######################################################
+    if action == "buy":
       try:
-        trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
-        order_result = await trader.create_order(
-          symbol=ticker,
-          side='buy',
-          spend_percentage=spend_percentage,  # Use 100% of available stablecoin
-          order_execution_strategy='market'  # Market order for immediate execution
-        )
+        # Fetch current balance to check stablecoin availability
+        raw_balance = await trader.fetch_balance()
+        free_balances = raw_balance.get('free', {})
+        stablecoin_symbol = trader.crypto_stablecoin_pair.split('/')[1]  # Extract stablecoin (e.g., USDT from BTC/USDT)
+        available_stablecoin = free_balances.get(stablecoin_symbol, 0.0)
 
-        if order_result:
-          trader.logger.info(f"BUY order executed successfully! Order ID: {order_result.get('id')}")
-
-          # Get updated balance to show meaningful success message
-          try:
-            updated_balance = await trader.fetch_balance()
-            free_balances = updated_balance.get('free', {})
-            crypto_symbol = ticker.split('/')[0]
-            stablecoin_symbol = ticker.split('/')[1]
-            crypto_balance = free_balances.get(crypto_symbol, 0.0)
-            stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
-
-            trader.logger.success(f"🚀 BUY Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
-          except Exception as balance_e:
-            trader.logger.warning(f"🚀 BUY order completed but couldn't fetch updated balance: {order_result.get('id')}\n{balance_e}")
-
+        if available_stablecoin <= 0:
+          trader.logger.warning(f"Buy signal received for {ticker} but no {stablecoin_symbol} balance available. Available: {available_stablecoin}")
           return {
-            "status": "success",
-            "message": "BUY order executed successfully",
-            "order_id": order_result.get('id'),
-            "symbol": ticker,
-            "side": "buy",
-            "amount": order_result.get('amount'),
-            "price": order_result.get('price'),
+            "status": "warning",
+            "message": f"Buy signal received but insufficient {stablecoin_symbol} balance",
+            "available_balance": available_stablecoin,
             "processed_at": timestamp_str
           }
 
-        trader.logger.error("BUY order execution failed - no order result returned")
-        return {
-          "status": "error",
-          "message": "BUY order execution failed",
-          "processed_at": timestamp_str
-        }
-      except Exception as order_e:
-        error_msg = str(order_e)
-        trader.logger.error(f"Error executing BUY order: {error_msg}")
-        return {
-          "status": "error",
-          "message": f"BUY order execution failed: {error_msg}",
-          "processed_at": timestamp_str
-        }
+        trader.logger.info(f"Buy signal validation passed. Available {stablecoin_symbol} balance: {available_stablecoin}")
+        # Execute the buy order
+        try:
+          trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
+          order_result = await trader.create_order(
+            symbol=ticker,
+            side='buy',
+            spend_percentage=spend_percentage,  # Use 100% of available stablecoin
+            order_execution_strategy='market'  # Market order for immediate execution
+          )
 
-    except Exception as exc:
-      trader.logger.error(f"Failed to fetch balance for buy validation: {str(exc)}")
-      raise HTTPException(status_code=500, detail=f"Failed to validate balance: {str(exc)}") from exc
+          if order_result:
+            trader.logger.info(f"BUY order executed successfully! Order ID: {order_result.get('id')}")
 
-  elif action == "sell":
-    try:
-      # Fetch current balance to check crypto availability
-      raw_balance = await trader.fetch_balance()
-      free_balances = raw_balance.get('free', {})
-      crypto_symbol = trader.crypto_stablecoin_pair.split('/')[0]  # Extract crypto (e.g., BTC from BTC/USDT)
-      available_crypto = free_balances.get(crypto_symbol, 0.0)
+            # Get updated balance to show meaningful success message
+            try:
+              updated_balance = await trader.fetch_balance()
+              free_balances = updated_balance.get('free', {})
+              crypto_symbol = ticker.split('/')[0]
+              stablecoin_symbol = ticker.split('/')[1]
+              crypto_balance = free_balances.get(crypto_symbol, 0.0)
+              stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
 
-      if available_crypto <= 0:
-        trader.logger.warning(f"Sell signal received for {ticker} but no {crypto_symbol} balance available. Available: {available_crypto}")
-        return {
-          "status": "warning",
-          "message": f"Sell signal received but insufficient {crypto_symbol} balance",
-          "available_balance": available_crypto,
-          "processed_at": timestamp_str
-        }
+              trader.logger.success(f"🚀 BUY Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
+            except Exception as balance_e:
+              trader.logger.warning(f"🚀 BUY order completed but couldn't fetch updated balance: {order_result.get('id')}\n{balance_e}")
 
-      trader.logger.info(f"Sell signal validation passed. Available {crypto_symbol} balance: {available_crypto}")
+            return {
+              "status": "success",
+              "message": "BUY order executed successfully",
+              "order_id": order_result.get('id'),
+              "symbol": ticker,
+              "side": "buy",
+              "amount": order_result.get('amount'),
+              "price": order_result.get('price'),
+              "processed_at": timestamp_str
+            }
 
-      # Execute the sell order
-      try:
-        trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
-        order_result = await trader.create_order(
-          symbol=ticker,
-          side='sell',
-          spend_percentage=spend_percentage,  # Use 100% of available crypto
-          order_execution_strategy='market'  # Market order for immediate execution
-        )
-
-        if order_result:
-          trader.logger.info(f"SELL order executed successfully! Order ID: {order_result.get('id')}")
-
-          # Get updated balance to show meaningful success message
-          try:
-            updated_balance = await trader.fetch_balance()
-            free_balances = updated_balance.get('free', {})
-            crypto_symbol = ticker.split('/')[0]
-            stablecoin_symbol = ticker.split('/')[1]
-            crypto_balance = free_balances.get(crypto_symbol, 0.0)
-            stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
-
-            trader.logger.success(f"💰 SELL Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
-          except Exception as balance_e:
-            trader.logger.warning(f"💰 SELL order completed but couldn't fetch updated balance: {order_result.get('id')} - Error: {str(balance_e)}")
-
+          trader.logger.error("BUY order execution failed - no order result returned")
           return {
-            "status": "success",
-            "message": "SELL order executed successfully",
-            "order_id": order_result.get('id'),
-            "symbol": ticker,
-            "side": "sell",
-            "amount": order_result.get('amount'),
-            "price": order_result.get('price'),
+            "status": "error",
+            "message": "BUY order execution failed",
+            "processed_at": timestamp_str
+          }
+        except Exception as order_e:
+          error_msg = str(order_e)
+          trader.logger.error(f"Error executing BUY order: {error_msg}")
+          return {
+            "status": "error",
+            "message": f"BUY order execution failed: {error_msg}",
             "processed_at": timestamp_str
           }
 
-        trader.logger.error("SELL order execution failed - no order result returned")
-        return {
-          "status": "error",
-          "message": "SELL order execution failed",
-          "processed_at": timestamp_str
-        }
-      except Exception as order_e:
-        error_msg = str(order_e)
-        trader.logger.error(f"Error executing SELL order: {error_msg}")
-        return {
-          "status": "error",
-          "message": f"SELL order execution failed: {error_msg}",
-          "processed_at": timestamp_str
-        }
+      except Exception as exc:
+        trader.logger.error(f"Failed to fetch balance for buy validation: {str(exc)}")
+        raise HTTPException(status_code=500, detail=f"Failed to validate balance: {str(exc)}") from exc
 
-    except Exception as exc:
-      trader.logger.error(f"Failed to fetch balance for sell validation: {str(exc)}")
-      raise HTTPException(status_code=500, detail=f"Failed to validate balance: {str(exc)}") from exc
+    elif action == "sell":
+      try:
+        # Fetch current balance to check crypto availability
+        raw_balance = await trader.fetch_balance()
+        free_balances = raw_balance.get('free', {})
+        crypto_symbol = trader.crypto_stablecoin_pair.split('/')[0]  # Extract crypto (e.g., BTC from BTC/USDT)
+        available_crypto = free_balances.get(crypto_symbol, 0.0)
+
+        if available_crypto <= 0:
+          trader.logger.warning(f"Sell signal received for {ticker} but no {crypto_symbol} balance available. Available: {available_crypto}")
+          return {
+            "status": "warning",
+            "message": f"Sell signal received but insufficient {crypto_symbol} balance",
+            "available_balance": available_crypto,
+            "processed_at": timestamp_str
+          }
+
+        trader.logger.info(f"Sell signal validation passed. Available {crypto_symbol} balance: {available_crypto}")
+
+        # Execute the sell order
+        try:
+          trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
+          order_result = await trader.create_order(
+            symbol=ticker,
+            side='sell',
+            spend_percentage=spend_percentage,  # Use 100% of available crypto
+            order_execution_strategy='market'  # Market order for immediate execution
+          )
+
+          if order_result:
+            trader.logger.info(f"SELL order executed successfully! Order ID: {order_result.get('id')}")
+
+            # Get updated balance to show meaningful success message
+            try:
+              updated_balance = await trader.fetch_balance()
+              free_balances = updated_balance.get('free', {})
+              crypto_symbol = ticker.split('/')[0]
+              stablecoin_symbol = ticker.split('/')[1]
+              crypto_balance = free_balances.get(crypto_symbol, 0.0)
+              stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
+
+              trader.logger.success(f"💰 SELL Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
+            except Exception as balance_e:
+              trader.logger.warning(f"💰 SELL order completed but couldn't fetch updated balance: {order_result.get('id')} - Error: {str(balance_e)}")
+
+            return {
+              "status": "success",
+              "message": "SELL order executed successfully",
+              "order_id": order_result.get('id'),
+              "symbol": ticker,
+              "side": "sell",
+              "amount": order_result.get('amount'),
+              "price": order_result.get('price'),
+              "processed_at": timestamp_str
+            }
+
+          trader.logger.error("SELL order execution failed - no order result returned")
+          return {
+            "status": "error",
+            "message": "SELL order execution failed",
+            "processed_at": timestamp_str
+          }
+        except Exception as order_e:
+          error_msg = str(order_e)
+          trader.logger.error(f"Error executing SELL order: {error_msg}")
+          return {
+            "status": "error",
+            "message": f"SELL order execution failed: {error_msg}",
+            "processed_at": timestamp_str
+          }
+
+      except Exception as exc:
+        trader.logger.error(f"Failed to fetch balance for sell validation: {str(exc)}")
+        raise HTTPException(status_code=500, detail=f"Failed to validate balance: {str(exc)}") from exc
+  
+  elif trader.bot_type == "stock":
+    ######################################################
+    ## STOCK TRADER: CHECK IF TICKER MATCHES SYMBOL
+    ######################################################
+    expected_ticker = trader.symbol
+    if ticker != expected_ticker:
+      trader.logger.error(f"Invalid ticker: {ticker}, expected: {expected_ticker}")
+      raise HTTPException(
+        status_code=400,
+        detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
+      )
+    trader.logger.info(f"VALID ticker: {ticker}")
+    
+    ######################################################
+    # STOCK: Check if market allows trading
+    ######################################################
+    if not trader.can_trade_now():
+      market_status = trader.get_market_status()
+      time_until_open = trader.get_time_until_market_opens()
+      error_msg = f"Market is {market_status}. "
+      if market_status in ['pre-market', 'after-hours']:
+        error_msg += "Extended hours trading is disabled."
+      elif time_until_open:
+        error_msg += f"Market opens in {time_until_open}."
+      trader.logger.warning(f"Cannot trade now: {error_msg}")
+      return {
+        "status": "warning",
+        "message": error_msg,
+        "processed_at": timestamp_str
+      }
+    
+    ######################################################
+    # STOCK: Execute order (balance checks done internally)
+    ######################################################
+    try:
+      trader.logger.info(f"Executing {action.upper()} order for {ticker} with {order_size}% position size")
+      order_result = await trader.create_order(
+        side=action,
+        spend_percentage=spend_percentage,
+        order_execution_strategy='market'
+      )
+      
+      if order_result:
+        trader.logger.success(
+          f"{'🚀' if action == 'buy' else '💰'} {action.upper()} order executed! "
+          f"Order ID: {order_result.get('order_id')} - "
+          f"{order_result.get('quantity')} shares @ ${order_result.get('price', 0):.2f}"
+        )
+        return {
+          "status": "success",
+          "message": f"{action.upper()} order executed successfully",
+          "order_id": order_result.get('order_id'),
+          "symbol": ticker,
+          "side": action,
+          "quantity": order_result.get('quantity'),
+          "price": order_result.get('price'),
+          "processed_at": timestamp_str
+        }
+      
+      trader.logger.error(f"{action.upper()} order execution failed - no order result returned")
+      return {
+        "status": "error",
+        "message": f"{action.upper()} order execution failed",
+        "processed_at": timestamp_str
+      }
+    except Exception as order_e:
+      error_msg = str(order_e)
+      trader.logger.error(f"Error executing {action.upper()} order: {error_msg}")
+      return {
+        "status": "error",
+        "message": f"{action.upper()} order execution failed: {error_msg}",
+        "processed_at": timestamp_str
+      }
+  
   else:
-    trader.logger.warning(f"Invalid action signal received: {action}! Modify your strategy script to send only 'buy' or 'sell' actions.")
-    return {
-      "status": "warning",
-      "message": f"Invalid action signal: {action}",
-      "processed_at": timestamp_str
-    }
-  # return {"status": "success", "message": "Webhook processed", "processed_at": timestamp_str}
+    trader.logger.error(f"Unknown bot_type: {trader.bot_type}")
+    raise HTTPException(status_code=500, detail=f"Unknown bot type: {trader.bot_type}")
 
 @app.get("/logs/{trader_id}")
 async def get_trader_logs(request: Request, trader_id: str):
