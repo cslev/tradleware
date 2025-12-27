@@ -55,11 +55,18 @@ class IBKRTrader(BaseStockTrader):
   async def connect(self):
     """
     Connect to IB Gateway and create stock contract.
+    Disconnects existing connection first if already connected.
     """
     try:
+      # If already connected, disconnect first to avoid duplicate clients in IB Gateway
       if self.is_connected:
-        self.logger.warning("Already connected to IB Gateway")
-        return
+        self.logger.warning("Already connected to IB Gateway, disconnecting first...")
+        await self.disconnect()
+      
+      # Also check if ib client has an existing connection and disconnect it
+      if self.ib.isConnected():
+        self.logger.debug("Found existing ib connection, disconnecting...")
+        self.ib.disconnect()
 
       self.logger.info(f"Connecting to IB Gateway at {self.gateway_host}:{self.gateway_port}...")
       
@@ -83,8 +90,28 @@ class IBKRTrader(BaseStockTrader):
       raise
 
   async def disconnect(self):
-    """Placeholder - to be implemented"""
-    pass
+    """
+    Disconnect from IB Gateway and clean up resources.
+    """
+    try:
+      if not self.is_connected:
+        self.logger.debug("Already disconnected from IB Gateway")
+        return
+
+      self.logger.info(f"Disconnecting from IB Gateway for {self.symbol}...")
+      
+      # Disconnect from IB Gateway
+      self.ib.disconnect()
+      
+      self.is_connected = False
+      self.contract = None
+      
+      self.logger.success(f"Disconnected from IB Gateway for {self.symbol}")
+      
+    except Exception as e:
+      self.logger.error(f"Error disconnecting from IB Gateway: {e}")
+      self.is_connected = False
+      raise
 
   async def fetch_positions(self) -> Dict[str, Any]:
     """
@@ -105,7 +132,7 @@ class IBKRTrader(BaseStockTrader):
 
       # Get all positions
       all_positions = self.ib.positions()
-      self.logger.debug(f"All positions: {all_positions}")
+      # self.logger.debug(f"All positions: {all_positions}")
 
       # Filter positions for our specific account
       positions = [p for p in all_positions if p.account == self.account_id]
@@ -133,23 +160,42 @@ class IBKRTrader(BaseStockTrader):
       total_cost = quantity * avg_cost
       
       # Get real-time P&L data
-      
       account = self.ib.wrapper.accounts[0] if self.ib.wrapper.accounts else self.account_id
-      pnl_stream = self.ib.reqPnLSingle(account, "", target_pos.contract.conId)
+      conid = target_pos.contract.conId
+      
+      # Check if there's already a PnL subscription for this position and cancel it
+      key = (account, "", conid)
+      if hasattr(self.ib, 'wrapper') and hasattr(self.ib.wrapper, 'pnlSingleKey2ReqId'):
+        if key in self.ib.wrapper.pnlSingleKey2ReqId:
+          self.logger.debug(f"Cancelling existing PnL subscription for {self.symbol}")
+          try:
+            self.ib.cancelPnLSingle(account, "", conid)
+          except Exception as cancel_err:
+            self.logger.debug(f"Error cancelling PnL subscription: {cancel_err}")
+      
+      # Request new PnL subscription
+      pnl_stream = self.ib.reqPnLSingle(account, "", conid)
       
       # Wait for P&L data to arrive with retry logic
       unrealized_pnl = 0.0
-      for attempt in range(5):  # Try up to 5 times
-        await asyncio.sleep(0.5)  # Wait 0.5 seconds between attempts
-        
-        if pnl_stream.unrealizedPnL is not None and not math.isnan(pnl_stream.unrealizedPnL):
-          unrealized_pnl = float(pnl_stream.unrealizedPnL)
-          self.logger.debug(f"Got P&L data on attempt {attempt + 1}: ${unrealized_pnl:.2f}")
-          break
+      try:
+        for attempt in range(5):  # Try up to 5 times
+          await asyncio.sleep(0.5)  # Wait 0.5 seconds between attempts
+          
+          if pnl_stream.unrealizedPnL is not None and not math.isnan(pnl_stream.unrealizedPnL):
+            unrealized_pnl = float(pnl_stream.unrealizedPnL)
+            self.logger.debug(f"Got P&L data on attempt {attempt + 1}: ${unrealized_pnl:.2f}")
+            break
+          else:
+            self.logger.debug(f"Waiting for P&L data... attempt {attempt + 1}/5")
         else:
-          self.logger.info(f"Waiting for P&L data... attempt {attempt + 1}/5")
-      else:
-        self.logger.warning(f"P&L data not available after 2.5 seconds, using 0.0")
+          self.logger.warning(f"P&L data not available after 2.5 seconds, using 0.0")
+      finally:
+        # Always cancel the PnL subscription after reading to prevent accumulation
+        try:
+          self.ib.cancelPnLSingle(account, "", conid)
+        except Exception as cancel_err:
+          self.logger.debug(f"Error in final PnL cleanup: {cancel_err}")
       
       unrealized_pnl_pct = (unrealized_pnl / abs(total_cost) * 100) if total_cost != 0 else 0.0
       
@@ -255,8 +301,16 @@ class IBKRTrader(BaseStockTrader):
     return []
 
   async def close(self):
-    """Placeholder - to be implemented"""
-    pass
+    """
+    Close the IBKR trader and disconnect from gateway.
+    Called during application shutdown.
+    """
+    try:
+      self.logger.info(f"Attempting to close IBKR connection for {self.account_identifier} ({self.symbol})...")
+      await self.disconnect()
+      self.logger.info(f"IBKR connection for {self.account_identifier} ({self.symbol}) closed successfully.")
+    except Exception as e:
+      self.logger.error(f"Error closing IBKR trader {self.account_identifier}: {e}")
 
 
 async def main():
