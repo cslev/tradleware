@@ -142,7 +142,12 @@ class BaseStockTrader(ABC):
     Returns:
       'open', 'closed', 'pre-market', or 'after-hours'
     """
-    now = datetime.now(self.market_timezone).time()
+    now_dt = datetime.now(self.market_timezone)
+    now = now_dt.time()
+    
+    # Check if it's a weekend (Saturday=5, Sunday=6)
+    if now_dt.weekday() >= 5:
+      return 'closed'
     
     if self.regular_open <= now < self.regular_close:
       return 'open'
@@ -171,10 +176,15 @@ class BaseStockTrader(ABC):
       # Market opens at regular_open today
       market_open = datetime.combine(today, self.regular_open, self.market_timezone)
     else:
-      # Market closed for the day - opens tomorrow at regular_open
+      # Market closed - find next weekday opening
       from datetime import timedelta
-      tomorrow = today + timedelta(days=1)
-      market_open = datetime.combine(tomorrow, self.regular_open, self.market_timezone)
+      next_day = today + timedelta(days=1)
+      
+      # Skip to Monday if next_day is Saturday or Sunday
+      while next_day.weekday() >= 5:  # 5=Saturday, 6=Sunday
+        next_day += timedelta(days=1)
+      
+      market_open = datetime.combine(next_day, self.regular_open, self.market_timezone)
     
     time_diff = market_open - now
     hours = int(time_diff.total_seconds() // 3600)
@@ -250,20 +260,31 @@ class BaseStockTrader(ABC):
   @abstractmethod
   async def create_order(self,
                          side: str,
-                         quantity: int,
-                         order_type: str = 'market',
-                         limit_price: Optional[float] = None) -> Optional[Dict[str, Any]]:
+                         spend_percentage: float = 1.0,
+                         order_execution_strategy: str = 'market',
+                         limit_price: Optional[float] = None,
+                         params: dict = None) -> Optional[Dict[str, Any]]:
     """
     Place a buy/sell order.
     
     Args:
       side: 'buy' or 'sell'
-      quantity: Number of shares (must be positive integer)
-      order_type: 'market' or 'limit'
-      limit_price: Required if order_type is 'limit'
+      spend_percentage: Percentage of available funds/shares to use (0.0 to 1.0). Default is 1.0 (100%).
+      order_execution_strategy: 'market' for immediate execution, 'maker_limit' for limit order
+      limit_price: Price for limit orders (required if order_execution_strategy is 'maker_limit')
+      params: Additional broker-specific parameters
     
     Returns:
-      Order information dict or None on failure.
+      Order information dict or None on failure:
+      {
+        'order_id': str,
+        'symbol': str,
+        'side': str,
+        'quantity': int,
+        'price': float,
+        'status': str,
+        'timestamp': datetime
+      }
     """
     pass
 
