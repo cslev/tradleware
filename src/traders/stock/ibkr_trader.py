@@ -132,7 +132,12 @@ class IBKRTrader(BaseStockTrader):
     """
     try:
       if not self.is_connected:
-        await self.connect()
+        try:
+          await self.connect()
+        except Exception as conn_err:
+          self.logger.error(f"Failed to connect to IB Gateway: {conn_err}")
+          self.is_connected = False
+          raise RuntimeError(f"Cannot fetch positions: IB Gateway connection failed - {conn_err}") from conn_err
 
       # Get all positions
       all_positions = self.ib.positions()
@@ -239,15 +244,14 @@ class IBKRTrader(BaseStockTrader):
       }
      
       
+    except RuntimeError as e:
+      # Connection errors should propagate to the API layer
+      self.logger.error(f"Error fetching positions: {e}")
+      raise
     except Exception as e:
-      self.logger.error(f"Error fetching positions: {e}", exc_info=True)
-      return {
-        'symbol': self.symbol,
-        'quantity': 0,
-        'unrealized_pnl': 0.0,
-        'unrealized_pnl_pct': 0.0,
-        'cash': 0.0
-      }
+      # Unexpected errors - log with traceback but still raise
+      self.logger.error(f"Unexpected error fetching positions: {e}", exc_info=True)
+      raise RuntimeError(f"Failed to fetch positions: {e}") from e
 
   async def fetch_account_value(self) -> Dict[str, Any]:
     """Placeholder - to be implemented"""
@@ -266,7 +270,12 @@ class IBKRTrader(BaseStockTrader):
     """
     try:
       if not self.is_connected:
-        await self.connect()
+        try:
+          await self.connect()
+        except Exception as conn_err:
+          self.logger.error(f"Failed to connect to IB Gateway: {conn_err}")
+          self.is_connected = False
+          raise RuntimeError(f"Cannot fetch market price: IB Gateway connection failed - {conn_err}") from conn_err
 
       # Create contract if it's different from our main symbol
       if symbol and symbol != self.symbol:
@@ -340,7 +349,12 @@ class IBKRTrader(BaseStockTrader):
     """
     try:
       if not self.is_connected:
-        await self.connect()
+        try:
+          await self.connect()
+        except Exception as conn_err:
+          self.logger.error(f"Failed to connect to IB Gateway: {conn_err}")
+          self.is_connected = False
+          raise RuntimeError(f"Cannot create order: IB Gateway connection failed - {conn_err}") from conn_err
       
       # For limit orders, price is required
       if order_execution_strategy == 'maker_limit' and not limit_price:

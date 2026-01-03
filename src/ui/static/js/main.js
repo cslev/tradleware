@@ -157,9 +157,11 @@ async function refreshBalance(traderId) {
     
     statusElement.innerHTML = `
       <div class="flex items-center space-x-2">
-        <div class="w-2 h-2 rounded-full bg-red-500"></div>
-        <span class="text-red-700">Connection Error</span>
+        <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+        <span class="text-red-700 font-semibold">ERROR (check logs)</span>
       </div>`;
+    
+    console.error(`Error refreshing balance for ${traderId}:`, error);
   }
 }
 
@@ -251,9 +253,11 @@ async function refreshPosition(traderId) {
     
     statusElement.innerHTML = `
       <div class="flex items-center space-x-2">
-        <div class="w-2 h-2 rounded-full bg-red-500"></div>
-        <span class="text-red-700">Connection Error</span>
+        <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+        <span class="text-red-700 font-semibold">ERROR (check logs)</span>
       </div>`;
+    
+    console.error(`Error refreshing position for ${traderId}:`, error);
   }
 }
 

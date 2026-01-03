@@ -470,9 +470,17 @@ async def get_position(request: Request, trader_id: str):
     error_msg = str(exc)
     logger.error(f"Error fetching position for {trader_id}: {error_msg}")
     trader.logger.error(f"❌ Error fetching position: {error_msg}")
+    
+    # Check if it's a connection error
+    is_connection_error = "connection failed" in error_msg.lower() or "cannot connect" in error_msg.lower() or not trader.is_connected
+    
     return JSONResponse(
       status_code=500,
-      content={"error": error_msg}
+      content={
+        "error": error_msg,
+        "is_connection_error": is_connection_error,
+        "is_connected": trader.is_connected
+      }
     )
 
 @app.post(f"/{WEBHOOK_PATH}")
@@ -579,25 +587,52 @@ async def handle_webhook(request: Request):
   ###############################################
   ##### CHECK IF ORDER SIZE is SENT
   ###############################################
-  # Parse spend_percentage from webhook, default to 1.0 if not provided
+  # Parse order_size_type (default to "percentage" for backward compatibility)
+  order_size_type = data.get("order_size_type", "percentage").lower()
+  if order_size_type not in ["percentage", "quantity"]:
+    trader.logger.warning(f"Invalid order_size_type: {order_size_type}, defaulting to 'percentage'")
+    order_size_type = "percentage"
+  
+  # Parse order_size value
   order_size_raw = data.get("order_size")
   if order_size_raw is None:
-    order_size = 100.0
+    # Default depends on type
+    if order_size_type == "percentage":
+      order_size = 100.0  # Default to 100%
+    else:
+      trader.logger.error("order_size is required when order_size_type is 'quantity'")
+      raise HTTPException(status_code=400, detail="order_size is required when order_size_type is 'quantity'")
   elif isinstance(order_size_raw, (int, float)):
     order_size = float(order_size_raw)
   elif isinstance(order_size_raw, str):
     try:
       order_size = float(order_size_raw.strip())
     except ValueError:
-      trader.logger.warning(f"Invalid order_size string: {order_size_raw}, defaulting to 100")
-      order_size = 100.0
+      if order_size_type == "percentage":
+        trader.logger.warning(f"Invalid order_size string: {order_size_raw}, defaulting to 100")
+        order_size = 100.0
+      else:
+        trader.logger.error(f"Invalid order_size for quantity mode: {order_size_raw}")
+        raise HTTPException(status_code=400, detail=f"Invalid order_size: {order_size_raw}")
   else:
     trader.logger.warning(f"Unrecognized order_size type: {type(order_size_raw)}, defaulting to 100")
     order_size = 100.0
-  if not 0.0 < order_size <= 100.0:
-    trader.logger.warning(f"order_size out of range: {order_size}, defaulting to 100")
-    order_size = 100.0
-  spend_percentage = order_size / 100.0
+  
+  # Validate based on order_size_type
+  if order_size_type == "percentage":
+    if not 0.0 < order_size <= 100.0:
+      trader.logger.warning(f"order_size out of range: {order_size}, defaulting to 100")
+      order_size = 100.0
+    spend_percentage = order_size / 100.0
+    quantity = None
+    trader.logger.info(f"Order mode: PERCENTAGE ({order_size}%)")
+  else:  # quantity mode
+    if order_size <= 0:
+      trader.logger.error(f"order_size must be positive in quantity mode: {order_size}")
+      raise HTTPException(status_code=400, detail=f"order_size must be positive: {order_size}")
+    spend_percentage = None
+    quantity = order_size
+    trader.logger.info(f"Order mode: QUANTITY ({quantity})")
 
   ################################################
   #### CHECK IF ACTION SIGNAL IS BUY OR SELL
@@ -648,11 +683,16 @@ async def handle_webhook(request: Request):
         trader.logger.info(f"Buy signal validation passed. Available {stablecoin_symbol} balance: {available_stablecoin}")
         # Execute the buy order
         try:
-          trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
+          if order_size_type == "percentage":
+            trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
+          else:
+            trader.logger.info(f"Executing BUY order for {ticker}: {quantity} {ticker.split('/')[0]}")
+          
           order_result = await trader.create_order(
             symbol=ticker,
             side='buy',
-            spend_percentage=spend_percentage,  # Use 100% of available stablecoin
+            spend_percentage=spend_percentage,
+            quantity=quantity,
             order_execution_strategy='market'  # Market order for immediate execution
           )
 
@@ -723,11 +763,16 @@ async def handle_webhook(request: Request):
 
         # Execute the sell order
         try:
-          trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
+          if order_size_type == "percentage":
+            trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
+          else:
+            trader.logger.info(f"Executing SELL order for {ticker}: {quantity} {ticker.split('/')[0]}")
+          
           order_result = await trader.create_order(
             symbol=ticker,
             side='sell',
-            spend_percentage=spend_percentage,  # Use 100% of available crypto
+            spend_percentage=spend_percentage,
+            quantity=quantity,
             order_execution_strategy='market'  # Market order for immediate execution
           )
 
@@ -812,10 +857,17 @@ async def handle_webhook(request: Request):
     # STOCK: Execute order (balance checks done internally)
     ######################################################
     try:
-      trader.logger.info(f"Executing {action.upper()} order for {ticker} with {order_size}% position size")
+      if order_size_type == "percentage":
+        trader.logger.info(f"Executing {action.upper()} order for {ticker} with {order_size}% position size")
+      else:
+        # For stocks, convert float to int
+        quantity_int = int(quantity)
+        trader.logger.info(f"Executing {action.upper()} order for {ticker}: {quantity_int} shares")
+      
       order_result = await trader.create_order(
         side=action,
         spend_percentage=spend_percentage,
+        quantity=int(quantity) if quantity is not None else None,  # Convert to int for stocks
         order_execution_strategy='market'
       )
       
