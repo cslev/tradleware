@@ -273,7 +273,14 @@ class BaseCryptoTrader(ABC):
     pass
 
   @abstractmethod
-  async def create_order(self, symbol: str, side: str, spend_percentage: float = 1.0, order_execution_strategy: str = 'market', params: dict = None):
+  async def create_order(self, 
+                         symbol: str, 
+                         side: str, 
+                         spend_percentage: float = None, 
+                         quantity: float = None,
+                         order_execution_strategy: str = 'market',
+                         dry_run: bool = False,
+                         params: dict = None):
     """
     Abstract method to create an order with flexible execution and amount.
     Must be implemented by concrete exchange classes.
@@ -282,9 +289,12 @@ class BaseCryptoTrader(ABC):
       symbol (str): The trading pair symbol (e.g., 'BTC/USDT').
       side (str): The order side ('buy' or 'sell').
       spend_percentage (float): The percentage of available funds/asset to spend/sell (0.0 to 1.0).
-                                Default is 1.0 (100%).
+                                Either spend_percentage or quantity must be provided (not both).
+      quantity (float): The exact amount of crypto to buy/sell (e.g., 0.5 BTC).
+                        Either spend_percentage or quantity must be provided (not both).
       order_execution_strategy (str): 'market' for immediate execution (taker fee),
                                       'maker_limit' for a limit order aiming for maker fee.
+      dry_run (bool): If True, simulate the order without executing it (default: False).
       params (dict): Additional exchange-specific parameters.
     """
     pass
@@ -324,13 +334,32 @@ class BaseCryptoTrader(ABC):
   def _validate_order_params(self,
                               symbol: str,
                               side: str,
-                              spend_percentage: float) -> None:
+                              spend_percentage: float = None,
+                              quantity: float = None,
+                              allow_both_none: bool = False) -> None:
     """Validates order parameters before execution."""
     if side not in self.VALID_ORDER_SIDES:
       raise ValueError(f"Invalid side: {side}. Must be one of {self.VALID_ORDER_SIDES}")
-
-    if not self.MIN_SPEND_PERCENTAGE < spend_percentage <= self.MAX_SPEND_PERCENTAGE:
-      raise ValueError(f"spend_percentage must be between {self.MIN_SPEND_PERCENTAGE} and {self.MAX_SPEND_PERCENTAGE}")
+    
+    # Check that at most one of spend_percentage or quantity is provided
+    if spend_percentage is not None and quantity is not None:
+      raise ValueError("Cannot specify both spend_percentage and quantity. Choose one.")
+    
+    # Check that at least one is provided (unless allow_both_none=True)
+    if not allow_both_none and spend_percentage is None and quantity is None:
+      raise ValueError("Must specify either spend_percentage or quantity.")
+    
+    if spend_percentage is not None:
+      if not 0.0 < spend_percentage <= 1.0:
+        raise ValueError(f"spend_percentage must be between 0.0 and 1.0, got: {spend_percentage}")
+      if not self.MIN_SPEND_PERCENTAGE < spend_percentage <= self.MAX_SPEND_PERCENTAGE:
+        raise ValueError(f"spend_percentage must be between {self.MIN_SPEND_PERCENTAGE} and {self.MAX_SPEND_PERCENTAGE}")
+    
+    if quantity is not None:
+      if quantity <= 0:
+        raise ValueError(f"quantity must be positive, got: {quantity}")
 
     if not symbol or '/' not in symbol:
       raise ValueError(f"Invalid symbol format: {symbol}")
+    
+    self.logger.debug(f"Order parameters validated: symbol={symbol}, side={side}, spend_percentage={spend_percentage}, quantity={quantity}")

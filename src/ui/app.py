@@ -587,6 +587,16 @@ async def handle_webhook(request: Request):
   ###############################################
   ##### CHECK IF ORDER SIZE is SENT
   ###############################################
+  # Parse dry_run parameter (default False for backward compatibility)
+  dry_run = data.get("dry_run", False)
+  if isinstance(dry_run, str):
+    dry_run = dry_run.lower() in ['true', '1', 'yes']
+  elif not isinstance(dry_run, bool):
+    dry_run = False
+  
+  if dry_run:
+    trader.logger.warning("🧪 DRY RUN MODE: Order will be simulated, not executed")
+  
   # Parse order_size_type (default to "percentage" for backward compatibility)
   order_size_type = data.get("order_size_type", "percentage").lower()
   if order_size_type not in ["percentage", "quantity"]:
@@ -693,7 +703,8 @@ async def handle_webhook(request: Request):
             side='buy',
             spend_percentage=spend_percentage,
             quantity=quantity,
-            order_execution_strategy='market'  # Market order for immediate execution
+            order_execution_strategy='market',  # Market order for immediate execution
+            dry_run=dry_run
           )
 
           if order_result:
@@ -773,7 +784,8 @@ async def handle_webhook(request: Request):
             side='sell',
             spend_percentage=spend_percentage,
             quantity=quantity,
-            order_execution_strategy='market'  # Market order for immediate execution
+            order_execution_strategy='market',  # Market order for immediate execution
+            dry_run=dry_run
           )
 
           if order_result:

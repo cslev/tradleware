@@ -1,5 +1,6 @@
 import asyncio # Imported for asyncio.sleep
 
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
 from typing import Optional, List
@@ -256,8 +257,10 @@ class OKXTrader(BaseCryptoTrader):
   async def create_order(self,
                          symbol: str,
                          side: str,
-                         spend_percentage: float = 1.0,
+                         spend_percentage: float = None,
+                         quantity: float = None,
                          order_execution_strategy: str = 'market',
+                         dry_run: bool = False,
                          params: dict = None):
     """
     Creates an order on the OKX subaccount with flexible execution and amount.
@@ -266,17 +269,30 @@ class OKXTrader(BaseCryptoTrader):
       symbol (str): The trading pair symbol (e.g., 'BTC/USDT').
       side (str): The order side ('buy' or 'sell').
       spend_percentage (float): The percentage of available funds/asset to spend/sell (0.0 to 1.0).
+                                Either spend_percentage or quantity must be provided.
+      quantity (float): The exact amount of base currency to buy/sell (e.g., 0.5 BTC).
+                        Either spend_percentage or quantity must be provided.
       order_execution_strategy (str): 'market' for immediate execution (taker fee),
                                       'maker_limit' for a limit order aiming for maker fee.
+      dry_run (bool): If True, simulate the order without executing it (default: False).
       params (dict): Additional exchange-specific parameters.
     """
+    self.logger.debug("[CREATE ORDER]  starting order creation process...")
     # Initialize params to empty dict if None to avoid CCXT library issues
     if params is None:
       params = {}
-
-    # 1. Input validation for spend_percentage
-    if not 0.0 <= spend_percentage <= 1.0:
-      self.logger.error("Error: spend_percentage must be between 0.0 and 1.0.")
+    
+    # Default to 100% for backward compatibility if neither is provided
+    if spend_percentage is None and quantity is None:
+      spend_percentage = 1.0
+      self.logger.info("No spend_percentage or quantity provided, defaulting to 100%")
+    self.logger.debug("[CREATE ORDER]  Parameters received")
+    # Validate parameters using base class method
+    try:
+      self._validate_order_params(symbol, side, spend_percentage, quantity)
+      self.logger.info("[CREATE ORDER] Order parameters validated successfully.")
+    except ValueError as e:
+      self.logger.error(f"Order validation failed: {e}")
       return None
 
     # 2. Determine base and quote currencies and market limits/precision
@@ -320,123 +336,291 @@ class OKXTrader(BaseCryptoTrader):
     price = None
     order_type = 'market'
 
-    self.logger.info(f"\nAttempting to create a {side} order for {symbol} with {spend_percentage*100}% of available funds.")
-
-    if side == 'buy':
-      available_quote = free_balances.get(quote_currency, total_balances.get(quote_currency, 0.0))
-      spend_cost = available_quote * spend_percentage
-
-      if spend_cost <= 0:
-        self.logger.error(f"Insufficient {quote_currency} balance ({available_quote}) to place buy order.")
-        return None
-
-      if order_execution_strategy == 'market':
-        order_type = 'market'
-        # Use full spend_cost - let exchange handle fees
-        amount_to_trade = spend_cost
-        self.logger.info(f"Calculated market buy cost: {amount_to_trade} {quote_currency}")
-
-        # Check against min/max cost limits
-        min_cost = cost_limits.get('min', None)
-        max_cost = cost_limits.get('max', None)
-        if min_cost is not None and amount_to_trade < min_cost:
-          error_msg = f"Order amount {amount_to_trade:.2f} {quote_currency} is below exchange minimum {min_cost:.2f} {quote_currency}"
-          self.logger.error(error_msg)
-          raise ValueError(error_msg)
-        if max_cost is not None and amount_to_trade > max_cost:
-          error_msg = f"Order amount {amount_to_trade:.2f} {quote_currency} exceeds exchange maximum {max_cost:.2f} {quote_currency}"
-          self.logger.error(error_msg)
-          raise ValueError(error_msg)
-
-      elif order_execution_strategy == 'maker_limit':
-        order_type = 'limit'
-        ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
-        if not ticker or not ticker.get('bid'):
-          self.logger.error(f"Could not fetch bid price for {symbol} to determine maker buy price.")
-          return None
-
-        # Set price slightly below current bid to try and ensure maker fee
-        # This is a common strategy, but execution is NOT guaranteed immediately.
-        # The goal is to be at the top of the buy order book.
-        price = ticker['bid'] * 0.9999 # Try to be 0.01% below bid to be maker
-
-        # Apply price precision first
-        price = self.exchange.price_to_precision(symbol, price)
-
-        # Calculate amount in base currency based on desired spend and maker price
-        if price <= 0: # Avoid division by zero
-          self.logger.error("Calculated maker buy price is zero or negative. Cannot place order.")
-          return None
-        amount_to_trade = spend_cost / price
-        self.logger.info(f"Calculated maker limit buy amount: {amount_to_trade} {base_currency} at price {price}")
-
-        # Check against min/max amount limits
-        min_amount = amount_limits.get('min') or 0
-        max_amount = amount_limits.get('max') or float('inf')
-        if amount_to_trade < min_amount:
-          error_msg = f"Order amount {amount_to_trade:.6f} {base_currency} is below exchange minimum {min_amount:.6f} {base_currency}"
-          self.logger.error(error_msg)
-          raise ValueError(error_msg)
-        if amount_to_trade > max_amount:
-          error_msg = f"Order amount {amount_to_trade:.6f} {base_currency} exceeds exchange maximum {max_amount:.6f} {base_currency}"
-          self.logger.error(error_msg)
-          raise ValueError(error_msg)
-
-      else:
-        self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
-        return None
-
-    elif side == 'sell':
-      available_base = free_balances.get(base_currency, total_balances.get(base_currency, 0.0))
-      amount_to_trade = available_base * spend_percentage
-
-      if amount_to_trade <= 0:
-        self.logger.error(f"Insufficient {base_currency} balance ({available_base}) to place sell order.")
-        return None
-
-      # Check against min/max amount limits for sell orders
-      min_amount = amount_limits.get('min') or 0
-      max_amount = amount_limits.get('max') or float('inf')
-      if amount_to_trade < min_amount:
-        error_msg = f"Sell amount {amount_to_trade:.6f} {base_currency} is below exchange minimum {min_amount:.6f} {base_currency}"
+    self.logger.debug(f"[CREATE ORDER]  Quantity param: {quantity}, Spend percentage param: {spend_percentage}")
+    #####################
+    ### QUANTITY MODE ###
+    #####################
+    if quantity is not None:
+      self.logger.info(f"\n[QUANTITY MODE] Attempting to create a {side} order for {symbol} with {quantity} {base_currency}.")
+      # In quantity mode, we directly use the specified amount
+      amount_to_trade = quantity
+      
+      # Check against min/max amount limits
+      min_amount = amount_limits.get('min')
+      max_amount = amount_limits.get('max')
+      self.logger.info(f"[QUANTITY MODE] Checking limits: min={min_amount}, max={max_amount}, amount={amount_to_trade}")
+      if min_amount is not None and amount_to_trade < min_amount:
+        error_msg = f"Order amount {amount_to_trade:.8f} {base_currency} is below exchange minimum {min_amount:.8f} {base_currency}"
         self.logger.error(error_msg)
         raise ValueError(error_msg)
-      if amount_to_trade > max_amount:
-        error_msg = f"Sell amount {amount_to_trade:.6f} {base_currency} exceeds exchange maximum {max_amount:.6f} {base_currency}"
+      
+      self.logger.info(f"[QUANTITY MODE] Checking amount={amount_to_trade} > max={max_amount}")
+      if max_amount is not None and amount_to_trade > max_amount:
+        error_msg = f"Order amount {amount_to_trade:.8f} {base_currency} exceeds exchange maximum {max_amount:.8f} {base_currency}"
         self.logger.error(error_msg)
         raise ValueError(error_msg)
-
-      if order_execution_strategy == 'market':
-        order_type = 'market'
-        self.logger.info(f"Calculated market sell amount: {amount_to_trade} {base_currency}")
-      elif order_execution_strategy == 'maker_limit':
-        order_type = 'limit'
+      
+      if side == 'buy':
+        self.logger.info(f"[QUANTITY MODE] Processing buy side")
+        
+        # Adjust amount upward slightly to compensate for precision rounding
+        # This ensures we get at least the requested quantity after precision is applied
+        adjusted_amount = quantity * 1.001  # Add 0.2% buffer
+        precision_amount = self.exchange.amount_to_precision(symbol, adjusted_amount)
+        
+        # If precision amount is still less than requested, warn user
+        if float(precision_amount) < quantity:
+          self.logger.warning(f"⚠️ Exchange precision rules prevent buying exactly {quantity} {base_currency}. Will buy {precision_amount} {base_currency} instead.")
+          amount_to_trade = float(precision_amount)
+        else:
+          amount_to_trade = float(precision_amount)
+          if amount_to_trade > quantity:
+            self.logger.info(f"ℹ️ Adjusted buy amount from {quantity} to {amount_to_trade} {base_currency} to account for exchange precision rules")
+        
+        # For buy orders in quantity mode, we need to check if we have enough quote currency
         ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
-        if not ticker or not ticker.get('ask'):
-          self.logger.error(f"Could not fetch ask price for {symbol} to determine maker sell price.")
+        self.logger.info(f"[QUANTITY MODE] Fetched ticker: {ticker}")
+        if not ticker or not ticker.get('last'):
+          self.logger.error(f"Could not fetch price for {symbol} to validate buy order.")
+          return None
+        
+        current_price = ticker['last']
+        self.logger.info(f"[QUANTITY MODE] Current price: {current_price}, type: {type(current_price)}")
+        if current_price is None or current_price <= 0:
+          self.logger.error(f"Invalid price for {symbol}: {current_price}")
+          return None
+        
+        estimated_cost = amount_to_trade * current_price  # Use adjusted amount for cost calculation
+        available_quote = free_balances.get(quote_currency, total_balances.get(quote_currency, 0.0))
+        self.logger.info(f"[QUANTITY MODE] Balance check: estimated_cost={estimated_cost}, available_quote={available_quote}, types: {type(estimated_cost)}, {type(available_quote)}")
+        if estimated_cost > available_quote:
+          self.logger.error(f"Insufficient {quote_currency} balance. Need ~{estimated_cost:.2f}, have {available_quote:.2f}")
+          return None
+        
+        self.logger.info(f"[QUANTITY MODE] Checking order_execution_strategy: {order_execution_strategy}")
+        if order_execution_strategy == 'market':
+          self.logger.info(f"[QUANTITY MODE] Setting order_type to market")
+          order_type = 'market'
+          self.logger.info(f"Calculated market buy amount: {amount_to_trade} {base_currency}")
+        elif order_execution_strategy == 'maker_limit':
+          self.logger.info(f"[QUANTITY MODE] Setting order_type to limit")
+          order_type = 'limit'
+          bid_price = ticker.get('bid')
+          if not bid_price or bid_price is None or bid_price <= 0:
+            self.logger.error(f"Could not fetch valid bid price for {symbol}.")
+            return None
+          price = bid_price * 0.9999  # Try to be maker
+          price = self.exchange.price_to_precision(symbol, price)
+          self.logger.info(f"Calculated maker limit buy amount: {amount_to_trade} {base_currency} at price {price}")
+        else:
+          self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
+          return None
+      
+      elif side == 'sell':
+        self.logger.info(f"[QUANTITY MODE] Processing sell side")
+        # For sell orders, check if we have enough base currency
+        available_base = free_balances.get(base_currency, total_balances.get(base_currency, 0.0))
+        self.logger.info(f"[QUANTITY MODE] Balance check: quantity={quantity}, available_base={available_base}, types: {type(quantity)}, {type(available_base)}")
+        if quantity > available_base:
+          self.logger.error(f"Insufficient {base_currency} balance. Need {quantity:.8f}, have {available_base:.8f}")
+          return None
+        
+        if order_execution_strategy == 'market':
+          order_type = 'market'
+          self.logger.info(f"Calculated market sell amount: {amount_to_trade} {base_currency}")
+        elif order_execution_strategy == 'maker_limit':
+          order_type = 'limit'
+          ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+          if not ticker:
+            self.logger.error(f"Could not fetch ticker for {symbol} to determine maker price.")
+            return None
+          ask_price = ticker.get('ask')
+          if not ask_price or ask_price is None or ask_price <= 0:
+            self.logger.error(f"Could not fetch valid ask price for {symbol}.")
+            return None
+          price = ask_price * 1.0001  # Try to be maker
+          price = self.exchange.price_to_precision(symbol, price)
+          self.logger.info(f"Calculated maker limit sell amount: {amount_to_trade} {base_currency} at price {price}")
+        else:
+          self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
+          return None
+      
+      else:
+        self.logger.error(f"Invalid order side: {side}. Must be 'buy' or 'sell'.")
+        return None
+    
+    #############################
+    ### SPEND PERCENTAGE MODE ###
+    #############################
+    elif spend_percentage is not None:
+      self.logger.info(f"\n[SPEND PERCENTAGE MODE] Attempting to create a {side} order for {symbol} with {spend_percentage*100}% of available funds.")
+
+      if side == 'buy':
+        available_quote = free_balances.get(quote_currency, total_balances.get(quote_currency, 0.0))
+        spend_cost = available_quote * spend_percentage
+
+        if spend_cost <= 0:
+          self.logger.error(f"Insufficient {quote_currency} balance ({available_quote}) to place buy order.")
           return None
 
-        # Set price slightly above current ask to try and ensure maker fee
-        # The goal is to be at the top of the sell order book.
-        price = ticker['ask'] * 1.0001 # Try to be 0.01% above ask to be maker
+        if order_execution_strategy == 'market':
+          order_type = 'market'
+          # Use full spend_cost - let exchange handle fees
+          amount_to_trade = spend_cost
+          self.logger.info(f"Calculated market buy cost: {amount_to_trade} {quote_currency}")
 
-        # Apply price precision
-        price = self.exchange.price_to_precision(symbol, price)
-        self.logger.info(f"Calculated maker limit sell amount: {amount_to_trade} {base_currency} at price {price}")
+          # Check against min/max cost limits
+          min_cost = cost_limits.get('min', None)
+          max_cost = cost_limits.get('max', None)
+          if min_cost is not None and amount_to_trade < min_cost:
+            error_msg = f"Order amount {amount_to_trade:.2f} {quote_currency} is below exchange minimum {min_cost:.2f} {quote_currency}"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+          if max_cost is not None and amount_to_trade > max_cost:
+            error_msg = f"Order amount {amount_to_trade:.2f} {quote_currency} exceeds exchange maximum {max_cost:.2f} {quote_currency}"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        elif order_execution_strategy == 'maker_limit':
+          order_type = 'limit'
+          ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+          if not ticker or not ticker.get('bid'):
+            self.logger.error(f"Could not fetch bid price for {symbol} to determine maker buy price.")
+            return None
+
+          # Set price slightly below current bid to try and ensure maker fee
+          # This is a common strategy, but execution is NOT guaranteed immediately.
+          # The goal is to be at the top of the buy order book.
+          price = ticker['bid'] * 0.9999 # Try to be 0.01% below bid to be maker
+
+          # Apply price precision first
+          price = self.exchange.price_to_precision(symbol, price)
+
+          # Calculate amount in base currency based on desired spend and maker price
+          if price <= 0: # Avoid division by zero
+            self.logger.error("Calculated maker buy price is zero or negative. Cannot place order.")
+            return None
+          amount_to_trade = spend_cost / price
+          self.logger.info(f"Calculated maker limit buy amount: {amount_to_trade} {base_currency} at price {price}")
+
+          # Check against min/max amount limits
+          min_amount = amount_limits.get('min')
+          max_amount = amount_limits.get('max')
+          if min_amount is not None and amount_to_trade < min_amount:
+            error_msg = f"Order amount {amount_to_trade:.6f} {base_currency} is below exchange minimum {min_amount:.6f} {base_currency}"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+          if max_amount is not None and amount_to_trade > max_amount:
+            error_msg = f"Order amount {amount_to_trade:.6f} {base_currency} exceeds exchange maximum {max_amount:.6f} {base_currency}"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        else:
+          self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
+          return None
+
+      elif side == 'sell':
+        available_base = free_balances.get(base_currency, total_balances.get(base_currency, 0.0))
+        amount_to_trade = available_base * spend_percentage
+
+        if amount_to_trade <= 0:
+          self.logger.error(f"Insufficient {base_currency} balance ({available_base}) to place sell order.")
+          return None
+
+        # Check against min/max amount limits for sell orders
+        min_amount = amount_limits.get('min')
+        max_amount = amount_limits.get('max')
+        if min_amount is not None and amount_to_trade < min_amount:
+          error_msg = f"Sell amount {amount_to_trade:.6f} {base_currency} is below exchange minimum {min_amount:.6f} {base_currency}"
+          self.logger.error(error_msg)
+          raise ValueError(error_msg)
+        if max_amount is not None and amount_to_trade > max_amount:
+          error_msg = f"Sell amount {amount_to_trade:.6f} {base_currency} exceeds exchange maximum {max_amount:.6f} {base_currency}"
+          self.logger.error(error_msg)
+          raise ValueError(error_msg)
+
+        if order_execution_strategy == 'market':
+          order_type = 'market'
+          self.logger.info(f"Calculated market sell amount: {amount_to_trade} {base_currency}")
+        elif order_execution_strategy == 'maker_limit':
+          order_type = 'limit'
+          ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+          if not ticker or not ticker.get('ask'):
+            self.logger.error(f"Could not fetch ask price for {symbol} to determine maker sell price.")
+            return None
+
+          # Set price slightly above current ask to try and ensure maker fee
+          # The goal is to be at the top of the sell order book.
+          price = ticker['ask'] * 1.0001 # Try to be 0.01% above ask to be maker
+
+          # Apply price precision
+          price = self.exchange.price_to_precision(symbol, price)
+          self.logger.info(f"Calculated maker limit sell amount: {amount_to_trade} {base_currency} at price {price}")
+        else:
+          self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
+          return None
+      
       else:
-        self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
+        self.logger.error(f"Invalid order side: {side}. Must be 'buy' or 'sell'.")
         return None
-    else:
-      self.logger.error(f"Invalid order side: {side}. Must be 'buy' or 'sell'.")
-      return None
 
-    # Final check for amount before applying precision and placing order
-    if amount_to_trade <= 0:
-      self.logger.error("Calculated amount to trade is zero or negative after adjustments. Order not placed.")
-      return None
+    # DRY RUN CHECK - simulate order without execution
+    if dry_run:
+      self.logger.warning(f"🧪 DRY RUN: Order simulation complete (NOT executed)")
+      
+      # For percentage mode market buy, amount_to_trade is in quote currency
+      if order_type == 'market' and side == 'buy' and spend_percentage is not None:
+        ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+        sim_price = ticker['last'] if ticker and ticker.get('last') else 0
+        sim_amount = amount_to_trade / sim_price if sim_price > 0 else 0
+        
+        mock_order = {
+          'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
+          'symbol': symbol,
+          'type': order_type,
+          'side': side,
+          'amount': sim_amount,
+          'price': sim_price,
+          'status': 'simulated',
+          'filled': 0,
+          'remaining': sim_amount,
+          'cost': amount_to_trade,
+          'timestamp': int(datetime.now().timestamp() * 1000),
+          'datetime': datetime.now().isoformat(),
+          'info': {'dry_run': True}
+        }
+        self.logger.info(f"🧪 Simulated order details:")
+        self.logger.info(f"  ID: {mock_order['id']}")
+        self.logger.info(f"  {side.upper()} ~{sim_amount:.8f} {base_currency} with {amount_to_trade:.2f} {quote_currency} (MARKET)")
+        return mock_order
+      else:
+        # For all other cases, amount_to_trade is in base currency
+        amount_to_trade_precise = self.exchange.amount_to_precision(symbol, amount_to_trade)
+        mock_order = {
+          'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
+          'symbol': symbol,
+          'type': order_type,
+          'side': side,
+          'amount': float(amount_to_trade_precise),
+          'price': float(price) if price else None,
+          'status': 'simulated',
+          'filled': 0,
+          'remaining': float(amount_to_trade_precise),
+          'cost': 0,
+          'timestamp': int(datetime.now().timestamp() * 1000),
+          'datetime': datetime.now().isoformat(),
+          'info': {'dry_run': True}
+        }
+        self.logger.info(f"🧪 Simulated order details:")
+        self.logger.info(f"  ID: {mock_order['id']}")
+        self.logger.info(f"  {side.upper()} {amount_to_trade_precise} {base_currency}" + 
+                        (f" @ {price} {quote_currency}" if price else " (MARKET)"))
+        return mock_order
 
-    # Apply amount precision as the final step
-    if order_type == 'market' and side == 'buy':
+    # Special handling for OKX market buy orders in PERCENTAGE MODE only
+    # In percentage mode, we spend a % of quote currency, so amount_to_trade is in quote currency
+    # In quantity mode, amount_to_trade is already in base currency, so skip this special handling
+    if order_type == 'market' and side == 'buy' and spend_percentage is not None:
       # For OKX market buy orders, use createMarketBuyOrderWithCost to spend exact quote amount
       # This avoids precision loss from converting to base amount
       try:
@@ -501,55 +685,62 @@ class OKXTrader(BaseCryptoTrader):
         self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
       return order
 
-    # For non-market-buy orders, apply standard precision and place order
-    amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
-
-    # For non-market-buy orders, apply standard precision and place order
-    amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
-
-    # Consistent logging - show price only if it's a limit order
-    if price is not None:
-      self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade}, Price={price}")
     else:
-      self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade} (Market Order)")
-
-    # Place the order
-    order = await self._safe_api_call(self.exchange.create_order, symbol, order_type, side, amount_to_trade, price, params)
-    if order:
-      # Defensive logging: order may be a dict or an object and fields may be missing (mocks/tests)
-      if isinstance(order, dict):
-        order_id = order.get('id', 'unknown')
-        status = order.get('status', 'unknown')
-        filled = order.get('filled', 0)
-        average = order.get('average', None)
-        cost = order.get('cost', None)
+      # All other order types: quantity mode, market sell, limit orders
+      # Apply standard precision and place order
+      
+      # For quantity mode, check if precision adjustment changes the amount
+      if quantity is not None:
+        original_amount = amount_to_trade
+        amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
+        if abs(float(amount_to_trade) - original_amount) > 0.0001:  # Significant difference
+          self.logger.warning(f"⚠️ Requested quantity {original_amount} {base_currency} adjusted to {amount_to_trade} {base_currency} due to exchange precision rules")
       else:
-        order_id = getattr(order, 'id', 'unknown')
-        status = getattr(order, 'status', 'unknown')
-        filled = getattr(order, 'filled', 0)
-        average = getattr(order, 'average', None)
-        cost = getattr(order, 'cost', None)
+        amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
 
-      self.logger.success(f"Order placed successfully! Order ID: {order_id}")
+      # Consistent logging - show price only if it's a limit order
+      if price is not None:
+        self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade}, Price={price}")
+      else:
+        self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade} (Market Order)")
 
-      # Show meaningful trade information based on buy/sell
-      if side == 'buy':
-        if filled and average:
-          self.logger.success(f"  ✅ Bought {filled:.8f} {base_currency} for {filled * average:.2f} {quote_currency} @ avg price {average:.8f}")
-        elif filled and cost:
-          self.logger.success(f"  ✅ Bought {filled:.8f} {base_currency} for {cost:.2f} {quote_currency}")
+      # Place the order
+      order = await self._safe_api_call(self.exchange.create_order, symbol, order_type, side, amount_to_trade, price, params)
+      if order:
+        # Defensive logging: order may be a dict or an object and fields may be missing (mocks/tests)
+        if isinstance(order, dict):
+          order_id = order.get('id', 'unknown')
+          status = order.get('status', 'unknown')
+          filled = order.get('filled', 0)
+          average = order.get('average', None)
+          cost = order.get('cost', None)
         else:
-          self.logger.success(f"  Status: {status}, Filled: {filled} {base_currency}")
-      else:  # sell
-        if filled and average:
-          self.logger.success(f"  ✅ Sold {filled:.8f} {base_currency} for {filled * average:.2f} {quote_currency} @ avg price {average:.8f}")
-        elif filled and cost:
-          self.logger.success(f"  ✅ Sold {filled:.8f} {base_currency} for {cost:.2f} {quote_currency}")
-        else:
-          self.logger.success(f"  Status: {status}, Filled: {filled} {base_currency}")
-    else:
-      self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
-    return order
+          order_id = getattr(order, 'id', 'unknown')
+          status = getattr(order, 'status', 'unknown')
+          filled = getattr(order, 'filled', 0)
+          average = getattr(order, 'average', None)
+          cost = getattr(order, 'cost', None)
+
+        self.logger.success(f"Order placed successfully! Order ID: {order_id}")
+
+        # Show meaningful trade information based on buy/sell
+        if side == 'buy':
+          if filled and average:
+            self.logger.success(f"  ✅ Bought {filled:.8f} {base_currency} for {filled * average:.2f} {quote_currency} @ avg price {average:.8f}")
+          elif filled and cost:
+            self.logger.success(f"  ✅ Bought {filled:.8f} {base_currency} for {cost:.2f} {quote_currency}")
+          else:
+            self.logger.success(f"  Status: {status}, Filled: {filled} {base_currency}")
+        else:  # sell
+          if filled and average:
+            self.logger.success(f"  ✅ Sold {filled:.8f} {base_currency} for {filled * average:.2f} {quote_currency} @ avg price {average:.8f}")
+          elif filled and cost:
+            self.logger.success(f"  ✅ Sold {filled:.8f} {base_currency} for {cost:.2f} {quote_currency}")
+          else:
+            self.logger.success(f"  Status: {status}, Filled: {filled} {base_currency}")
+      else:
+        self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
+      return order
 
   async def cancel_order(self, order_id: str, symbol: str = None, params: dict = None):
     """
