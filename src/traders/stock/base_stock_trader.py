@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime, time
 from typing import Optional, Dict, Any, List
-import pytz
+from zoneinfo import ZoneInfo
 
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
@@ -49,7 +49,7 @@ class BaseStockTrader(ABC):
     self.cash_available = 0.0
     
     # Market hours (US Eastern Time)
-    self.market_timezone = pytz.timezone('US/Eastern')
+    self.market_timezone = ZoneInfo('America/New_York')
     self.regular_open = time(9, 30)      # 9:30 AM ET
     self.regular_close = time(16, 0)     # 4:00 PM ET
     self.pre_market_open = time(4, 0)    # 4:00 AM ET
