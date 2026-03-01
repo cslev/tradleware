@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 # Log the full traceback for debugging
 import traceback
 import inspect
@@ -331,35 +331,380 @@ class BaseCryptoTrader(ABC):
   #     """Fetch order book for a symbol."""
   #     pass
 
+  async def _resolve_market_and_balance(self, symbol: str) -> Dict[str, Any]:
+    """
+    Loads market data and fetches account balance for a given symbol.
+    Centralises the repeated market-loading + balance-fetching block that every
+    create_order implementation needs.
+
+    Args:
+      symbol (str): Trading pair symbol (e.g. 'BTC/USDT').
+
+    Returns:
+      dict with keys:
+        'market'        — raw CCXT market dict
+        'base'          — base currency string (e.g. 'BTC')
+        'quote'         — quote currency string (e.g. 'USDT')
+        'amount_limits' — {'min': float|None, 'max': float|None}
+        'cost_limits'   — {'min': float|None, 'max': float|None}
+        'free'          — {currency: float} free balances
+        'total'         — {currency: float} total balances
+
+    Raises:
+      RuntimeError: If markets cannot be loaded or the symbol is not found.
+      RuntimeError: If balance cannot be fetched.
+    """
+    # --- load markets ---
+    load_result = await self._safe_api_call(self.exchange.load_markets, True)
+    if load_result is None and not getattr(self.exchange, 'markets', None):
+      raise RuntimeError(f"Failed to load markets for {self.exchange_id}. Cannot resolve symbol '{symbol}'.")
+
+    try:
+      market = self.exchange.market(symbol)
+    except ccxt.ExchangeError as exc:
+      raise RuntimeError(f"Symbol '{symbol}' not found on {self.exchange_id}: {exc}") from exc
+    except Exception as exc:
+      raise RuntimeError(f"Error resolving market for '{symbol}' on {self.exchange_id}: {exc}") from exc
+
+    if not market:
+      raise RuntimeError(f"Market data empty for '{symbol}' on {self.exchange_id}.")
+
+    base  = market['base']
+    quote = market['quote']
+    limits        = market.get('limits', {}) or {}
+    amount_limits = limits.get('amount', {}) or {}
+    cost_limits   = limits.get('cost',   {}) or {}
+
+    # --- fetch balance ---
+    balance_info = await self.fetch_balance()
+    if not balance_info:
+      raise RuntimeError(f"Could not fetch balance for {self.account_identifier} on {self.exchange_id}.")
+
+    free  = balance_info.get('free',  {}) or {}
+    total = balance_info.get('total', {}) or {}
+
+    self.logger.debug(
+      f"[RESOLVE] symbol={symbol} base={base} quote={quote} "
+      f"amount_limits={amount_limits} cost_limits={cost_limits} "
+      f"free_{quote}={free.get(quote)} free_{base}={free.get(base)}"
+    )
+
+    return {
+      'market':        market,
+      'base':          base,
+      'quote':         quote,
+      'amount_limits': amount_limits,
+      'cost_limits':   cost_limits,
+      'free':          free,
+      'total':         total,
+    }
+
+  def _get_maker_buy_price(self, symbol: str, ticker: dict) -> float:
+    """
+    Calculate the limit buy price targeting maker fee.
+    Default: 0.01% below current bid.
+    Override in subclasses for exchange-specific slippage logic.
+
+    Args:
+      symbol (str): Trading pair — used for price precision.
+      ticker (dict): CCXT ticker dict, must contain 'bid'.
+
+    Returns:
+      float: Limit buy price with exchange precision applied.
+
+    Raises:
+      ValueError: If bid price is missing or invalid.
+    """
+    bid = ticker.get('bid')
+    if not bid or float(bid) <= 0:
+      raise ValueError(f"Invalid bid price in ticker for {symbol}: {bid}")
+    return float(self.exchange.price_to_precision(symbol, float(bid) * 0.9999))
+
+  def _get_maker_sell_price(self, symbol: str, ticker: dict) -> float:
+    """
+    Calculate the limit sell price targeting maker fee.
+    Default: 0.01% above current ask.
+    Override in subclasses for exchange-specific slippage logic.
+
+    Args:
+      symbol (str): Trading pair — used for price precision.
+      ticker (dict): CCXT ticker dict, must contain 'ask'.
+
+    Returns:
+      float: Limit sell price with exchange precision applied.
+
+    Raises:
+      ValueError: If ask price is missing or invalid.
+    """
+    ask = ticker.get('ask')
+    if not ask or float(ask) <= 0:
+      raise ValueError(f"Invalid ask price in ticker for {symbol}: {ask}")
+    return float(self.exchange.price_to_precision(symbol, float(ask) * 1.0001))
+
+  async def _calculate_order_size(
+      self,
+      symbol: str,
+      side: str,
+      ctx: Dict[str, Any],
+      spend_percentage: float = None,
+      quantity: float = None,
+      order_execution_strategy: str = 'market',
+  ) -> tuple:
+    """
+    Determines order_type, amount_to_trade, and price from market context and inputs.
+    All balance checks and exchange limit validations are performed here.
+
+    For spend_percentage market buy, amount_to_trade is returned in QUOTE currency
+    (the cost to spend) — the execution layer is responsible for converting to base.
+    For all other cases, amount_to_trade is in BASE currency with precision applied.
+
+    Args:
+      symbol (str): Trading pair symbol.
+      side (str): 'buy' or 'sell'.
+      ctx (dict): Output of _resolve_market_and_balance().
+      spend_percentage (float): Fraction of available funds (0.0 < x <= 1.0).
+      quantity (float): Exact base currency amount.
+      order_execution_strategy (str): 'market' or 'maker_limit'.
+
+    Returns:
+      tuple: (order_type: str, amount_to_trade: float, price: float | None)
+
+    Raises:
+      ValueError: Insufficient balance or exchange limits violated.
+      RuntimeError: Ticker fetch failed when required.
+    """
+    base          = ctx['base']
+    quote         = ctx['quote']
+    amount_limits = ctx['amount_limits']
+    cost_limits   = ctx['cost_limits']
+    free          = ctx['free']
+    total         = ctx['total']
+
+    order_type      = 'market'
+    amount_to_trade = 0.0
+    price           = None
+
+    #####################
+    ### QUANTITY MODE ###
+    #####################
+    if quantity is not None:
+      self.logger.info(f"[QUANTITY MODE] {side} {quantity} {base} on {symbol} via {order_execution_strategy}")
+      amount_to_trade = quantity
+
+      min_amount = amount_limits.get('min')
+      max_amount = amount_limits.get('max')
+      if min_amount is not None and amount_to_trade < min_amount:
+        raise ValueError(
+          f"Order amount {amount_to_trade:.8f} {base} is below exchange minimum {min_amount:.8f} {base}."
+        )
+      if max_amount is not None and amount_to_trade > max_amount:
+        raise ValueError(
+          f"Order amount {amount_to_trade:.8f} {base} exceeds exchange maximum {max_amount:.8f} {base}."
+        )
+
+      if side == 'buy':
+        # Apply upward precision buffer so post-precision quantity >= requested
+        precision_amount = float(self.exchange.amount_to_precision(symbol, quantity * 1.001))
+        if precision_amount < quantity:
+          self.logger.warning(
+            f"⚠️ Exchange precision prevents buying exactly {quantity} {base}. "
+            f"Will buy {precision_amount} {base} instead."
+          )
+        elif precision_amount > quantity:
+          self.logger.info(f"Adjusted buy amount {quantity} → {precision_amount} {base} for precision.")
+        amount_to_trade = precision_amount
+
+        ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+        if not ticker or not ticker.get('last'):
+          raise RuntimeError(f"Could not fetch ticker for {symbol} to validate buy order.")
+        current_price = float(ticker['last'])
+        if current_price <= 0:
+          raise RuntimeError(f"Invalid last price from ticker for {symbol}: {current_price}")
+
+        estimated_cost  = amount_to_trade * current_price
+        available_quote = free.get(quote, total.get(quote, 0.0))
+        if estimated_cost > available_quote:
+          raise ValueError(
+            f"Insufficient {quote} balance. Need ~{estimated_cost:.2f}, have {available_quote:.2f}."
+          )
+
+        if order_execution_strategy == 'market':
+          order_type = 'market'
+          self.logger.info(f"[QUANTITY MODE] Market buy: {amount_to_trade} {base}")
+        elif order_execution_strategy == 'maker_limit':
+          order_type = 'limit'
+          price = self._get_maker_buy_price(symbol, ticker)
+          self.logger.info(f"[QUANTITY MODE] Maker limit buy: {amount_to_trade} {base} @ {price}")
+
+      elif side == 'sell':
+        available_base = free.get(base, total.get(base, 0.0))
+        if quantity > available_base:
+          raise ValueError(
+            f"Insufficient {base} balance. Need {quantity:.8f}, have {available_base:.8f}."
+          )
+        if order_execution_strategy == 'market':
+          order_type = 'market'
+          self.logger.info(f"[QUANTITY MODE] Market sell: {amount_to_trade} {base}")
+        elif order_execution_strategy == 'maker_limit':
+          order_type = 'limit'
+          ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+          if not ticker:
+            raise RuntimeError(f"Could not fetch ticker for {symbol} for maker limit sell.")
+          price = self._get_maker_sell_price(symbol, ticker)
+          self.logger.info(f"[QUANTITY MODE] Maker limit sell: {amount_to_trade} {base} @ {price}")
+
+      # Precision already applied for buy above; apply for sell here
+      if side == 'sell':
+        amount_to_trade = float(self.exchange.amount_to_precision(symbol, amount_to_trade))
+
+    #############################
+    ### SPEND PERCENTAGE MODE ###
+    #############################
+    elif spend_percentage is not None:
+      self.logger.info(
+        f"[SPEND % MODE] {side} {spend_percentage*100:.1f}% on {symbol} via {order_execution_strategy}"
+      )
+
+      if side == 'buy':
+        available_quote = free.get(quote, total.get(quote, 0.0))
+        spend_cost      = available_quote * spend_percentage
+        if spend_cost <= 0:
+          raise ValueError(
+            f"Insufficient {quote} balance ({available_quote:.2f}) to place buy order."
+          )
+
+        if order_execution_strategy == 'market':
+          order_type = 'market'
+          # amount_to_trade is in QUOTE (cost); execution layer converts to base
+          amount_to_trade = spend_cost
+          self.logger.info(f"[SPEND % MODE] Market buy cost: {amount_to_trade:.2f} {quote}")
+          min_cost = cost_limits.get('min')
+          max_cost = cost_limits.get('max')
+          if min_cost is not None and amount_to_trade < min_cost:
+            raise ValueError(
+              f"Order cost {amount_to_trade:.2f} {quote} is below exchange minimum {min_cost:.2f} {quote}."
+            )
+          if max_cost is not None and amount_to_trade > max_cost:
+            raise ValueError(
+              f"Order cost {amount_to_trade:.2f} {quote} exceeds exchange maximum {max_cost:.2f} {quote}."
+            )
+
+        elif order_execution_strategy == 'maker_limit':
+          order_type = 'limit'
+          ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+          if not ticker or not ticker.get('bid'):
+            raise RuntimeError(f"Could not fetch bid price for {symbol} for maker limit buy.")
+          price = self._get_maker_buy_price(symbol, ticker)
+          if float(price) <= 0:
+            raise RuntimeError("Calculated maker buy price is zero or negative.")
+          amount_to_trade = spend_cost / float(price)
+          self.logger.info(f"[SPEND % MODE] Maker limit buy: {amount_to_trade:.8f} {base} @ {price}")
+          min_amount = amount_limits.get('min')
+          max_amount = amount_limits.get('max')
+          if min_amount is not None and amount_to_trade < min_amount:
+            raise ValueError(
+              f"Order amount {amount_to_trade:.6f} {base} is below exchange minimum {min_amount:.6f} {base}."
+            )
+          if max_amount is not None and amount_to_trade > max_amount:
+            raise ValueError(
+              f"Order amount {amount_to_trade:.6f} {base} exceeds exchange maximum {max_amount:.6f} {base}."
+            )
+          amount_to_trade = float(self.exchange.amount_to_precision(symbol, amount_to_trade))
+
+      elif side == 'sell':
+        available_base  = free.get(base, total.get(base, 0.0))
+        amount_to_trade = available_base * spend_percentage
+        if amount_to_trade <= 0:
+          raise ValueError(
+            f"Insufficient {base} balance ({available_base:.8f}) to place sell order."
+          )
+        min_amount = amount_limits.get('min')
+        max_amount = amount_limits.get('max')
+        if min_amount is not None and amount_to_trade < min_amount:
+          raise ValueError(
+            f"Sell amount {amount_to_trade:.6f} {base} is below exchange minimum {min_amount:.6f} {base}."
+          )
+        if max_amount is not None and amount_to_trade > max_amount:
+          raise ValueError(
+            f"Sell amount {amount_to_trade:.6f} {base} exceeds exchange maximum {max_amount:.6f} {base}."
+          )
+        if order_execution_strategy == 'market':
+          order_type = 'market'
+          amount_to_trade = float(self.exchange.amount_to_precision(symbol, amount_to_trade))
+          self.logger.info(f"[SPEND % MODE] Market sell: {amount_to_trade} {base}")
+        elif order_execution_strategy == 'maker_limit':
+          order_type = 'limit'
+          ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
+          if not ticker or not ticker.get('ask'):
+            raise RuntimeError(f"Could not fetch ask price for {symbol} for maker limit sell.")
+          price = self._get_maker_sell_price(symbol, ticker)
+          amount_to_trade = float(self.exchange.amount_to_precision(symbol, amount_to_trade))
+          self.logger.info(f"[SPEND % MODE] Maker limit sell: {amount_to_trade} {base} @ {price}")
+
+    return order_type, amount_to_trade, price
+
   def _validate_order_params(self,
                               symbol: str,
                               side: str,
                               spend_percentage: float = None,
                               quantity: float = None,
-                              allow_both_none: bool = False) -> None:
-    """Validates order parameters before execution."""
+                              order_execution_strategy: str = 'market',
+                              dry_run: bool = False) -> None:
+    """
+    Validates all order parameters before execution.
+
+    Args:
+      symbol (str): Trading pair symbol — must contain '/'.
+      side (str): Order side — must be one of VALID_ORDER_SIDES.
+      spend_percentage (float): Fraction of available funds to spend (0.0 < x <= 1.0).
+      quantity (float): Exact base currency amount — must be positive.
+      order_execution_strategy (str): Must be one of VALID_ORDER_TYPES.
+      dry_run (bool): Must be a bool.
+
+    Raises:
+      ValueError: If any parameter is invalid.
+    """
+    # --- symbol ---
+    if not symbol or '/' not in symbol:
+      raise ValueError(f"Invalid symbol format: '{symbol}'. Expected 'BASE/QUOTE' (e.g. 'BTC/USDT').")
+
+    # --- side ---
     if side not in self.VALID_ORDER_SIDES:
-      raise ValueError(f"Invalid side: {side}. Must be one of {self.VALID_ORDER_SIDES}")
-    
-    # Check that at most one of spend_percentage or quantity is provided
+      raise ValueError(f"Invalid side: '{side}'. Must be one of {self.VALID_ORDER_SIDES}.")
+
+    # --- spend_percentage / quantity mutual exclusivity ---
     if spend_percentage is not None and quantity is not None:
       raise ValueError("Cannot specify both spend_percentage and quantity. Choose one.")
-    
-    # Check that at least one is provided (unless allow_both_none=True)
-    if not allow_both_none and spend_percentage is None and quantity is None:
+
+    if spend_percentage is None and quantity is None:
       raise ValueError("Must specify either spend_percentage or quantity.")
-    
+
+    # --- spend_percentage range ---
     if spend_percentage is not None:
-      if not 0.0 < spend_percentage <= 1.0:
-        raise ValueError(f"spend_percentage must be between 0.0 and 1.0, got: {spend_percentage}")
       if not self.MIN_SPEND_PERCENTAGE < spend_percentage <= self.MAX_SPEND_PERCENTAGE:
-        raise ValueError(f"spend_percentage must be between {self.MIN_SPEND_PERCENTAGE} and {self.MAX_SPEND_PERCENTAGE}")
-    
+        raise ValueError(
+          f"spend_percentage must be between {self.MIN_SPEND_PERCENTAGE} (exclusive) "
+          f"and {self.MAX_SPEND_PERCENTAGE} (inclusive), got: {spend_percentage}."
+        )
+
+    # --- quantity positivity ---
     if quantity is not None:
       if quantity <= 0:
-        raise ValueError(f"quantity must be positive, got: {quantity}")
+        raise ValueError(f"quantity must be positive, got: {quantity}.")
 
-    if not symbol or '/' not in symbol:
-      raise ValueError(f"Invalid symbol format: {symbol}")
-    
-    self.logger.debug(f"Order parameters validated: symbol={symbol}, side={side}, spend_percentage={spend_percentage}, quantity={quantity}")
+    # --- order_execution_strategy ---
+    if order_execution_strategy not in self.VALID_ORDER_TYPES:
+      raise ValueError(
+        f"Invalid order_execution_strategy: '{order_execution_strategy}'. "
+        f"Must be one of {self.VALID_ORDER_TYPES}."
+      )
+
+    # --- dry_run type ---
+    if not isinstance(dry_run, bool):
+      raise ValueError(f"dry_run must be a bool, got: {type(dry_run).__name__}.")
+
+    self.logger.debug(
+      f"Order parameters validated: symbol={symbol}, side={side}, "
+      f"spend_percentage={spend_percentage}, quantity={quantity}, "
+      f"order_execution_strategy={order_execution_strategy}, dry_run={dry_run}"
+    )
