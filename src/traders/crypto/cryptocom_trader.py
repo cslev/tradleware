@@ -1,5 +1,6 @@
 import asyncio # Imported for asyncio.sleep
 
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
 from typing import Optional, List
@@ -151,33 +152,8 @@ class CryptocomTrader(BaseCryptoTrader):
       self.logger.error("❌ spend_percentage must be between 0.0 (exclusive) and 1.0 (inclusive).")
       return 0.0
 
-    # 1. Fetch current balance
-    balance_info = await self.fetch_balance()
-    if not balance_info:
-      error_msg = "Could not fetch account balance from exchange"
-      self.logger.error(f"❌ {error_msg} to determine fiat funds for conversion.")
-      raise RuntimeError(error_msg)
-
-    # Defensive balance access: prefer 'free' if present, otherwise fall back to 'total'
-    total_balances = (balance_info.get('total') or {})
-    free_balances = (balance_info.get('free') or {})
-    fiat_available = free_balances.get(self.fiat_currency, total_balances.get(self.fiat_currency, 0.0))
-    self.logger.info(f"Available {self.fiat_currency}: {fiat_available}")
-
-    if fiat_available <= 0:
-      error_msg = f"No {self.fiat_currency} available in the account (balance: {fiat_available})"
-      self.logger.warning(f"⚠️ {error_msg}. Cannot proceed with conversion.")
-      raise ValueError(error_msg)
-
-    # Calculate the amount of fiat to spend
-    fiat_spend_amount = fiat_available * spend_percentage
-    self.logger.info(f"Calculated amount to spend: {fiat_spend_amount} {self.fiat_currency}")
-    if fiat_spend_amount <= 0:
-      error_msg = f"Calculated spend amount is zero or negative ({fiat_spend_amount:.2f} {self.fiat_currency})"
-      self.logger.warning(f"⚠️ {error_msg}. Cannot place order.")
-      raise ValueError(error_msg)
-
-    # 2. Add slippage protection for market orders
+    # 1. Add slippage protection for market orders
+    expected_price = None
     if order_execution_strategy == 'market':
       # Get current market price before placing order
       ticker = await self._safe_api_call(self.exchange.fetch_ticker, self.stablecoin_fiat_pair)
@@ -188,7 +164,7 @@ class CryptocomTrader(BaseCryptoTrader):
       expected_price = ticker['ask']  # Expected buy price
       self.logger.info(f"Current market price: {expected_price}")
 
-    # 3. Place the order
+    # 2. Place the order
     stablecoin_order = await self.create_order(
       symbol=self.stablecoin_fiat_pair,
       side='buy',
@@ -213,7 +189,7 @@ class CryptocomTrader(BaseCryptoTrader):
       except Exception as exc:
         self.logger.warning(f"Could not fetch updated order details: {exc}")
 
-    # Check order status
+    # Check order status - for market orders, status might be 'closed' or 'filled'
     order_status = stablecoin_order.get('status')
     if order_status not in ['closed', 'filled'] and order_execution_strategy == 'market':
       self.logger.warning(f"⚠️ Market order to buy {self.stablecoin_currency} was not immediately executed. Current status: {order_status}")
@@ -225,7 +201,7 @@ class CryptocomTrader(BaseCryptoTrader):
     elif order_execution_strategy == 'maker_limit' and order_status == 'open':
       self.logger.info("Limit order placed, monitoring for completion...")
 
-    # 4. Check slippage for market orders
+    # 3. Check slippage for market orders
     if order_execution_strategy == 'market' and stablecoin_order:
       actual_price = stablecoin_order.get('average') or stablecoin_order.get('price', 0)
       if actual_price and expected_price:
@@ -235,17 +211,20 @@ class CryptocomTrader(BaseCryptoTrader):
         else:
           self.logger.info(f"✅ Slippage within limits: {slippage:.2%}")
 
-    # Get the filled amount
+    # Get the filled amount and actual cost from the order (more accurate than pre-calculated estimate)
     filled_amount = stablecoin_order.get('filled', 0) or 0
+    actual_cost = stablecoin_order.get('cost') or 0
 
-    self.logger.success(f"✅ Successfully converted {fiat_spend_amount} {self.fiat_currency} to {filled_amount} {self.stablecoin_currency}!")
+    self.logger.success(f"✅ Successfully converted {actual_cost} {self.fiat_currency} to {filled_amount} {self.stablecoin_currency}!")
     return filled_amount
 
   async def create_order(self,
                          symbol: str,
                          side: str,
-                         spend_percentage: float = 1.0,
+                         spend_percentage: float = None,
+                         quantity: float = None,
                          order_execution_strategy: str = 'market',
+                         dry_run: bool = False,
                          params: dict = None):
     """
     Creates an order on the Crypto.com account with flexible execution and amount.
@@ -254,172 +233,131 @@ class CryptocomTrader(BaseCryptoTrader):
       symbol (str): The trading pair symbol (e.g., 'BTC/USDT').
       side (str): The order side ('buy' or 'sell').
       spend_percentage (float): The percentage of available funds/asset to spend/sell (0.0 to 1.0).
+                                Either spend_percentage or quantity must be provided.
+      quantity (float): The exact amount of base currency to buy/sell (e.g., 0.5 BTC).
+                        Either spend_percentage or quantity must be provided.
       order_execution_strategy (str): 'market' for immediate execution (taker fee),
                                       'maker_limit' for a limit order aiming for maker fee.
+      dry_run (bool): If True, simulate the order without executing it (default: False).
       params (dict): Additional exchange-specific parameters.
     """
+    self.logger.debug("[CREATE ORDER] starting order creation process...")
     if params is None:
       params = {}
 
-    # 1. Input validation for spend_percentage
-    if not 0.0 <= spend_percentage <= 1.0:
-      self.logger.error("Error: spend_percentage must be between 0.0 and 1.0.")
-      return None
-
-    # 2. Determine base and quote currencies and market limits/precision
-    market = None
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 1 — VALIDATE PARAMETERS  (base class: _validate_order_params)
+    # Checks symbol, side, mutually-exclusive amount fields,
+    # order_execution_strategy, dry_run, and numeric ranges.
+    # ─────────────────────────────────────────────────────────────────────────
     try:
-      load_result = await self._safe_api_call(self.exchange.load_markets, True)
-      if load_result is None and not getattr(self.exchange, "markets", None):
-        self.logger.error(f"Failed to (re)load markets for {symbol}. Aborting order creation.")
-        return None
-      market = self.exchange.market(symbol)
-      base_currency = market['base']
-      quote_currency = market['quote']
-    except ccxt.ExchangeError as exc:
-      self.logger.error(f"Exchange error loading market for {symbol}: {exc}")
-      return None
-    except Exception as exc:
-      self.logger.error(f"Error loading market for {symbol}: {exc}")
+      self._validate_order_params(symbol, side, spend_percentage, quantity,
+                                   order_execution_strategy=order_execution_strategy,
+                                   dry_run=dry_run)
+      self.logger.info("[CREATE ORDER] Order parameters validated successfully.")
+    except ValueError as e:
+      self.logger.error(f"Order validation failed: {e}")
       return None
 
-    if not market:
-      self.logger.error(f"Could not load market data for {symbol}. Cannot proceed with order.")
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 2 — RESOLVE MARKET DATA & BALANCE  (base class: _resolve_market_and_balance)
+    # Loads the CCXT market dict for the symbol and fetches live account
+    # balances. Returns a ctx dict with base/quote, amount/cost limits,
+    # and free/total balance snapshots.
+    # ─────────────────────────────────────────────────────────────────────────
+    try:
+      ctx = await self._resolve_market_and_balance(symbol)
+    except RuntimeError as exc:
+      self.logger.error(f"[CREATE ORDER] {exc}")
       return None
 
-    # Extract limits and precision for the symbol
-    limits = market.get('limits', {}) or {}
-    amount_limits = limits.get('amount', {}) or {}
-    cost_limits = limits.get('cost', {}) or {}
+    base_currency  = ctx['base']
+    quote_currency = ctx['quote']
 
-    # 3. Get current balance
-    balance_info = await self.fetch_balance()
-    if not balance_info:
-      self.logger.error("Could not fetch balance to determine order amount.")
+    self.logger.debug(f"[CREATE ORDER] quantity={quantity}, spend_percentage={spend_percentage}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 3 — CALCULATE ORDER SIZE  (base class: _calculate_order_size)
+    # Resolves (order_type, amount_to_trade, price) from the mode
+    # (spend_percentage vs quantity) and execution strategy.
+    # For spend% market buy: amount_to_trade is in QUOTE currency (cost);
+    # all other cases: amount_to_trade is in BASE currency, precision applied.
+    # ─────────────────────────────────────────────────────────────────────────
+    try:
+      order_type, amount_to_trade, price = await self._calculate_order_size(
+        symbol=symbol,
+        side=side,
+        ctx=ctx,
+        spend_percentage=spend_percentage,
+        quantity=quantity,
+        order_execution_strategy=order_execution_strategy,
+      )
+    except (ValueError, RuntimeError) as exc:
+      self.logger.error(f"[CREATE ORDER] Order sizing failed: {exc}")
       return None
 
-    # Defensive balance access: prefer 'free' then 'total'
-    total_balances = (balance_info.get('total') or {})
-    free_balances = (balance_info.get('free') or {})
+    # ─────────────────────────────────────────────────────────────────────────
+    # DRY RUN — simulate order without execution
+    # ─────────────────────────────────────────────────────────────────────────
+    if dry_run:
+      self.logger.warning(f"🧪 DRY RUN: Order simulation complete (NOT executed)")
 
-    amount_to_trade = 0.0
-    price = None
-    order_type = 'market'
-
-    self.logger.info(f"\nAttempting to create a {side} order for {symbol} with {spend_percentage*100}% of available funds.")
-
-    if side == 'buy':
-      available_quote = free_balances.get(quote_currency, total_balances.get(quote_currency, 0.0))
-      spend_cost = available_quote * spend_percentage
-
-      if spend_cost <= 0:
-        self.logger.error(f"Insufficient {quote_currency} balance ({available_quote}) to place buy order.")
-        return None
-
-      if order_execution_strategy == 'market':
-        order_type = 'market'
-        # Use full spend_cost - let exchange handle fees
-        amount_to_trade = spend_cost
-        self.logger.info(f"Calculated market buy cost: {amount_to_trade} {quote_currency}")
-
-        # Check against min/max cost limits
-        min_cost = cost_limits.get('min', None)
-        max_cost = cost_limits.get('max', None)
-        if min_cost is not None and amount_to_trade < min_cost:
-          error_msg = f"Order amount {amount_to_trade:.2f} {quote_currency} is below exchange minimum {min_cost:.2f} {quote_currency}"
-          self.logger.error(error_msg)
-          raise ValueError(error_msg)
-        if max_cost is not None and amount_to_trade > max_cost:
-          error_msg = f"Order amount {amount_to_trade:.2f} {quote_currency} exceeds exchange maximum {max_cost:.2f} {quote_currency}"
-          self.logger.error(error_msg)
-          raise ValueError(error_msg)
-
-      elif order_execution_strategy == 'maker_limit':
-        order_type = 'limit'
+      # For percentage mode market buy, amount_to_trade is in quote currency
+      if order_type == 'market' and side == 'buy' and spend_percentage is not None:
         ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
-        if not ticker or not ticker.get('bid'):
-          self.logger.error(f"Could not fetch bid price for {symbol} to determine maker buy price.")
-          return None
+        sim_price = ticker['last'] if ticker and ticker.get('last') else 0
+        sim_amount = amount_to_trade / sim_price if sim_price > 0 else 0
 
-        # Set price slightly below current bid to try and ensure maker fee
-        price = ticker['bid'] * 0.9999
-
-        # Apply price precision first
-        price = self.exchange.price_to_precision(symbol, price)
-
-        # Calculate amount in base currency based on desired spend and maker price
-        if price <= 0:
-          self.logger.error("Calculated maker buy price is zero or negative. Cannot place order.")
-          return None
-        amount_to_trade = spend_cost / price
-        self.logger.info(f"Calculated maker limit buy amount: {amount_to_trade} {base_currency} at price {price}")
-
-        # Check against min/max amount limits
-        min_amount = amount_limits.get('min') or 0
-        max_amount = amount_limits.get('max') or float('inf')
-        if amount_to_trade < min_amount:
-          error_msg = f"Order amount {amount_to_trade:.6f} {base_currency} is below exchange minimum {min_amount:.6f} {base_currency}"
-          self.logger.error(error_msg)
-          raise ValueError(error_msg)
-        if amount_to_trade > max_amount:
-          error_msg = f"Order amount {amount_to_trade:.6f} {base_currency} exceeds exchange maximum {max_amount:.6f} {base_currency}"
-          self.logger.error(error_msg)
-          raise ValueError(error_msg)
-
+        mock_order = {
+          'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
+          'symbol': symbol,
+          'type': order_type,
+          'side': side,
+          'amount': sim_amount,
+          'price': sim_price,
+          'status': 'simulated',
+          'filled': 0,
+          'remaining': sim_amount,
+          'cost': amount_to_trade,
+          'timestamp': int(datetime.now().timestamp() * 1000),
+          'datetime': datetime.now().isoformat(),
+          'info': {'dry_run': True}
+        }
+        self.logger.info(f"🧪 Simulated order details:")
+        self.logger.info(f"  ID: {mock_order['id']}")
+        self.logger.info(f"  {side.upper()} ~{sim_amount:.8f} {base_currency} with {amount_to_trade:.2f} {quote_currency} (MARKET)")
+        return mock_order
       else:
-        self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
-        return None
+        # For all other cases, amount_to_trade is in base currency
+        amount_to_trade_precise = self.exchange.amount_to_precision(symbol, amount_to_trade)
+        mock_order = {
+          'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
+          'symbol': symbol,
+          'type': order_type,
+          'side': side,
+          'amount': float(amount_to_trade_precise),
+          'price': float(price) if price else None,
+          'status': 'simulated',
+          'filled': 0,
+          'remaining': float(amount_to_trade_precise),
+          'cost': 0,
+          'timestamp': int(datetime.now().timestamp() * 1000),
+          'datetime': datetime.now().isoformat(),
+          'info': {'dry_run': True}
+        }
+        self.logger.info(f"🧪 Simulated order details:")
+        self.logger.info(f"  ID: {mock_order['id']}")
+        self.logger.info(f"  {side.upper()} {amount_to_trade_precise} {base_currency}" +
+                        (f" @ {price} {quote_currency}" if price else " (MARKET)"))
+        return mock_order
 
-    elif side == 'sell':
-      available_base = free_balances.get(base_currency, total_balances.get(base_currency, 0.0))
-      amount_to_trade = available_base * spend_percentage
-
-      if amount_to_trade <= 0:
-        self.logger.error(f"Insufficient {base_currency} balance ({available_base}) to place sell order.")
-        return None
-
-      # Check against min/max amount limits for sell orders
-      min_amount = amount_limits.get('min') or 0
-      max_amount = amount_limits.get('max') or float('inf')
-      if amount_to_trade < min_amount:
-        error_msg = f"Sell amount {amount_to_trade:.6f} {base_currency} is below exchange minimum {min_amount:.6f} {base_currency}"
-        self.logger.error(error_msg)
-        raise ValueError(error_msg)
-      if amount_to_trade > max_amount:
-        error_msg = f"Sell amount {amount_to_trade:.6f} {base_currency} exceeds exchange maximum {max_amount:.6f} {base_currency}"
-        self.logger.error(error_msg)
-        raise ValueError(error_msg)
-
-      if order_execution_strategy == 'market':
-        order_type = 'market'
-        self.logger.info(f"Calculated market sell amount: {amount_to_trade} {base_currency}")
-      elif order_execution_strategy == 'maker_limit':
-        order_type = 'limit'
-        ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
-        if not ticker or not ticker.get('ask'):
-          self.logger.error(f"Could not fetch ask price for {symbol} to determine maker sell price.")
-          return None
-
-        # Set price slightly above current ask to try and ensure maker fee
-        price = ticker['ask'] * 1.0001
-
-        # Apply price precision
-        price = self.exchange.price_to_precision(symbol, price)
-        self.logger.info(f"Calculated maker limit sell amount: {amount_to_trade} {base_currency} at price {price}")
-      else:
-        self.logger.error(f"Unsupported order execution strategy: {order_execution_strategy}")
-        return None
-    else:
-      self.logger.error(f"Invalid order side: {side}. Must be 'buy' or 'sell'.")
-      return None
-
-    # Final check for amount before applying precision and placing order
-    if amount_to_trade <= 0:
-      self.logger.error("Calculated amount to trade is zero or negative after adjustments. Order not placed.")
-      return None
-
-    # Apply amount precision as the final step
-    if order_type == 'market' and side == 'buy':
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 4 — EXECUTE ORDER  (Crypto.com-specific)
+    # Tries createMarketBuyOrderWithCost for spend% market buys; falls back to
+    # base-amount conversion with a 0.995 fee buffer for crypto pairs.
+    # All other cases fall through to the standard CCXT create_order call.
+    # ─────────────────────────────────────────────────────────────────────────
+    if order_type == 'market' and side == 'buy' and spend_percentage is not None:
       # For Crypto.com market buy orders, check if exchange supports cost-based ordering
       try:
         # Check if exchange supports createMarketBuyOrderWithCost
@@ -505,7 +443,13 @@ class CryptocomTrader(BaseCryptoTrader):
       self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade} (Market Order)")
 
     # Place the order
-    order = await self._safe_api_call(self.exchange.create_order, symbol, order_type, side, amount_to_trade, price, params)
+    order = await self._safe_api_call(self.exchange.create_order, 
+                                      symbol, 
+                                      order_type, 
+                                      side, 
+                                      amount_to_trade, 
+                                      price, 
+                                      params)
     if order:
       if isinstance(order, dict):
         order_id = order.get('id', 'unknown')
