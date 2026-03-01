@@ -193,20 +193,21 @@
           <div class="tab-content hidden" id="tab-webhook-{{ trader_id }}">
             <div class="px-2 py-2">
               <h3 class="font-medium text-cyan-700 mb-2">Webhook JSON TradingView Example</h3>
-                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{% raw %}
+                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto overflow-y-auto max-h-80">{% raw %}
   {
     "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
     "trader_id": "{% endraw %}{{ trader_id }}{% raw %}",
     "ticker": "{{ticker}}",
-    "order_size": 100,
     "action": "{{strategy.order.action}}",
     "timestamp": "{{time}}",
-    "alert_name": "{{strategy.order.comment}}"
-    },
-    
+    "alert_name": "{{strategy.order.comment}}",
+    "order_size": 100,
+    "order_size_type": "percentage", // or "quantity"
+    "dry_run": false
+  }  
   {% endraw %}</pre>
-              <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test locally</h3>
-              <pre id="curl-example-{{ trader_id }}" class="bg-gray-100 p-2 rounded text-xs overflow-x-auto curl-example"></pre>
+              <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test</h3>
+              <pre id="curl-example-{{ trader_id }}" class="bg-gray-100 p-2 rounded text-xs overflow-x-auto overflow-y-auto max-h-44 curl-example"></pre>
             </div>
           </div>
           <div class="tab-content hidden" id="tab-logs-{{ trader_id }}">
@@ -344,19 +345,21 @@
           <div class="tab-content hidden" id="tab-webhook-{{ trader_id }}">
             <div class="px-2 py-2">
               <h3 class="font-medium text-cyan-700 mb-2">Webhook JSON TradingView Example</h3>
-                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{% raw %}
+                <pre class="bg-gray-100 p-2 rounded text-xs overflow-x-auto overflow-y-auto max-h-80">{% raw %}
 {
   "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
   "trader_id": "{% endraw %}{{ trader_id }}{% raw %}",
   "ticker": "{{ticker}}",
-  "order_size": 100,
   "action": "{{strategy.order.action}}",
   "timestamp": "{{time}}",
-  "alert_name": "{{strategy.order.comment}}"
+  "alert_name": "{{strategy.order.comment}}",
+  "order_size": 100,
+  "order_size_type": "percentage",   // or "quantity"
+  "dry_run": false
 }
 {% endraw %}</pre>
-              <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test locally</h3>
-              <pre id="curl-example-{{ trader_id }}" class="bg-gray-100 p-2 rounded text-xs overflow-x-auto curl-example"></pre>
+              <h3 class="font-medium text-cyan-700 mt-4 mb-2">cURL test</h3>
+              <pre id="curl-example-{{ trader_id }}" class="bg-gray-100 p-2 rounded text-xs overflow-x-auto overflow-y-auto max-h-44 curl-example"></pre>
             </div>
           </div>
           

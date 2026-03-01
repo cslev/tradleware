@@ -575,7 +575,7 @@ async def handle_webhook(request: Request):
   ###############################################
   ##### CHECK IF ALL FIELDS WERE SENT PROPERLY
   ###############################################
-  missing = [k for k in ["ticker", "action", "timestamp"] if not data.get(k)]
+  missing = [k for k in ["ticker", "action", "timestamp", "order_size", "order_size_type"] if not data.get(k)]
   if missing:
     trader.logger.error(f"Missing fields: {', '.join(missing)}")
     raise HTTPException(status_code=400, detail=f"Missing fields: {', '.join(missing)}")
@@ -597,42 +597,31 @@ async def handle_webhook(request: Request):
   if dry_run:
     trader.logger.warning("🧪 DRY RUN MODE: Order will be simulated, not executed")
   
-  # Parse order_size_type (default to "percentage" for backward compatibility)
-  order_size_type = data.get("order_size_type", "percentage").lower()
+  # Parse order_size_type — presence already guaranteed by missing fields check above
+  order_size_type = str(data.get("order_size_type")).lower()
   if order_size_type not in ["percentage", "quantity"]:
-    trader.logger.warning(f"Invalid order_size_type: {order_size_type}, defaulting to 'percentage'")
-    order_size_type = "percentage"
+    trader.logger.error(f"Invalid order_size_type: '{order_size_type}'. Must be 'percentage' or 'quantity'.")
+    raise HTTPException(status_code=400, detail=f"Invalid order_size_type: '{order_size_type}'. Must be 'percentage' or 'quantity'.")
   
-  # Parse order_size value
+  # Parse order_size value — presence already guaranteed by missing fields check above
   order_size_raw = data.get("order_size")
-  if order_size_raw is None:
-    # Default depends on type
-    if order_size_type == "percentage":
-      order_size = 100.0  # Default to 100%
-    else:
-      trader.logger.error("order_size is required when order_size_type is 'quantity'")
-      raise HTTPException(status_code=400, detail="order_size is required when order_size_type is 'quantity'")
-  elif isinstance(order_size_raw, (int, float)):
+  if isinstance(order_size_raw, (int, float)):
     order_size = float(order_size_raw)
   elif isinstance(order_size_raw, str):
     try:
       order_size = float(order_size_raw.strip())
     except ValueError:
-      if order_size_type == "percentage":
-        trader.logger.warning(f"Invalid order_size string: {order_size_raw}, defaulting to 100")
-        order_size = 100.0
-      else:
-        trader.logger.error(f"Invalid order_size for quantity mode: {order_size_raw}")
-        raise HTTPException(status_code=400, detail=f"Invalid order_size: {order_size_raw}")
+      trader.logger.error(f"Invalid order_size value: '{order_size_raw}'. Must be a number.")
+      raise HTTPException(status_code=400, detail=f"Invalid order_size value: '{order_size_raw}'. Must be a number.")
   else:
-    trader.logger.warning(f"Unrecognized order_size type: {type(order_size_raw)}, defaulting to 100")
-    order_size = 100.0
+    trader.logger.error(f"Invalid order_size type: {type(order_size_raw).__name__}. Must be a number.")
+    raise HTTPException(status_code=400, detail=f"order_size must be a number, got: {type(order_size_raw).__name__}.")
   
   # Validate based on order_size_type
   if order_size_type == "percentage":
     if not 0.0 < order_size <= 100.0:
-      trader.logger.warning(f"order_size out of range: {order_size}, defaulting to 100")
-      order_size = 100.0
+      trader.logger.error(f"order_size out of range for percentage mode: {order_size}. Must be between 0 (exclusive) and 100 (inclusive).")
+      raise HTTPException(status_code=400, detail=f"order_size out of range: {order_size}. Must be between 0 and 100 for percentage mode.")
     spend_percentage = order_size / 100.0
     quantity = None
     trader.logger.info(f"Order mode: PERCENTAGE ({order_size}%)")
