@@ -268,6 +268,7 @@ class IBKRTrader(BaseStockTrader):
     Returns:
       Current market price or None if unavailable.
     """
+    symbol_str = symbol or self.symbol
     try:
       if not self.is_connected:
         try:
@@ -289,23 +290,21 @@ class IBKRTrader(BaseStockTrader):
       # Try delayed market data first
       self.ib.reqMarketDataType(3)  # Delayed data (free)
       tickers = await self.ib.reqTickersAsync(contract)
-      
-      symbol_str = contract.symbol if contract else (symbol or self.symbol)
-      
+
       if tickers:
         ticker = tickers[0]
         if ticker.marketPrice() and ticker.marketPrice() > 0:
-          self.logger.info(f"Got delayed market price for {symbol_str}")
+          self.logger.info(f"Got delayed market price for {contract.symbol}")
           return float(ticker.marketPrice())
         if ticker.last and ticker.last > 0:
-          self.logger.info(f"Got last price for {symbol_str}")
+          self.logger.info(f"Got last price for {contract.symbol}")
           return float(ticker.last)
         if ticker.close and ticker.close > 0:
-          self.logger.info(f"Got close price for {symbol_str}")
+          self.logger.info(f"Got close price for {contract.symbol}")
           return float(ticker.close)
-      
+
       # Fallback: Get recent historical data (always available)
-      self.logger.info(f"Falling back to historical data for {symbol_str}")
+      self.logger.info(f"Falling back to historical data for {contract.symbol}")
       bars = await self.ib.reqHistoricalDataAsync(
         contract,
         endDateTime='',
@@ -315,24 +314,25 @@ class IBKRTrader(BaseStockTrader):
         useRTH=True,
         formatDate=1
       )
-      
+
       if bars and len(bars) > 0:
         last_bar = bars[-1]
-        self.logger.info(f"Got historical close price for {symbol_str}: ${last_bar.close}")
+        self.logger.info(f"Got historical close price for {contract.symbol}: ${last_bar.close}")
         return float(last_bar.close)
-      
-      self.logger.warning(f"No price data available for {symbol_str}")
+
+      self.logger.warning(f"No price data available for {contract.symbol}")
       return None
-        
+
     except Exception as e:
-      self.logger.error(f"Error fetching market price for {symbol_str if 'symbol_str' in locals() else (symbol or self.symbol)}: {e}")
+      self.logger.error(f"Error fetching market price for {symbol_str}: {e}")
       return None
 
   async def create_order(self,
                          side: str,
-                         spend_percentage: float = 1.0,
+                         spend_percentage: float = None,
                          order_execution_strategy: str = 'market',
                          limit_price: Optional[float] = None,
+                         quantity: Optional[int] = None,
                          params: dict = None) -> Optional[Dict[str, Any]]:
     """
     Place a buy/sell order for this symbol.
@@ -347,95 +347,131 @@ class IBKRTrader(BaseStockTrader):
     Returns:
       Order information dict or None on failure
     """
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 1 — VALIDATE PARAMETERS  (base/IBKR-specific checks)
+    # ─────────────────────────────────────────────────────────────────────────
+    self.logger.debug("[CREATE ORDER] Starting order creation process...")
+    if params is None:
+      params = {}
+
+
+
     try:
-      if not self.is_connected:
+      self._validate_order_params(
+        side=side,
+        spend_percentage=spend_percentage,
+        order_execution_strategy=order_execution_strategy,
+        limit_price=limit_price,
+        quantity=quantity)
+    except ValueError as exc:
+      self.logger.error(f"Order parameter validation failed: {exc}")
+      raise
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 2 — RESOLVE MARKET STATUS, PRICE, POSITION/CASH (base class: _resolve_market_and_balance)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    try:
+      ctx = await self._resolve_market_and_balance(side, dry_run=params.get('dry_run', False))
+    except RuntimeError as exc:
+      self.logger.error(f"[LAYER 2] {exc}")
+      raise
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 3 — CALCULATE ORDER SIZE (base class: _calculate_order_size)
+    # ─────────────────────────────────────────────────────────────────────────
+    dry_run_mode = params.get('dry_run', False)
+    try:
+      if quantity is not None:
+        # QUANTITY MODE: caller supplied an explicit share count — no live API needed.
+        self.logger.info(f"[LAYER 3] Quantity mode: {quantity} shares (skipping balance fetch)")
+      elif dry_run_mode:
+        # DRY RUN + PERCENTAGE MODE: try real balance first; fall back to simulated
+        # values only if the gateway is unreachable.
         try:
-          await self.connect()
-        except Exception as conn_err:
-          self.logger.error(f"Failed to connect to IB Gateway: {conn_err}")
-          self.is_connected = False
-          raise RuntimeError(f"Cannot create order: IB Gateway connection failed - {conn_err}") from conn_err
-      
-      # For limit orders, price is required
-      if order_execution_strategy == 'maker_limit' and not limit_price:
-        raise ValueError("limit_price is required for 'maker_limit' orders")
-      
-      # Check market hours
-      if not self.can_trade_now():
-        market_status = self.get_market_status()
-        time_until_open = self.get_time_until_market_opens()
-        raise RuntimeError(
-          f"Market is {market_status}. "
-          f"{'Extended hours trading is disabled.' if market_status in ['pre-market', 'after-hours'] else f'Market opens in {time_until_open}.'}"
-        )
-      
-      # Calculate quantity based on side and spend_percentage
-      if side == 'buy':
-        # Get current price
-        current_price = await self.get_market_price()
-        if not current_price:
-          raise RuntimeError(f"Could not get current price for {self.symbol}")
-        
-        # Get account cash
-        account_summary = await self.ib.accountSummaryAsync()
-        cash_available = 0.0
-        for item in account_summary:
-          if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
-            cash_available = float(item.value)
-            break
-        
-        if cash_available <= 0:
-          raise ValueError(f"No cash available for buying. Cash: ${cash_available:.2f}")
-        
-        # Calculate quantity
-        amount_to_spend = cash_available * spend_percentage
-        quantity = int(amount_to_spend / current_price)
-        
-        if quantity <= 0:
-          raise ValueError(f"Calculated quantity is 0. Cash: ${cash_available:.2f}, Price: ${current_price:.2f}, Spend: ${amount_to_spend:.2f}")
-        
-        self.logger.info(f"Buy order: ${amount_to_spend:.2f} ({spend_percentage*100:.1f}% of ${cash_available:.2f}) → {quantity} shares @ ${current_price:.2f}")
-        
-      else:  # sell
-        # Get current position
-        position_info = await self.fetch_positions()
-        current_quantity = position_info.get('quantity', 0)
-        
-        if current_quantity <= 0:
-          raise ValueError(f"No shares to sell. Current position: {current_quantity}")
-        
-        # Calculate quantity to sell
-        quantity = int(current_quantity * spend_percentage)
-        
-        if quantity <= 0:
-          raise ValueError(f"Calculated sell quantity is 0. Position: {current_quantity}, Percentage: {spend_percentage*100:.1f}%")
-        
-        self.logger.info(f"Sell order: {quantity} shares ({spend_percentage*100:.1f}% of {current_quantity})")
-      
-      # Create the order object
+          if side == 'buy':
+            account_summary = await self.ib.accountSummaryAsync()
+            cash_available = 0.0
+            for item in account_summary:
+              if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
+                cash_available = float(item.value)
+                break
+            ctx['cash_available'] = cash_available
+            self.logger.info(f"[LAYER 3][DRY RUN] Using real cash balance: ${cash_available:.2f}")
+          else:
+            position_info = await self.fetch_positions()
+            shares = position_info.get('quantity', 0)
+            ctx['shares_owned'] = shares
+            self.logger.info(f"[LAYER 3][DRY RUN] Using real position: {shares} shares")
+        except Exception as balance_exc:
+          # Gateway unavailable — fall back to simulated values so dry_run still works.
+          self.logger.warning(f"[LAYER 3][DRY RUN] Could not fetch real balance ({balance_exc}); using simulated values")
+          if side == 'buy':
+            ctx['cash_available'] = 10_000.0
+          else:
+            ctx['shares_owned'] = 10
+        quantity = self._calculate_order_size(side, spend_percentage, ctx)
+      else:
+        # LIVE PERCENTAGE MODE: fetch real balance from IB Gateway.
+        if side == 'buy':
+          account_summary = await self.ib.accountSummaryAsync()
+          cash_available = 0.0
+          for item in account_summary:
+            if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
+              cash_available = float(item.value)
+              break
+          ctx['cash_available'] = cash_available
+        else:
+          position_info = await self.fetch_positions()
+          shares = position_info.get('quantity', 0)
+          ctx['shares_owned'] = shares
+        quantity = self._calculate_order_size(side, spend_percentage, ctx)
+    except ValueError as exc:
+      self.logger.error(f"[LAYER 3] {exc}")
+      raise
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 4 — DRY RUN AND LIVE EXECUTION (IBKR-specific)
+    # ─────────────────────────────────────────────────────────────────────────
+    try:
+      if params.get('dry_run', False):
+        # DRY RUN: return simulated order object
+        now = datetime.now()
+        mock_order = {
+          'order_id': f'DRY_RUN_{int(now.timestamp())}',
+          'symbol': self.symbol,
+          'side': side,
+          'quantity': quantity,
+          'filled_quantity': 0,
+          'price': limit_price if order_execution_strategy == 'maker_limit' else ctx.get('current_price'),
+          'order_type': order_execution_strategy,
+          'status': 'simulated',
+          'timestamp': now,
+          'info': {'dry_run': True}
+        }
+        self.logger.warning(f"🧪 DRY RUN: Simulated order {mock_order}")
+        return mock_order
+
+      # LIVE ORDER LOGIC (real execution)
       if order_execution_strategy == 'market':
         order = MarketOrder(side.upper(), quantity)
         self.logger.info(f"Creating market order: {side.upper()} {quantity} shares of {self.symbol}")
-      else:  # maker_limit
+      else:
         order = LimitOrder(side.upper(), quantity, limit_price)
         self.logger.info(f"Creating limit order: {side.upper()} {quantity} shares of {self.symbol} @ ${limit_price:.2f}")
-      
-      # Place the order
+
       trade = self.ib.placeOrder(self.contract, order)
-      
-      # Wait for order to be submitted
       await asyncio.sleep(1)
-      
-      # Get order status
+
       order_status = trade.orderStatus.status if trade.orderStatus else 'Unknown'
       filled_quantity = int(trade.orderStatus.filled) if trade.orderStatus else 0
       avg_fill_price = float(trade.orderStatus.avgFillPrice) if trade.orderStatus and trade.orderStatus.avgFillPrice > 0 else 0.0
-      
+
       self.logger.success(
         f"Order placed successfully: {trade.order.orderId} - "
         f"{side.upper()} {quantity} {self.symbol} - Status: {order_status}"
       )
-      
+
       return {
         'order_id': str(trade.order.orderId),
         'symbol': self.symbol,
@@ -447,9 +483,8 @@ class IBKRTrader(BaseStockTrader):
         'status': order_status,
         'timestamp': datetime.now()
       }
-      
+
     except (ValueError, RuntimeError) as e:
-      # Expected errors with user-friendly messages
       self.logger.error(f"Order creation failed: {e}")
       raise
     except Exception as e:

@@ -255,7 +255,10 @@ class OKXTrader(BaseCryptoTrader):
     # order_execution_strategy, dry_run, and numeric ranges.
     # ─────────────────────────────────────────────────────────────────────────
     try:
-      self._validate_order_params(symbol, side, spend_percentage, quantity,
+      self._validate_order_params(symbol,
+                                   side, 
+                                   spend_percentage, 
+                                   quantity,
                                    order_execution_strategy=order_execution_strategy,
                                    dry_run=dry_run)
       self.logger.info("[CREATE ORDER] Order parameters validated successfully.")

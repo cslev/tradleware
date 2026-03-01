@@ -837,9 +837,9 @@ async def handle_webhook(request: Request):
     trader.logger.info(f"VALID ticker: {ticker}")
     
     ######################################################
-    # STOCK: Check if market allows trading
+    # STOCK: Check if market allows trading (skipped for dry_run)
     ######################################################
-    if not trader.can_trade_now():
+    if not dry_run and not trader.can_trade_now():
       market_status = trader.get_market_status()
       time_until_open = trader.get_time_until_market_opens()
       error_msg = f"Market is {market_status}. "
@@ -869,7 +869,8 @@ async def handle_webhook(request: Request):
         side=action,
         spend_percentage=spend_percentage,
         quantity=int(quantity) if quantity is not None else None,  # Convert to int for stocks
-        order_execution_strategy='market'
+        order_execution_strategy='market',
+        params={'dry_run': dry_run}
       )
       
       if order_result:

@@ -232,7 +232,7 @@ async def create_order(self,
 
 ## Current State & Active Goals
 
-See [.github/current_state.md](current_state.md) for the latest project status and active development goals.
+See [.github/current_state.md](current_state.md) for the latest project status and active development goals. Any time you make progress on a goal, update that file to reflect the new state — this is crucial for maintaining context across sessions and ensuring the next session can pick up right where you left off without needing to re-explain everything.
 
 ---
 

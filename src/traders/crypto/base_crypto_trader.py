@@ -43,12 +43,8 @@ class BaseCryptoTrader(ABC):
     self.account_identifier = account_identifier
     self.exchange_id = exchange_id.lower() # Store as lowercase for ccxt lookup
     self.default_type = default_type
-    self.logger = logger if logger else CustomLogger(
-      name=self.__class__.__name__,
-      gotify_url=get_env('GOTIFY_SERVER_URL'),
-      gotify_token=get_env('GOTIFY_APP_TOKEN'),
-      gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
-    )
+    # Logger is assigned after credentials are validated below; a temp reference
+    # is not needed since no logger.xxx calls are made before that point.
 
     # Dynamically construct environment variable names based on identifier and exchange
     self.api_key_env = f'{account_identifier}_{exchange_id.upper()}_API_KEY'
@@ -120,8 +116,10 @@ class BaseCryptoTrader(ABC):
     # Add some initial logs for testing
     self._add_to_buffer("INFO", f"CRYPTO trader {account_identifier} initialized for {self.crypto_stablecoin_pair}")
 
-    # Create a custom logger for this trader that also writes to buffer
-    self.logger = CustomLogger(
+    # Create or honour the per-trader named logger (used for the entire object lifetime).
+    # If a logger was passed in (e.g. from a subclass that pre-created one), use it;
+    # otherwise create a properly account-named one.
+    self.logger = logger if logger else CustomLogger(
       f'{account_identifier}_{exchange_id}',
       gotify_url=get_env('GOTIFY_SERVER_URL'),
       gotify_token=get_env('GOTIFY_APP_TOKEN'),
@@ -168,25 +166,30 @@ class BaseCryptoTrader(ABC):
     original_success = self.logger.success
     original_critical = self.logger.critical
 
-    def info_with_buffer(msg, **kwargs):
-      self._add_to_buffer("INFO", msg)
-      return original_info(msg, **kwargs)
+    def info_with_buffer(msg, *args, **kwargs):
+      display = msg % args if args else str(msg)
+      self._add_to_buffer("INFO", display)
+      return original_info(display, **kwargs)
 
-    def error_with_buffer(msg, **kwargs):
-      self._add_to_buffer("ERROR", msg)
-      return original_error(msg, **kwargs)
+    def error_with_buffer(msg, *args, **kwargs):
+      display = msg % args if args else str(msg)
+      self._add_to_buffer("ERROR", display)
+      return original_error(display, **kwargs)
 
-    def warning_with_buffer(msg, **kwargs):
-      self._add_to_buffer("WARNING", msg)
-      return original_warning(msg, **kwargs)
+    def warning_with_buffer(msg, *args, **kwargs):
+      display = msg % args if args else str(msg)
+      self._add_to_buffer("WARNING", display)
+      return original_warning(display, **kwargs)
 
-    def success_with_buffer(msg, **kwargs):
-      self._add_to_buffer("SUCCESS", msg)
-      return original_success(msg, **kwargs)
+    def success_with_buffer(msg, *args, **kwargs):
+      display = msg % args if args else str(msg)
+      self._add_to_buffer("SUCCESS", display)
+      return original_success(display, **kwargs)
 
-    def critical_with_buffer(msg, **kwargs):
-      self._add_to_buffer("CRITICAL", msg)
-      return original_critical(msg, **kwargs)
+    def critical_with_buffer(msg, *args, **kwargs):
+      display = msg % args if args else str(msg)
+      self._add_to_buffer("CRITICAL", display)
+      return original_critical(display, **kwargs)
 
     self.logger.info = info_with_buffer
     self.logger.error = error_with_buffer
