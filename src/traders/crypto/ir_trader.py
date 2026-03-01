@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
 from typing import Optional, List
@@ -212,14 +213,17 @@ class IRTrader(BaseCryptoTrader):
         self.logger.warning(f"Could not refresh order: {exc}")
 
     filled = (order.get("filled") if isinstance(order, dict) else getattr(order, "filled", None)) or 0
-    self.logger.success(f"Converted {fiat_available*spend_percentage} {self.fiat_currency} -> {filled} {self.stablecoin_currency}")
+    actual_cost = (order.get("cost") if isinstance(order, dict) else getattr(order, "cost", None)) or fiat_available * spend_percentage
+    self.logger.success(f"Converted {actual_cost} {self.fiat_currency} -> {filled} {self.stablecoin_currency}")
     return filled
 
   async def create_order(self,
                          symbol: str,
                          side: str,
-                         spend_percentage: float = 1.0,
+                         spend_percentage: float = None,
+                         quantity: float = None,
                          order_execution_strategy: str = "market",
+                         dry_run: bool = False,
                          params: dict = None):
     """
     Create an order on Independent Reserve according to the provided strategy.
@@ -227,170 +231,176 @@ class IRTrader(BaseCryptoTrader):
     Args:
       symbol: Trading pair symbol (e.g. "USDT/SGD").
       side: 'buy' or 'sell'.
-      spend_percentage: Fraction of available quote/base to use (0.0 <= spend_percentage <= 1.0).
+      spend_percentage: Fraction of available quote/base to use (0.0 < x <= 1.0).
+                        Mutually exclusive with quantity.
+      quantity: Exact base currency amount to buy/sell.
+                Mutually exclusive with spend_percentage.
       order_execution_strategy: 'market' for immediate execution, 'maker_limit' to post a limit order targeting maker.
+      dry_run: If True, simulate the order without executing it.
       params: Optional exchange-specific params dict.
 
     Returns:
       The order object/dict returned by the exchange on success, or None on failure.
-
-    Implementation notes:
-      - Loads markets safely via _safe_api_call(self.exchange.load_markets, True).
-      - Performs defensive lookups for balance keys ('free' / 'total') and market limits.
-      - For market buys, it converts quote-cost -> base amount using the ticker price (defensive parsing).
-      - All exchange calls are executed through _safe_api_call so CCXT exceptions are handled uniformly.
     """
+    self.logger.debug("[CREATE ORDER] starting order creation process...")
     if params is None:
       params = {}
 
-    if not 0.0 <= spend_percentage <= 1.0:
-      self.logger.error("spend_percentage must be between 0.0 and 1.0")
-      return None
-
-    # load markets safely
-    await self._safe_api_call(self.exchange.load_markets, True)
-    market = None
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 1 — VALIDATE PARAMETERS  (base class: _validate_order_params)
+    # Checks symbol, side, mutually-exclusive amount fields,
+    # order_execution_strategy, dry_run, and numeric ranges.
+    # ─────────────────────────────────────────────────────────────────────────
     try:
-      market = self.exchange.market(symbol)
-    except Exception as exc:
-      self.logger.error(f"Could not load market {symbol}: {exc}")
+      self._validate_order_params(symbol, side, spend_percentage, quantity,
+                                   order_execution_strategy=order_execution_strategy,
+                                   dry_run=dry_run)
+      self.logger.info("[CREATE ORDER] Order parameters validated successfully.")
+    except ValueError as exc:
+      self.logger.error(f"Order validation failed: {exc}")
       return None
-    if not market:
-      self.logger.error("Market data missing.")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 2 — RESOLVE MARKET DATA & BALANCE  (base class: _resolve_market_and_balance)
+    # Loads the CCXT market dict for the symbol and fetches live account
+    # balances. Returns a ctx dict with base/quote, amount/cost limits,
+    # and free/total balance snapshots.
+    # ─────────────────────────────────────────────────────────────────────────
+    try:
+      ctx = await self._resolve_market_and_balance(symbol)
+    except RuntimeError as exc:
+      self.logger.error(f"[CREATE ORDER] {exc}")
       return None
 
-    # limits = market.get("limits", {}) or {}
-    # amount_limits = limits.get("amount", {}) or {}
-    # cost_limits = limits.get("cost", {}) or {}
+    base_currency  = ctx['base']
+    quote_currency = ctx['quote']
 
-    balance = await self.fetch_balance()
-    if not balance:
+    self.logger.debug(f"[CREATE ORDER] quantity={quantity}, spend_percentage={spend_percentage}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 3 — CALCULATE ORDER SIZE  (base class: _calculate_order_size)
+    # Resolves (order_type, amount_to_trade, price) from the mode
+    # (spend_percentage vs quantity) and execution strategy.
+    # For spend% market buy: amount_to_trade is in QUOTE currency (cost);
+    # all other cases: amount_to_trade is in BASE currency, precision applied.
+    # ─────────────────────────────────────────────────────────────────────────
+    try:
+      order_type, amount_to_trade, price = await self._calculate_order_size(
+        symbol=symbol,
+        side=side,
+        ctx=ctx,
+        spend_percentage=spend_percentage,
+        quantity=quantity,
+        order_execution_strategy=order_execution_strategy,
+      )
+    except (ValueError, RuntimeError) as exc:
+      self.logger.error(f"[CREATE ORDER] Order sizing failed: {exc}")
       return None
-    total_bal = (balance.get("total") or {})
-    free_bal = (balance.get("free") or {})
 
-    order_type = "market"
-    amount_to_trade = 0.0
-    price = None
+    # ─────────────────────────────────────────────────────────────────────────
+    # DRY RUN — simulate order without execution
+    # ─────────────────────────────────────────────────────────────────────────
+    if dry_run:
+      self.logger.warning("🧪 DRY RUN: Order simulation complete (NOT executed)")
 
-    base = market.get("base")
-    quote = market.get("quote")
-
-    if side == "buy":
-      available_quote = free_bal.get(quote, total_bal.get(quote, 0.0))
-      spend_cost = available_quote * spend_percentage
-      if spend_cost <= 0:
-        self.logger.error("Insufficient quote balance")
-        return None
-
-      if order_execution_strategy == "market":
-        order_type = "market"
-        # Use full spend_cost - let exchange handle fees (matching OKX behavior)
-        amount_to_trade = spend_cost
-        self.logger.info(f"Calculated market buy cost: {amount_to_trade} {quote}")
-      elif order_execution_strategy == "maker_limit":
-        # get price and compute base amount
+      # For percentage mode market buy, amount_to_trade is in quote currency
+      if order_type == 'market' and side == 'buy' and spend_percentage is not None:
         ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
-        if not ticker:
-          self.logger.error("Could not get ticker for maker_limit buy.")
-          return None
-        # best attempt to read bid/last/ask
-        ask = ticker.get("ask") if isinstance(ticker, dict) else getattr(ticker, "ask", None)
-        try:
-          ask = float(ask)
-        except Exception:
-          self.logger.error("Invalid ticker price for maker limit")
-          return None
-        price = ask * 0.9999
-        amount_to_trade = spend_cost / price
+        sim_price = ticker['last'] if ticker and ticker.get('last') else 0
+        sim_amount = amount_to_trade / sim_price if sim_price > 0 else 0
 
-    elif side == "sell":
-      available_base = free_bal.get(base, total_bal.get(base, 0.0))
-      amount_to_trade = available_base * spend_percentage
-      if amount_to_trade <= 0:
-        self.logger.error("Insufficient base balance")
-        return None
-      if order_execution_strategy == "maker_limit":
-        ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
-        if not ticker:
-          self.logger.error("Could not get ticker for maker_limit sell.")
-          return None
-        bid = ticker.get("bid") if isinstance(ticker, dict) else getattr(ticker, "bid", None)
-        try:
-          bid = float(bid)
-        except Exception:
-          self.logger.error("Invalid ticker price for maker limit sell")
-          return None
-        price = bid * 1.0001
-        order_type = "limit"
+        mock_order = {
+          'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
+          'symbol': symbol,
+          'type': order_type,
+          'side': side,
+          'amount': sim_amount,
+          'price': sim_price,
+          'status': 'simulated',
+          'filled': 0,
+          'remaining': sim_amount,
+          'cost': amount_to_trade,
+          'timestamp': int(datetime.now().timestamp() * 1000),
+          'datetime': datetime.now().isoformat(),
+          'info': {'dry_run': True}
+        }
+        self.logger.info("🧪 Simulated order details:")
+        self.logger.info(f"  ID: {mock_order['id']}")
+        self.logger.info(f"  {side.upper()} ~{sim_amount:.8f} {base_currency} with {amount_to_trade:.2f} {quote_currency} (MARKET)")
+        return mock_order
 
-    # convert market buy cost->amount if needed
-    # For IR, check if exchange supports cost-based market buy orders
-    if order_type == "market" and side == "buy":
-      # Try to use cost-based ordering if supported (similar to OKX approach)
-      try:
-        # Check if exchange supports createMarketBuyOrderWithCost
-        if hasattr(self.exchange, 'createMarketBuyOrderWithCost'):
-          self.logger.info(f"Using createMarketBuyOrderWithCost to spend exact {amount_to_trade} {quote}")
-          # Set the required parameter to avoid KeyError
-          if 'createMarketBuyOrderRequiresPrice' not in self.exchange.options:
-            self.exchange.options['createMarketBuyOrderRequiresPrice'] = False
+      # For all other cases, amount_to_trade is in base currency
+      amount_to_trade_precise = self._safe_amount_to_precision(symbol, amount_to_trade)
+      mock_order = {
+        'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
+        'symbol': symbol,
+        'type': order_type,
+        'side': side,
+        'amount': float(amount_to_trade_precise),
+        'price': float(price) if price else None,
+        'status': 'simulated',
+        'filled': 0,
+        'remaining': float(amount_to_trade_precise),
+        'cost': 0,
+        'timestamp': int(datetime.now().timestamp() * 1000),
+        'datetime': datetime.now().isoformat(),
+        'info': {'dry_run': True}
+      }
+      self.logger.info("🧪 Simulated order details:")
+      self.logger.info(f"  ID: {mock_order['id']}")
+      self.logger.info(f"  {side.upper()} {amount_to_trade_precise} {base_currency}" +
+                      (f" @ {price} {quote_currency}" if price else " (MARKET)"))
+      return mock_order
 
-          order = await self._safe_api_call(self.exchange.createMarketBuyOrderWithCost, symbol, amount_to_trade, params)
-          if order:
-            # Log order details
-            if isinstance(order, dict):
-              order_id = order.get('id', 'unknown')
-              status = order.get('status', 'unknown')
-              filled_amount = order.get('filled', None)
-            else:
-              order_id = getattr(order, 'id', 'unknown')
-              status = getattr(order, 'status', 'unknown')
-              filled_amount = getattr(order, 'filled', None)
-
-            filled_str = f"{filled_amount}" if filled_amount is not None else "N/A"
-            self.logger.success(f"Order placed successfully! Order ID: {order_id}")
-            self.logger.success(f"  Status: {status}, Filled: {filled_str} {base}")
-          else:
-            self.logger.error(f"❌ Failed to place order for {symbol}.")
-          return order
-      except Exception as e:
-        self.logger.info(f"createMarketBuyOrderWithCost not supported or failed ({e}), using standard market order")
-
-      # Fallback: convert to base amount using ticker price
+    # ─────────────────────────────────────────────────────────────────────────
+    # LAYER 4 — EXECUTE ORDER  (IR-specific: no createMarketBuyOrderWithCost)
+    # For spend% market buy: amount_to_trade is in QUOTE currency; convert to
+    # base via ticker fetch before calling create_order. All other cases
+    # (quantity mode, sell, limit) go directly to the standard CCXT path.
+    # ─────────────────────────────────────────────────────────────────────────
+    if order_type == 'market' and side == 'buy' and spend_percentage is not None:
+      # IR does not support createMarketBuyOrderWithCost — always convert
       ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
       if not ticker:
-        self.logger.error("Could not fetch ticker to convert market buy cost")
+        self.logger.error("[CREATE ORDER] Could not fetch ticker to convert market buy cost")
         return None
+
       expected_price = None
       if isinstance(ticker, dict):
         expected_price = ticker.get("ask") or ticker.get("last") or ticker.get("bid")
       else:
-        expected_price = getattr(ticker, "ask", None) or getattr(ticker, "last", None) or getattr(ticker, "bid", None)
+        expected_price = (
+          getattr(ticker, "ask", None) or
+          getattr(ticker, "last", None) or
+          getattr(ticker, "bid", None)
+        )
       try:
         expected_price = float(expected_price)
       except Exception:
-        self.logger.error("Invalid ticker price for conversion")
+        self.logger.error("[CREATE ORDER] Invalid ticker price for market buy conversion")
         return None
 
-      # IR trader uses full amount - no buffer needed (exchange handles properly)
-      base_amount = (amount_to_trade / expected_price) if expected_price else 0.0
-      amount_to_trade = base_amount
-      self.logger.info(f"Converting to base amount: {amount_to_trade} {base} at market price {expected_price}")
+      base_amount = amount_to_trade / expected_price
+      try:
+        amount_to_trade = self.exchange.amount_to_precision(symbol, base_amount)
+      except Exception:
+        amount_to_trade = base_amount
+      self.logger.info(
+        f"[CREATE ORDER] Market buy: ~{amount_to_trade} {base_currency} @ {expected_price} {quote_currency}"
+      )
       price = None
 
-    # apply precision
-    try:
-      amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
-    except Exception:
-      # fallback: keep numeric
-      pass
-
-    # log and place
-    if price is not None:
-      self.logger.info(f"Placing {order_type} {side} {amount_to_trade} {base} @ {price}")
     else:
-      self.logger.info(f"Placing {order_type} {side} {amount_to_trade} {base} (market/cost style)")
+      # Quantity mode, sell, or limit orders: amount_to_trade already in base currency
+      try:
+        amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
+      except Exception:
+        pass
+
+    if price is not None:
+      self.logger.info(f"Placing {order_type} {side} {amount_to_trade} {base_currency} @ {price}")
+    else:
+      self.logger.info(f"Placing {order_type} {side} {amount_to_trade} {base_currency} (market)")
 
     order = await self._safe_api_call(self.exchange.create_order, symbol, order_type, side, amount_to_trade, price, params)
     if order:
@@ -409,21 +419,24 @@ class IRTrader(BaseCryptoTrader):
 
       self.logger.success(f"Order placed successfully! Order ID: {oid}")
 
-      # Show meaningful trade information based on buy/sell
       if side == 'buy':
         if filled and average:
-          self.logger.success(f"  ✅ Bought {filled:.8f} {base} for {filled * average:.2f} {quote} @ avg price {average:.8f}")
+          self.logger.success(
+            f"  ✅ Bought {filled:.8f} {base_currency} for {filled * average:.2f} {quote_currency} @ avg {average:.8f}"
+          )
         elif filled and cost:
-          self.logger.success(f"  ✅ Bought {filled:.8f} {base} for {cost:.2f} {quote}")
+          self.logger.success(f"  ✅ Bought {filled:.8f} {base_currency} for {cost:.2f} {quote_currency}")
         else:
-          self.logger.success(f"  Status: {status}, Filled: {filled} {base}")
+          self.logger.success(f"  Status: {status}, Filled: {filled} {base_currency}")
       else:  # sell
         if filled and average:
-          self.logger.success(f"  ✅ Sold {filled:.8f} {base} for {filled * average:.2f} {quote} @ avg price {average:.8f}")
+          self.logger.success(
+            f"  ✅ Sold {filled:.8f} {base_currency} for {filled * average:.2f} {quote_currency} @ avg {average:.8f}"
+          )
         elif filled and cost:
-          self.logger.success(f"  ✅ Sold {filled:.8f} {base} for {cost:.2f} {quote}")
+          self.logger.success(f"  ✅ Sold {filled:.8f} {base_currency} for {cost:.2f} {quote_currency}")
         else:
-          self.logger.success(f"  Status: {status}, Filled: {filled} {base}")
+          self.logger.success(f"  Status: {status}, Filled: {filled} {base_currency}")
     else:
       self.logger.error("Order call returned no result")
 

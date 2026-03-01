@@ -441,6 +441,18 @@ class BaseCryptoTrader(ABC):
       raise ValueError(f"Invalid ask price in ticker for {symbol}: {ask}")
     return float(self.exchange.price_to_precision(symbol, float(ask) * 1.0001))
 
+  def _safe_amount_to_precision(self, symbol: str, amount: float) -> float:
+    """
+    Wraps exchange.amount_to_precision with a fallback to the raw value.
+    Some exchanges (e.g. Independent Reserve via CCXT) may not define
+    amount precision for all markets, causing a TypeError/AttributeError.
+    Falls back to the unmodified float so the order can still proceed.
+    """
+    try:
+      return float(self.exchange.amount_to_precision(symbol, amount))
+    except Exception:  # pylint: disable=broad-except
+      return float(amount)
+
   async def _calculate_order_size(
       self,
       symbol: str,
@@ -504,7 +516,7 @@ class BaseCryptoTrader(ABC):
 
       if side == 'buy':
         # Apply upward precision buffer so post-precision quantity >= requested
-        precision_amount = float(self.exchange.amount_to_precision(symbol, quantity * 1.001))
+        precision_amount = self._safe_amount_to_precision(symbol, quantity * 1.001)
         if precision_amount < quantity:
           self.logger.warning(
             f"⚠️ Exchange precision prevents buying exactly {quantity} {base}. "
@@ -555,7 +567,7 @@ class BaseCryptoTrader(ABC):
 
       # Precision already applied for buy above; apply for sell here
       if side == 'sell':
-        amount_to_trade = float(self.exchange.amount_to_precision(symbol, amount_to_trade))
+        amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
 
     #############################
     ### SPEND PERCENTAGE MODE ###
@@ -609,7 +621,7 @@ class BaseCryptoTrader(ABC):
             raise ValueError(
               f"Order amount {amount_to_trade:.6f} {base} exceeds exchange maximum {max_amount:.6f} {base}."
             )
-          amount_to_trade = float(self.exchange.amount_to_precision(symbol, amount_to_trade))
+          amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
 
       elif side == 'sell':
         available_base  = free.get(base, total.get(base, 0.0))
@@ -630,7 +642,7 @@ class BaseCryptoTrader(ABC):
           )
         if order_execution_strategy == 'market':
           order_type = 'market'
-          amount_to_trade = float(self.exchange.amount_to_precision(symbol, amount_to_trade))
+          amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
           self.logger.info(f"[SPEND % MODE] Market sell: {amount_to_trade} {base}")
         elif order_execution_strategy == 'maker_limit':
           order_type = 'limit'
@@ -638,7 +650,7 @@ class BaseCryptoTrader(ABC):
           if not ticker or not ticker.get('ask'):
             raise RuntimeError(f"Could not fetch ask price for {symbol} for maker limit sell.")
           price = self._get_maker_sell_price(symbol, ticker)
-          amount_to_trade = float(self.exchange.amount_to_precision(symbol, amount_to_trade))
+          amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
           self.logger.info(f"[SPEND % MODE] Maker limit sell: {amount_to_trade} {base} @ {price}")
 
     return order_type, amount_to_trade, price
