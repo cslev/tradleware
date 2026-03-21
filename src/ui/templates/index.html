@@ -149,6 +149,10 @@
                     <p id="crypto-label-{{ trader_id }}" class="text-sm text-blue-700 font-medium">Crypto:</p>
                     <p id="crypto-balance-{{ trader_id }}" class="text-sm font-bold text-blue-900">Loading...</p>
                   </div>
+                  <div class="flex justify-between items-center border-t border-blue-200/50 pt-2 mt-1">
+                    <p class="text-sm text-blue-700 font-medium">Current Price:</p>
+                    <p id="crypto-price-{{ trader_id }}" class="text-sm font-bold text-blue-900">–</p>
+                  </div>
                 </div>
               </div>
               <!-- Configuration Details -->
@@ -172,10 +176,6 @@
                 <div class="flex justify-between items-center">
                   <span class="text-gray-500">Exchange Hostname:</span>
                   <span class="font-mono">{{ trader.hostname }}</span>
-                </div>
-                <div class="flex justify-between items-center">
-                  <span class="text-gray-500">Webhook URL:</span>
-                  <span class="font-mono text-xs webhook-url"></span>
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-gray-500">Tradleware API Key:</span>
@@ -325,8 +325,10 @@
                   <span class="font-mono">{{ trader.gateway_host }}:{{ trader.gateway_port }}</span>
                 </div>
                 <div class="flex justify-between items-center">
-                  <span class="text-gray-500">Webhook URL:</span>
-                  <span class="font-mono text-xs webhook-url"></span>
+                  <span class="text-gray-500">Fractional Shares:</span>
+                  <span class="font-semibold {% if trader.fractional_shares %}text-green-600{% else %}text-gray-500{% endif %}">
+                    {{ '✅ Enabled' if trader.fractional_shares else '❌ Disabled' }}
+                  </span>
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-gray-500">Tradleware API Key:</span>

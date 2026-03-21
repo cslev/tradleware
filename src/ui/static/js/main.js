@@ -110,12 +110,14 @@ async function refreshBalance(traderId) {
   const fiatLabelElement = document.getElementById(`fiat-label-${traderId}`);
   const stablecoinLabelElement = document.getElementById(`stablecoin-label-${traderId}`);
   const cryptoLabelElement = document.getElementById(`crypto-label-${traderId}`);
+  const priceElement = document.getElementById(`crypto-price-${traderId}`);
   const statusElement = document.getElementById(`status-${traderId}`);
   
   // Set loading state
   fiatElement.textContent = 'Loading...';
   stablecoinElement.textContent = 'Loading...';
   cryptoElement.textContent = 'Loading...';
+  if (priceElement) priceElement.textContent = 'Loading...';
   
   try {
     const response = await fetch(`/balance/${traderId}`);
@@ -136,10 +138,31 @@ async function refreshBalance(traderId) {
 
       function formatNumber(val) {
         if (val === undefined || val === null || isNaN(val)) return '0.00';
-        // If string, try to parse
         let num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val;
         if (isNaN(num)) return val;
         return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+      }
+
+      // Fetch price separately so balance errors don't mask price errors and vice versa
+      if (priceElement) {
+        priceElement.textContent = 'Loading...';
+        fetch(`/price/${traderId}`)
+          .then(r => r.json())
+          .then(pd => {
+            if (pd.price != null) {
+              const formatted = pd.price.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 8
+              });
+              priceElement.textContent = `${formatted} ${pd.quote_currency || ''}`;
+            } else {
+              priceElement.textContent = `Error: ${pd.error || 'unknown'}`;
+            }
+          })
+          .catch(err => {
+            priceElement.textContent = `Error: ${err.message}`;
+            console.error(`Error fetching price for ${traderId}:`, err);
+          });
       }
       
       statusElement.innerHTML = `
@@ -154,6 +177,7 @@ async function refreshBalance(traderId) {
     fiatElement.textContent = 'Error';
     stablecoinElement.textContent = 'Error';
     cryptoElement.textContent = 'Error';
+    if (priceElement) priceElement.textContent = 'Error';
     
     statusElement.innerHTML = `
       <div class="flex items-center space-x-2">
