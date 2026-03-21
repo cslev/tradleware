@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import deque
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo
 
@@ -16,27 +16,23 @@ class BaseStockTrader(ABC):
   VALID_ORDER_SIDES = ['buy', 'sell']
   MIN_SPEND_PERCENTAGE = 0.0
   MAX_SPEND_PERCENTAGE = 1.0
-  
+
   def __init__(self,
-               account_identifier: str,
-               broker_id: str,
-               symbol: str,
-               extended_hours: bool = False,
+               config: dict,
                logger: Optional[CustomLogger] = None):
     """
-    Initializes the BaseStockTrader with broker and symbol details.
+    Initializes the BaseStockTrader from a bot config dict (from config_loader).
 
     Args:
-      account_identifier (str): A unique name for this trading bot (e.g., "MYAPPLEBOT").
-      broker_id (str): The ID of the broker (e.g., "ibkr", "alpaca").
-      symbol (str): The stock symbol to trade (e.g., "AAPL", "TSLA").
-      extended_hours (bool): Allow pre-market and after-hours trading.
+      config (dict): Bot configuration dict as returned by config_loader.get_bot_configs().
+                     Must contain: id, broker, symbol, extended_hours, tradleware_api_key.
       logger (CustomLogger): The logger instance for printing and logging.
     """
-    self.account_identifier = account_identifier
-    self.broker_id = broker_id.lower()
-    self.symbol = symbol.upper()
-    self.extended_hours = extended_hours
+    self.account_identifier = config['id']
+    self.broker_id = config['broker'].lower()
+    self.symbol = config['symbol'].upper()
+    self.extended_hours = config.get('extended_hours', False)
+    self.tradleware_api_key = config['tradleware_api_key']
     self.logger = logger if logger else CustomLogger(
       name=self.__class__.__name__,
       gotify_url=get_env('GOTIFY_SERVER_URL'),
@@ -48,21 +44,21 @@ class BaseStockTrader(ABC):
     self.client = None  # Broker client instance (IB, Alpaca, etc.)
     self.positions = {}  # Current positions {symbol: {quantity, avg_cost, ...}}
     self.cash_available = 0.0
-    
+
     # Market hours (US Eastern Time)
     self.market_timezone = ZoneInfo('America/New_York')
     self.regular_open = time(9, 30)      # 9:30 AM ET
     self.regular_close = time(16, 0)     # 4:00 PM ET
     self.pre_market_open = time(4, 0)    # 4:00 AM ET
     self.after_hours_close = time(20, 0) # 8:00 PM ET
-    
+
     # Log buffer for UI (keep last 50 messages)
     self.log_buffer = deque(maxlen=50)
-    self._add_to_buffer("INFO", f"STOCK trader {account_identifier} initialized for {symbol}")
-    
+    self._add_to_buffer("INFO", f"STOCK trader {self.account_identifier} initialized for {self.symbol}")
+
     # Setup log buffer wrapping
     self._setup_log_buffer()
-    
+
     self.logger.info(f"BaseStockTrader initialized for {self.account_identifier} - {self.broker_id} - {self.symbol}")
 
 
@@ -111,24 +107,23 @@ class BaseStockTrader(ABC):
         + (" [fractional]" if fractional_shares else " [whole shares]")
       )
       return quantity
-    else:
-      shares = ctx.get('shares_owned')
-      if shares is None:
-        raise ValueError("shares_owned missing in context")
-      if shares <= 0:
-        raise ValueError(f"No shares to sell. Current position: {shares}")
-      raw_quantity = shares * spend_percentage
-      quantity = round(raw_quantity, 4) if fractional_shares else int(raw_quantity)
-      if quantity <= 0:
-        raise ValueError(
-          f"Calculated sell quantity is 0. Position: {shares}, "
-          f"Percentage: {spend_percentage*100:.1f}%"
-        )
-      self.logger.info(
-        f"Sell order sizing: {quantity} shares ({spend_percentage*100:.1f}% of {shares})"
-        + (" [fractional]" if fractional_shares else " [whole shares]")
+    shares = ctx.get('shares_owned')
+    if shares is None:
+      raise ValueError("shares_owned missing in context")
+    if shares <= 0:
+      raise ValueError(f"No shares to sell. Current position: {shares}")
+    raw_quantity = shares * spend_percentage
+    quantity = round(raw_quantity, 4) if fractional_shares else int(raw_quantity)
+    if quantity <= 0:
+      raise ValueError(
+        f"Calculated sell quantity is 0. Position: {shares}, "
+        f"Percentage: {spend_percentage*100:.1f}%"
       )
-      return quantity
+    self.logger.info(
+      f"Sell order sizing: {quantity} shares ({spend_percentage*100:.1f}% of {shares})"
+      + (" [fractional]" if fractional_shares else " [whole shares]")
+    )
+    return quantity
 
   async def _resolve_market_and_balance(self, side: str, dry_run: bool = False) -> dict:
     """
@@ -178,9 +173,9 @@ class BaseStockTrader(ABC):
     if side == 'buy':
       # Must be overridden to actually fetch cash in subclass
       # Default 0 to force subclass to fill in
-      ctx['cash_available'] = 0 
+      ctx['cash_available'] = 0
     else:  # sell
-      ctx['shares_owned'] = 0 
+      ctx['shares_owned'] = 0
     return ctx
 
   def _validate_order_params(self,
@@ -206,7 +201,7 @@ class BaseStockTrader(ABC):
       raise ValueError("Must specify either spend_percentage or quantity.")
     # --- spend_percentage range ---
     if spend_percentage is not None:
-      if not (self.MIN_SPEND_PERCENTAGE < spend_percentage <= self.MAX_SPEND_PERCENTAGE):
+      if spend_percentage <= self.MIN_SPEND_PERCENTAGE or spend_percentage > self.MAX_SPEND_PERCENTAGE:
         self.logger.error(f"Invalid 'spend_percentage': {spend_percentage}")
         raise ValueError(f"'spend_percentage' must be in ({self.MIN_SPEND_PERCENTAGE}, {self.MAX_SPEND_PERCENTAGE}]")
     # --- quantity positivity ---
@@ -222,7 +217,7 @@ class BaseStockTrader(ABC):
       self.logger.error("limit_price is required for 'maker_limit' orders")
       raise ValueError("limit_price is required for 'maker_limit' orders")
     self.logger.info(f"[LAYER 1] Param validation successful: side={side}, spend_percentage={spend_percentage}, quantity={quantity}, strategy={order_execution_strategy}, limit_price={limit_price}")
-    
+
   def _setup_log_buffer(self):
     """Setup logging to also write to the trader's log buffer"""
     original_info = self.logger.info
@@ -274,7 +269,7 @@ class BaseStockTrader(ABC):
   def is_market_open(self) -> bool:
     """
     Check if market is currently open for trading.
-    
+
     Returns:
       True if market is open (regular hours), False otherwise.
     """
@@ -284,80 +279,77 @@ class BaseStockTrader(ABC):
   def can_trade_now(self) -> bool:
     """
     Check if trading is allowed right now based on market hours and extended_hours setting.
-    
+
     Returns:
       True if trading is allowed, False otherwise.
     """
     status = self.get_market_status()
-    
+
     if status == 'closed':
       return False  # Never trade when fully closed
-    
+
     if status == 'open':
       return True  # Always OK during regular hours
-    
+
     # Pre-market or after-hours - depends on extended_hours setting
     return self.extended_hours
 
   def get_market_status(self) -> str:
     """
     Get current market status.
-    
+
     Returns:
       'open', 'closed', 'pre-market', or 'after-hours'
     """
     now_dt = datetime.now(self.market_timezone)
     now = now_dt.time()
-    
+
     # Check if it's a weekend (Saturday=5, Sunday=6)
     if now_dt.weekday() >= 5:
       return 'closed'
-    
+
     if self.regular_open <= now < self.regular_close:
       return 'open'
-    elif self.pre_market_open <= now < self.regular_open:
+    if self.pre_market_open <= now < self.regular_open:
       return 'pre-market'
-    elif self.regular_close <= now < self.after_hours_close:
+    if self.regular_close <= now < self.after_hours_close:
       return 'after-hours'
-    else:
-      return 'closed'
+    return 'closed'
 
   def get_time_until_market_opens(self) -> Optional[str]:
     """
     Get human-readable time until market opens.
-    
+
     Returns:
       String like "2h 34m" or None if market is open.
     """
     status = self.get_market_status()
     if status == 'open':
       return None
-    
+
     now = datetime.now(self.market_timezone)
     today = now.date()
-    
+
     if status == 'pre-market':
       # Market opens at regular_open today
       market_open = datetime.combine(today, self.regular_open, self.market_timezone)
     else:
       # Market closed - find next weekday opening
-      from datetime import timedelta
       next_day = today + timedelta(days=1)
-      
+
       # Skip to Monday if next_day is Saturday or Sunday
       while next_day.weekday() >= 5:  # 5=Saturday, 6=Sunday
         next_day += timedelta(days=1)
-      
+
       market_open = datetime.combine(next_day, self.regular_open, self.market_timezone)
-    
+
     time_diff = market_open - now
     hours = int(time_diff.total_seconds() // 3600)
     minutes = int((time_diff.total_seconds() % 3600) // 60)
-    
+
     if hours > 0:
       return f"{hours}h {minutes}m"
-    else:
-      return f"{minutes}m"
+    return f"{minutes}m"
 
   @abstractmethod
   async def connect(self):
@@ -379,7 +371,7 @@ class BaseStockTrader(ABC):
   async def fetch_positions(self) -> Dict[str, Any]:
     """
     Get current positions (shares held).
-    
+
     Returns:
       Dictionary with position information for this symbol:
       {
@@ -397,7 +389,7 @@ class BaseStockTrader(ABC):
   async def fetch_account_value(self) -> Dict[str, Any]:
     """
     Get account cash and buying power.
-    
+
     Returns:
       Dictionary with account value information:
       {
@@ -412,10 +404,10 @@ class BaseStockTrader(ABC):
   async def get_market_price(self, symbol: str) -> Optional[float]:
     """
     Get current market price for a symbol.
-    
+
     Args:
       symbol: Stock symbol (e.g., "AAPL")
-    
+
     Returns:
       Current market price or None if unavailable.
     """
@@ -431,14 +423,14 @@ class BaseStockTrader(ABC):
                          params: dict = None) -> Optional[Dict[str, Any]]:
     """
     Place a buy/sell order.
-    
+
     Args:
       side: 'buy' or 'sell'
       spend_percentage: Percentage of available funds/shares to use (0.0 to 1.0). Default is 1.0 (100%).
       order_execution_strategy: 'market' for immediate execution, 'maker_limit' for limit order
       limit_price: Price for limit orders (required if order_execution_strategy is 'maker_limit')
       params: Additional broker-specific parameters
-    
+
     Returns:
       Order information dict or None on failure:
       {
@@ -457,10 +449,10 @@ class BaseStockTrader(ABC):
   async def cancel_order(self, order_id: str) -> bool:
     """
     Cancel an order by its ID.
-    
+
     Args:
       order_id: Order identifier from the broker.
-    
+
     Returns:
       True if cancelled successfully, False otherwise.
     """
@@ -470,7 +462,7 @@ class BaseStockTrader(ABC):
   async def fetch_open_orders(self) -> List[Dict[str, Any]]:
     """
     Fetch all open orders for this symbol.
-    
+
     Returns:
       List of open order dictionaries.
     """

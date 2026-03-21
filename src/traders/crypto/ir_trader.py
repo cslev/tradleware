@@ -1,13 +1,11 @@
 import asyncio
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, Any
 from typing import Optional, List
 import traceback
 
 from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
 
-from dotenv import load_dotenv
 from src.traders.crypto.base_crypto_trader import BaseCryptoTrader
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
@@ -24,12 +22,12 @@ class IRTrader(BaseCryptoTrader):
   - cancel_order
   """
 
-  def __init__(self, account_identifier: str, default_type: str = "spot"):
+  def __init__(self, config: dict, default_type: str = "spot"):
     """
     Initialize an IRTrader instance.
 
     Args:
-      account_identifier: Logical name used to resolve environment variables for API credentials.
+      config: Bot configuration dict from config_loader.
       default_type: Market type to use by default (e.g. 'spot').
 
     Behavior:
@@ -49,7 +47,7 @@ class IRTrader(BaseCryptoTrader):
     )
 
     # Use exchange id string consistent with image naming / env convention
-    super().__init__(account_identifier, "IR", default_type, self.logger)
+    super().__init__(config, default_type, self.logger)
 
     # Build ccxt options (Independent Reserve typically doesn't use subaccounts)
     ir_options = {
@@ -465,33 +463,25 @@ class IRTrader(BaseCryptoTrader):
 
 if __name__ == "__main__":
   # Test script for IRTrader - Run this file directly to test basic functionality.
-  # Requires environment variables to be set in .env file.
+  # Requires a configured bot_configs/crypto/ir.yaml file.
 
-  # Load environment variables from .env file
-  env_path = Path(__file__).parent.parent.parent / '.env'
-  print(f"Loading .env from: {env_path}")
-  load_dotenv(dotenv_path=env_path, override=True)
+  from src.misc.config_loader import get_bot_configs # pylint: disable=wrong-import-position
 
   async def test_ir_trader():
     """Test basic IR trader functionality"""
-    # Get the first active IR config from environment
-    active_configs = get_env('ACTIVE_TRADING_CONFIGS', '')
-    ir_configs = [c.strip() for c in active_configs.split(',') if '_IR' in c.upper()]
-
-    if not ir_configs:
-      print("❌ No IR configurations found in ACTIVE_TRADING_CONFIGS")
-      print("   Please add an IR config to your .env file")
+    bots = [b for b in get_bot_configs() if b.get('exchange') == 'ir']
+    if not bots:
+      print("❌ No IR bot configs found in bot_configs/crypto/ir.yaml")
       return
 
-    account_identifier = ir_configs[0].rsplit('_', 1)[0]
+    config = bots[0]
     print(f"\n{'='*60}")
-    print(f"Testing IRTrader with account: {account_identifier}")
+    print(f"Testing IRTrader with bot: {config['id']}")
     print(f"{'='*60}\n")
 
     trader = None
     try:
-      # Initialize trader
-      trader = IRTrader(account_identifier=account_identifier)
+      trader = IRTrader(config)
       await trader.post_init()
 
       # Test 1: Fetch balance
@@ -524,15 +514,13 @@ if __name__ == "__main__":
       print("✅ All tests completed successfully!")
       print(f"{'='*60}\n")
 
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-exception-caught
       print(f"\n❌ Error during testing: {e}")
       traceback.print_exc()
 
     finally:
-      # Clean up
       if trader:
         await trader.close()
         print("Connection closed.")
 
-  # Run the test
   asyncio.run(test_ir_trader())

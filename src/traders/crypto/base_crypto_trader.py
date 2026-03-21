@@ -9,16 +9,16 @@ import inspect
 import ccxt
 
 from src.misc.logger import CustomLogger
-from src.misc.get_env import get_env  # Import centralized get_env helper
+from src.misc.get_env import get_env
 
 class BaseCryptoTrader(ABC):
   """
   Abstract base class for cryptocurrency exchange traders.
   Handles CCXT integration, trading pairs, and crypto-specific trading operations.
   """
-  
+
   bot_type = "crypto"  # Used by GUI to distinguish from stock bots
-  
+
   VALID_ORDER_TYPES = ['market', 'maker_limit']
   VALID_MARKET_TYPES = ['spot', 'future', 'swap']
   VALID_ORDER_SIDES = ['buy', 'sell']  # New constant
@@ -26,87 +26,54 @@ class BaseCryptoTrader(ABC):
   MAX_SPEND_PERCENTAGE = 1.0  # New constant
 
   def __init__(self,
-               account_identifier: str,
-               exchange_id: str,
+               config: dict,
                default_type: str = 'spot',
                logger: Optional[CustomLogger] = None):
     """
-    Initializes the BaseCryptoTrader with account and exchange details.
+    Initializes the BaseCryptoTrader from a bot config dict (from config_loader).
 
     Args:
-      account_identifier (str): A unique name for this specific trading setup
-                                (e.g., "MYBOT", "MANUAL_TRADER").
-      exchange_id (str): The ID of the exchange (e.g., "OKX", "IR", "CRYPTOCOM").
+      config (dict): Bot configuration dict as returned by config_loader.get_bot_configs().
+                     Must contain: id, exchange, api_key, secret_key, hostname,
+                     stablecoin_fiat_pair, crypto_stablecoin_pair, tradleware_api_key.
+                     Optional: passphrase, subaccount_name.
       default_type (str): The default market type (e.g., 'spot', 'future', 'swap').
-      logger (CustomLogger): The logger instance for printing and logging
+      logger (CustomLogger): The logger instance for printing and logging.
     """
-    self.account_identifier = account_identifier
-    self.exchange_id = exchange_id.lower() # Store as lowercase for ccxt lookup
+    self.account_identifier = config['id']
+    self.exchange_id = config['exchange'].lower()
     self.default_type = default_type
-    # Logger is assigned after credentials are validated below; a temp reference
-    # is not needed since no logger.xxx calls are made before that point.
 
-    # Dynamically construct environment variable names based on identifier and exchange
-    self.api_key_env = f'{account_identifier}_{exchange_id.upper()}_API_KEY'
-    self.secret_key_env = f'{account_identifier}_{exchange_id.upper()}_SECRET_KEY'
-    self.passphrase_env = f'{account_identifier}_{exchange_id.upper()}_PASSPHRASE'
-    self.subaccount_name_env = f'{account_identifier}_{exchange_id.upper()}_SUBACCOUNT_NAME' # Generic for subaccounts/portfolios
-    self.hostname_env = f'{account_identifier}_{exchange_id.upper()}_HOSTNAME'
-    self.stablecoin_fiat_pair_env = f'{account_identifier}_{exchange_id.upper()}_STABLECOIN_FIAT_PAIR'
-    self.crypto_stablecoin_pair_env = f'{account_identifier}_{exchange_id.upper()}_CRYPTO_STABLECOIN_PAIR'
-    self.tradleware_api_key = get_env(f"{account_identifier}_{exchange_id.upper()}_TRADLEWARE_API_KEY")
-
-    self.api_key = get_env(self.api_key_env)
-    self.secret_key = get_env(self.secret_key_env)
-    self.passphrase = get_env(self.passphrase_env)
-    self.subaccount_name = get_env(self.subaccount_name_env)
-    self.hostname = get_env(self.hostname_env)
-    self.stablecoin_fiat_pair = get_env(self.stablecoin_fiat_pair_env)
-    self.crypto_stablecoin_pair = get_env(self.crypto_stablecoin_pair_env)
+    # Load credentials and trading pair config directly from the config dict
+    self.api_key = config['api_key']
+    self.secret_key = config['secret_key']
+    self.passphrase = config.get('passphrase', '')
+    self.subaccount_name = config.get('subaccount_name', '')
+    self.hostname = config['hostname']
+    self.stablecoin_fiat_pair = config['stablecoin_fiat_pair']
+    self.crypto_stablecoin_pair = config['crypto_stablecoin_pair']
+    self.tradleware_api_key = config['tradleware_api_key']
     self.trading_pair_valid = None
 
-
-    # --- Implement Validation Here ---
-    # List of required environment variables and their corresponding loaded values
-    required_vars = [
-      (self.api_key_env, self.api_key),
-      (self.secret_key_env, self.secret_key),
-      # (self.passphrase_env, self.passphrase), # Critical for OKX
-      # (self.subaccount_name_env, self.subaccount_name), # Optional for exchanges without subaccounts
-      (self.stablecoin_fiat_pair_env, self.stablecoin_fiat_pair),
-      (self.crypto_stablecoin_pair_env, self.crypto_stablecoin_pair),
-
-    ]
-
-    missing_vars = []
-    for env_var_name, loaded_value in required_vars:
-      if loaded_value is None:
-        missing_vars.append(env_var_name)
-
-    if missing_vars:
+    # Validate required fields are non-empty
+    required_fields = ['api_key', 'secret_key', 'hostname',
+                       'stablecoin_fiat_pair', 'crypto_stablecoin_pair', 'tradleware_api_key']
+    missing = [f for f in required_fields if not config.get(f)]
+    if missing:
       raise ValueError(
-        f"Missing one or more required environment variables for {account_identifier} on {exchange_id}. "
-        f"Please ensure the following are set in your .env file: {', '.join(missing_vars)}."
+        f"Bot '{self.account_identifier}' ({self.exchange_id}): "
+        f"missing required config fields: {', '.join(missing)}"
       )
 
-    self.stablecoin_currency = self.stablecoin_fiat_pair.split("/")[0]
-    self.fiat_currency = self.stablecoin_fiat_pair.split("/")[1]
-    # Validate and derive fiat_currency AFTER stablecoin_fiat_pair is confirmed to exist
-    try:
-      parts = self.stablecoin_fiat_pair.split("/")
-      if len(parts) != 2 or not parts[1]:
-        raise ValueError(
-          f"Invalid format for {self.stablecoin_fiat_pair_env} ('{self.stablecoin_fiat_pair}'). "
-          f"Expected 'BASE/QUOTE' format (e.g., 'USDT/SGD') for the stablecoin pair."
-          )
-      self.fiat_currency = parts[1]
-    except Exception as e:
-      # This should ideally be caught by the `missing_vars` check, but provides a safeguard
-      # if the variable exists but is malformed.
+    # Validate and derive currency components from stablecoin_fiat_pair
+    parts = self.stablecoin_fiat_pair.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
       raise ValueError(
-        f"Error processing {self.stablecoin_fiat_pair_env} ('{self.stablecoin_fiat_pair}'): "
-        f"Could not determine fiat currency. Please ensure it's in 'BASE/QUOTE' format. Error: {e}"
-        ) from e
+        f"Invalid format for stablecoin_fiat_pair ('{self.stablecoin_fiat_pair}'). "
+        f"Expected 'BASE/QUOTE' format (e.g., 'USDT/SGD')."
+      )
+    self.stablecoin_currency = parts[0]
+    self.fiat_currency = parts[1]
 
     self.exchange = None # This will be initialized by concrete subclasses
     self.markets = None # To be loaded asynchronously after initialization
@@ -114,13 +81,13 @@ class BaseCryptoTrader(ABC):
     self.log_buffer = deque(maxlen=50)
 
     # Add some initial logs for testing
-    self._add_to_buffer("INFO", f"CRYPTO trader {account_identifier} initialized for {self.crypto_stablecoin_pair}")
+    self._add_to_buffer("INFO", f"CRYPTO trader {self.account_identifier} initialized for {self.crypto_stablecoin_pair}")
 
     # Create or honour the per-trader named logger (used for the entire object lifetime).
     # If a logger was passed in (e.g. from a subclass that pre-created one), use it;
     # otherwise create a properly account-named one.
     self.logger = logger if logger else CustomLogger(
-      f'{account_identifier}_{exchange_id}',
+      f'{self.account_identifier}_{self.exchange_id}',
       gotify_url=get_env('GOTIFY_SERVER_URL'),
       gotify_token=get_env('GOTIFY_APP_TOKEN'),
       gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
@@ -276,10 +243,10 @@ class BaseCryptoTrader(ABC):
     pass
 
   @abstractmethod
-  async def create_order(self, 
-                         symbol: str, 
-                         side: str, 
-                         spend_percentage: float = None, 
+  async def create_order(self,
+                         symbol: str,
+                         side: str,
+                         spend_percentage: float = None,
                          quantity: float = None,
                          order_execution_strategy: str = 'market',
                          dry_run: bool = False,

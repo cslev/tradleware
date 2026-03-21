@@ -1,7 +1,6 @@
 import asyncio # Imported for asyncio.sleep
 
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, Any
 from typing import Optional, List
 import traceback
@@ -9,9 +8,7 @@ import traceback
 import ccxt
 from ccxt import async_support as ccxt_async # Use an alias to avoid name collision
 
-from dotenv import load_dotenv
-
-from src.traders.crypto.base_crypto_trader import BaseCryptoTrader  # Changed from traders.base_trader
+from src.traders.crypto.base_crypto_trader import BaseCryptoTrader
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env  # Import centralized get_env helper
 
@@ -20,12 +17,12 @@ class OKXTrader(BaseCryptoTrader):
   Concrete trader class for the OKX exchange.
   Handles OKX-specific initialization and API calls, including subaccount management.
   """
-  def __init__(self, account_identifier: str, default_type: str = 'spot'):
+  def __init__(self, config: dict, default_type: str = 'spot'):
     """
     Initializes the OKXTrader for a specific OKX subaccount.
 
     Args:
-      account_identifier (str): A unique name for this OKX trading setup.
+      config (dict): Bot configuration dict from config_loader.
       default_type (str): The default market type for OKX (e.g., 'spot', 'future').
     """
     self.logger = CustomLogger(name=self.__class__.__name__,
@@ -33,7 +30,7 @@ class OKXTrader(BaseCryptoTrader):
                               gotify_token=get_env('GOTIFY_APP_TOKEN'),
                               gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30')))
 
-    super().__init__(account_identifier, 'OKX', default_type, self.logger)
+    super().__init__(config, default_type, self.logger)
 
     okx_options = {
       'defaultType': self.default_type,
@@ -256,8 +253,8 @@ class OKXTrader(BaseCryptoTrader):
     # ─────────────────────────────────────────────────────────────────────────
     try:
       self._validate_order_params(symbol,
-                                   side, 
-                                   spend_percentage, 
+                                   side,
+                                   spend_percentage,
                                    quantity,
                                    order_execution_strategy=order_execution_strategy,
                                    dry_run=dry_run)
@@ -307,14 +304,14 @@ class OKXTrader(BaseCryptoTrader):
     # DRY RUN — simulate order without execution
     # ─────────────────────────────────────────────────────────────────────────
     if dry_run:
-      self.logger.warning(f"🧪 DRY RUN: Order simulation complete (NOT executed)")
-      
+      self.logger.warning("🧪 DRY RUN: Order simulation complete (NOT executed)")
+
       # For percentage mode market buy, amount_to_trade is in quote currency
       if order_type == 'market' and side == 'buy' and spend_percentage is not None:
         ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
         sim_price = ticker['last'] if ticker and ticker.get('last') else 0
         sim_amount = amount_to_trade / sim_price if sim_price > 0 else 0
-        
+
         mock_order = {
           'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
           'symbol': symbol,
@@ -330,33 +327,32 @@ class OKXTrader(BaseCryptoTrader):
           'datetime': datetime.now().isoformat(),
           'info': {'dry_run': True}
         }
-        self.logger.info(f"🧪 Simulated order details:")
+        self.logger.info("🧪 Simulated order details:")
         self.logger.info(f"  ID: {mock_order['id']}")
         self.logger.info(f"  {side.upper()} ~{sim_amount:.8f} {base_currency} with {amount_to_trade:.2f} {quote_currency} (MARKET)")
         return mock_order
-      else:
-        # For all other cases, amount_to_trade is in base currency
-        amount_to_trade_precise = self.exchange.amount_to_precision(symbol, amount_to_trade)
-        mock_order = {
-          'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
-          'symbol': symbol,
-          'type': order_type,
-          'side': side,
-          'amount': float(amount_to_trade_precise),
-          'price': float(price) if price else None,
-          'status': 'simulated',
-          'filled': 0,
-          'remaining': float(amount_to_trade_precise),
-          'cost': 0,
-          'timestamp': int(datetime.now().timestamp() * 1000),
-          'datetime': datetime.now().isoformat(),
-          'info': {'dry_run': True}
-        }
-        self.logger.info(f"🧪 Simulated order details:")
-        self.logger.info(f"  ID: {mock_order['id']}")
-        self.logger.info(f"  {side.upper()} {amount_to_trade_precise} {base_currency}" + 
-                        (f" @ {price} {quote_currency}" if price else " (MARKET)"))
-        return mock_order
+      # For all other cases, amount_to_trade is in base currency
+      amount_to_trade_precise = self.exchange.amount_to_precision(symbol, amount_to_trade)
+      mock_order = {
+        'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
+        'symbol': symbol,
+        'type': order_type,
+        'side': side,
+        'amount': float(amount_to_trade_precise),
+        'price': float(price) if price else None,
+        'status': 'simulated',
+        'filled': 0,
+        'remaining': float(amount_to_trade_precise),
+        'cost': 0,
+        'timestamp': int(datetime.now().timestamp() * 1000),
+        'datetime': datetime.now().isoformat(),
+        'info': {'dry_run': True}
+      }
+      self.logger.info("🧪 Simulated order details:")
+      self.logger.info(f"  ID: {mock_order['id']}")
+      self.logger.info(f"  {side.upper()} {amount_to_trade_precise} {base_currency}" +
+                      (f" @ {price} {quote_currency}" if price else " (MARKET)"))
+      return mock_order
 
     # ─────────────────────────────────────────────────────────────────────────
     # LAYER 4 — EXECUTE ORDER  (OKX-specific, pending extraction to base class)
@@ -367,7 +363,7 @@ class OKXTrader(BaseCryptoTrader):
     # Special handling for OKX market buy orders in PERCENTAGE MODE only
     # In percentage mode, we spend a % of quote currency, so amount_to_trade is in quote currency
     # In quantity mode, amount_to_trade is already in base currency, so skip this special handling
-    if order_type == 'market' and side == 'buy' and spend_percentage is not None:
+    if order_type == 'market' and side == 'buy' and spend_percentage is not None:  # pylint: disable=no-else-return
       # For OKX market buy orders, use createMarketBuyOrderWithCost to spend exact quote amount
       # This avoids precision loss from converting to base amount
       try:
@@ -432,10 +428,10 @@ class OKXTrader(BaseCryptoTrader):
         self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
       return order
 
-    else:
+    else:  # pylint: disable=no-else-return
       # All other order types: quantity mode, market sell, limit orders
       # Apply standard precision and place order
-      
+
       # For quantity mode, check if precision adjustment changes the amount
       if quantity is not None:
         original_amount = amount_to_trade
@@ -452,12 +448,12 @@ class OKXTrader(BaseCryptoTrader):
         self.logger.info(f"Placing order: Symbol={symbol}, Type={order_type}, Side={side}, Amount={amount_to_trade} (Market Order)")
 
       # Place the order
-      order = await self._safe_api_call(self.exchange.create_order, 
-                                        symbol, 
-                                        order_type, 
-                                        side, 
-                                        amount_to_trade, 
-                                        price, 
+      order = await self._safe_api_call(self.exchange.create_order,
+                                        symbol,
+                                        order_type,
+                                        side,
+                                        amount_to_trade,
+                                        price,
                                         params)
       if order:
         # Defensive logging: order may be a dict or an object and fields may be missing (mocks/tests)
@@ -518,56 +514,44 @@ class OKXTrader(BaseCryptoTrader):
 
 if __name__ == "__main__":
   # Test script for OKXTrader - Run this file directly to test basic functionality.
-  # Requires environment variables to be set in .env file.
+  # Requires a configured bot_configs/crypto/okx.yaml file.
 
-  # Load environment variables from .env file
-  env_path = Path(__file__).parent.parent.parent / '.env'
-  print(f"Loading .env from: {env_path}")
-  load_dotenv(dotenv_path=env_path, override=True)
+  from src.misc.config_loader import get_bot_configs # pylint: disable=wrong-import-position
 
   async def test_okx_trader():
     """Test basic OKX trader functionality"""
-    # Get the first active OKX config from environment
-    active_configs = get_env('ACTIVE_TRADING_CONFIGS', '')
-    okx_configs = [c.strip() for c in active_configs.split(',') if 'OKX' in c.upper()]
-
-    if not okx_configs:
-      print("❌ No OKX configurations found in ACTIVE_TRADING_CONFIGS")
-      print("   Please add an OKX config to your .env file")
+    bots = [b for b in get_bot_configs() if b.get('exchange') == 'okx']
+    if not bots:
+      print("❌ No OKX bot configs found in bot_configs/crypto/okx.yaml")
       return
 
-    account_identifier = okx_configs[0].split('_')[0]
+    config = bots[0]
     print(f"\n{'='*60}")
-    print(f"Testing OKXTrader with account: {account_identifier}")
+    print(f"Testing OKXTrader with bot: {config['id']}")
     print(f"{'='*60}\n")
 
     trader = None
     try:
-      # Initialize trader
-      trader = OKXTrader(account_identifier=account_identifier)
+      trader = OKXTrader(config)
       await trader.post_init()
 
-      # Test 1: Fetch balance
       print("\n--- Test 1: Fetching Balance ---")
       balance = await trader.fetch_balance()
       print(f"Balance fetched successfully: {balance}")
 
-      # Test 2: Check trading pair validity
       print("\n--- Test 2: Trading Pair Validity ---")
       print(f"Configured pair: {trader.crypto_stablecoin_pair}")
       print(f"Pair valid: {trader.trading_pair_valid}")
 
-      # Test 3: Fetch open orders
       print("\n--- Test 3: Fetching Open Orders ---")
       orders = await trader.fetch_open_orders(trader.crypto_stablecoin_pair)
       if orders:
         print(f"Found {len(orders)} open orders")
-        for order in orders[:3]:  # Show first 3
+        for order in orders[:3]:
           print(f"  Order {order.get('id')}: {order.get('side')} {order.get('amount')} @ {order.get('price')}")
       else:
         print("No open orders found")
 
-      # Test 4: List fiat markets (optional)
       if trader.fiat_currency:
         print(f"\n--- Test 4: Listing {trader.fiat_currency} Markets ---")
         fiat_markets = await trader.list_fiat_markets(trader.fiat_currency)
@@ -578,15 +562,13 @@ if __name__ == "__main__":
       print("✅ All tests completed successfully!")
       print(f"{'='*60}\n")
 
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-exception-caught
       print(f"\n❌ Error during testing: {e}")
       traceback.print_exc()
 
     finally:
-      # Clean up
       if trader:
         await trader.close()
         print("Connection closed.")
 
-  # Run the test
   asyncio.run(test_okx_trader())
