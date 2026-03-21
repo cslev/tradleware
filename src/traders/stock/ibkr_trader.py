@@ -45,13 +45,22 @@ class IBKRTrader(BaseStockTrader):
     self.gateway_port = int(get_env('IBKR_GATEWAY_PORT', '8888'))
     self.account_id = get_env(f'{account_identifier}_IBKR_ACCOUNT_ID')
     self.tradleware_api_key = get_env(f'{account_identifier}_IBKR_TRADLEWARE_API_KEY')
-    
+
+    # Fractional share support (off by default — not all symbols support it)
+    # Set {IDENTIFIER}_IBKR_FRACTIONAL_SHARES=true in .env to enable
+    self.fractional_shares = get_env(
+        f'{account_identifier}_IBKR_FRACTIONAL_SHARES', 'false'
+    ).lower() == 'true'
+
     # IB client
     self.ib = IB()
     self.contract = None  # Will be created on connect
     self.is_connected = False
 
-    self.logger.info(f"IBKRTrader initialized: {symbol} on port {self.gateway_port}")
+    self.logger.info(
+        f"IBKRTrader initialized: {symbol} on port {self.gateway_port} "
+        f"(fractional_shares={'enabled' if self.fractional_shares else 'disabled'})"
+    )
 
   async def connect(self):
     """
@@ -367,18 +376,19 @@ class IBKRTrader(BaseStockTrader):
                          spend_percentage: float = None,
                          order_execution_strategy: str = 'market',
                          limit_price: Optional[float] = None,
-                         quantity: Optional[int] = None,
+                         quantity: Optional[float] = None,
                          params: dict = None) -> Optional[Dict[str, Any]]:
     """
     Place a buy/sell order for this symbol.
-    
+
     Args:
       side: 'buy' or 'sell' (validated by webhook handler)
       spend_percentage: Percentage of available funds/shares to use (validated by webhook handler)
       order_execution_strategy: 'market' or 'maker_limit'
       limit_price: Price for limit orders (required if order_execution_strategy is 'maker_limit')
+      quantity: Explicit share count to trade. Float when fractional_shares=True, whole number otherwise.
       params: Additional IB-specific parameters
-    
+
     Returns:
       Order information dict or None on failure
     """
@@ -445,7 +455,8 @@ class IBKRTrader(BaseStockTrader):
             ctx['cash_available'] = 10_000.0
           else:
             ctx['shares_owned'] = 10
-        quantity = self._calculate_order_size(side, spend_percentage, ctx)
+        quantity = self._calculate_order_size(side, spend_percentage, ctx,
+                                                fractional_shares=self.fractional_shares)
       else:
         # LIVE PERCENTAGE MODE: fetch real balance from IB Gateway.
         if side == 'buy':
@@ -464,7 +475,8 @@ class IBKRTrader(BaseStockTrader):
           position_info = await self.fetch_positions()
           shares = position_info.get('quantity', 0)
           ctx['shares_owned'] = shares
-        quantity = self._calculate_order_size(side, spend_percentage, ctx)
+        quantity = self._calculate_order_size(side, spend_percentage, ctx,
+                                              fractional_shares=self.fractional_shares)
     except (ValueError, RuntimeError) as exc:
       self.logger.error(f"[LAYER 3] {exc}")
       raise
@@ -500,10 +512,36 @@ class IBKRTrader(BaseStockTrader):
         self.logger.info(f"Creating limit order: {side.upper()} {quantity} shares of {self.symbol} @ ${limit_price:.2f}")
 
       trade = self.ib.placeOrder(self.contract, order)
-      await asyncio.sleep(1)
 
-      order_status = trade.orderStatus.status if trade.orderStatus else 'Unknown'
-      filled_quantity = int(trade.orderStatus.filled) if trade.orderStatus else 0
+      # Poll for a terminal or confirmed status instead of a blind sleep.
+      # IB validates orders asynchronously — rejections can arrive within ms
+      # but may take up to a few seconds under load.
+      # Terminal success: Filled, Submitted, PreSubmitted
+      # Terminal failure: Rejected, Cancelled, Inactive
+      TERMINAL_OK     = {'Filled', 'Submitted', 'PreSubmitted'}
+      TERMINAL_FAIL   = {'Rejected', 'Cancelled', 'Inactive'}
+      POLL_INTERVAL   = 0.5   # seconds between checks
+      POLL_TIMEOUT    = 10.0  # max seconds to wait
+      elapsed         = 0.0
+      order_status    = 'Unknown'
+
+      while elapsed < POLL_TIMEOUT:
+        await asyncio.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
+        order_status = trade.orderStatus.status if trade.orderStatus else 'Unknown'
+        if order_status in TERMINAL_OK | TERMINAL_FAIL:
+          break
+
+      if order_status in TERMINAL_FAIL:
+        hint = (
+          f" Note: {self.symbol} may not support fractional shares on IBKR."
+          if self.fractional_shares else ""
+        )
+        raise RuntimeError(
+          f"Order rejected by IB Gateway (status={order_status}).{hint}"
+        )
+
+      filled_quantity = float(trade.orderStatus.filled) if trade.orderStatus else 0.0
       avg_fill_price = float(trade.orderStatus.avgFillPrice) if trade.orderStatus and trade.orderStatus.avgFillPrice > 0 else 0.0
 
       self.logger.success(

@@ -66,35 +66,68 @@ class BaseStockTrader(ABC):
     self.logger.info(f"BaseStockTrader initialized for {self.account_identifier} - {self.broker_id} - {self.symbol}")
 
 
-  def _calculate_order_size(self, side: str, spend_percentage: float, ctx: dict) -> int:
+  def _calculate_order_size(self,
+                            side: str,
+                            spend_percentage: float,
+                            ctx: dict,
+                            fractional_shares: bool = False) -> float:
     """
-    Given validated params and context (from _resolve_market_and_balance), compute share quantity to trade.
-    Returns the integer quantity and logs detail.
-    Raises ValueError on insufficient funds or bad context.
+    Compute share quantity to trade from context and spend percentage.
+
+    Args:
+      side: 'buy' or 'sell'
+      spend_percentage: Fraction of available cash/shares to use (0.0 < x <= 1.0).
+      ctx: Output of _resolve_market_and_balance().
+      fractional_shares: When True, returns a float rounded to 4 decimal places
+                         instead of truncating to a whole integer. The broker must
+                         support fractional shares for the symbol — if not, the
+                         order will be rejected at execution time.
+
+    Returns:
+      float: Share quantity to trade (whole number as float when fractional_shares=False,
+             fractional float when fractional_shares=True).
+
+    Raises:
+      ValueError: On insufficient funds, missing context, or zero quantity.
     """
     if side == 'buy':
       cash = ctx.get('cash_available')
       price = ctx.get('current_price')
       if cash is None or price is None:
         raise ValueError("cash_available or current_price missing in context")
-      amount_to_spend = cash * spend_percentage
-      quantity = int(amount_to_spend / price)
       if cash <= 0:
         raise ValueError(f"No cash available for buying. Cash: ${cash:.2f}")
+      amount_to_spend = cash * spend_percentage
+      raw_quantity = amount_to_spend / price
+      quantity = round(raw_quantity, 4) if fractional_shares else int(raw_quantity)
       if quantity <= 0:
-        raise ValueError(f"Calculated quantity is 0. Cash: ${cash:.2f}, Price: ${price:.2f}, Spend: ${amount_to_spend:.2f}")
-      self.logger.info(f"Buy order sizing: ${amount_to_spend:.2f} ({spend_percentage*100:.1f}% of ${cash:.2f}) → {quantity} shares @ ${price:.2f}")
+        raise ValueError(
+          f"Calculated quantity is 0. Cash: ${cash:.2f}, Price: ${price:.2f}, "
+          f"Spend: ${amount_to_spend:.2f}"
+        )
+      self.logger.info(
+        f"Buy order sizing: ${amount_to_spend:.2f} ({spend_percentage*100:.1f}% of ${cash:.2f}) "
+        f"→ {quantity} shares @ ${price:.2f}"
+        + (" [fractional]" if fractional_shares else " [whole shares]")
+      )
       return quantity
     else:
       shares = ctx.get('shares_owned')
       if shares is None:
         raise ValueError("shares_owned missing in context")
-      quantity = int(shares * spend_percentage)
       if shares <= 0:
         raise ValueError(f"No shares to sell. Current position: {shares}")
+      raw_quantity = shares * spend_percentage
+      quantity = round(raw_quantity, 4) if fractional_shares else int(raw_quantity)
       if quantity <= 0:
-        raise ValueError(f"Calculated sell quantity is 0. Position: {shares}, Percentage: {spend_percentage*100:.1f}%")
-      self.logger.info(f"Sell order sizing: {quantity} shares ({spend_percentage*100:.1f}% of {shares})")
+        raise ValueError(
+          f"Calculated sell quantity is 0. Position: {shares}, "
+          f"Percentage: {spend_percentage*100:.1f}%"
+        )
+      self.logger.info(
+        f"Sell order sizing: {quantity} shares ({spend_percentage*100:.1f}% of {shares})"
+        + (" [fractional]" if fractional_shares else " [whole shares]")
+      )
       return quantity
 
   async def _resolve_market_and_balance(self, side: str, dry_run: bool = False) -> dict:
@@ -155,7 +188,7 @@ class BaseStockTrader(ABC):
                             spend_percentage: float = None,
                             order_execution_strategy: str = 'market',
                             limit_price: Optional[float] = None,
-                            quantity: Optional[int] = None):
+                            quantity: Optional[float] = None):
     """
     Validates the standard order parameters for all stock traders.
     Exactly one of spend_percentage or quantity must be provided.
@@ -394,7 +427,7 @@ class BaseStockTrader(ABC):
                          spend_percentage: float = None,
                          order_execution_strategy: str = 'market',
                          limit_price: Optional[float] = None,
-                         quantity: Optional[int] = None,
+                         quantity: Optional[float] = None,
                          params: dict = None) -> Optional[Dict[str, Any]]:
     """
     Place a buy/sell order.
