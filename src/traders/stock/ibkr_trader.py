@@ -117,6 +117,32 @@ class IBKRTrader(BaseStockTrader):
       self.is_connected = False
       raise
 
+  def _sync_connection_state(self) -> bool:
+    """
+    Syncs is_connected with the actual ib client state.
+    Returns the real connection status.
+    Should be called at the start of any method that makes IB API calls.
+    """
+    actual = self.ib.isConnected()
+    if self.is_connected and not actual:
+      self.logger.warning("IB Gateway connection lost (detected on sync). Updating status to disconnected.")
+      self.is_connected = False
+    return actual
+
+  def _handle_ib_exception(self, exc: Exception, context: str = "") -> bool:
+    """
+    Checks if an exception signals a disconnection and updates is_connected.
+    Returns True if this was a 'not connected' type error.
+    """
+    msg = str(exc).lower()
+    if 'not connected' in msg or 'disconnected' in msg:
+      if self.is_connected:
+        label = f" in {context}" if context else ""
+        self.logger.warning(f"IB disconnection detected{label}: {exc}")
+        self.is_connected = False
+      return True
+    return False
+
   async def fetch_positions(self) -> Dict[str, Any]:
     """
     Get position details with unrealized P&L for this symbol.
@@ -131,7 +157,8 @@ class IBKRTrader(BaseStockTrader):
       }
     """
     try:
-      if not self.is_connected:
+      # Sync flag with real IB client state before any API calls
+      if not self._sync_connection_state():
         try:
           await self.connect()
         except Exception as conn_err:
@@ -166,6 +193,7 @@ class IBKRTrader(BaseStockTrader):
               cash_balance = float(item.value)
               break
         except Exception as e:
+          self._handle_ib_exception(e, "fetch_positions/accountSummary")
           self.logger.warning(f"Error fetching cash balance: {e}")
         
         return {
@@ -270,7 +298,8 @@ class IBKRTrader(BaseStockTrader):
     """
     symbol_str = symbol or self.symbol
     try:
-      if not self.is_connected:
+      # Sync flag with real IB client state before any API calls
+      if not self._sync_connection_state():
         try:
           await self.connect()
         except Exception as conn_err:
@@ -324,6 +353,7 @@ class IBKRTrader(BaseStockTrader):
       return None
 
     except Exception as e:
+      self._handle_ib_exception(e, "get_market_price")
       self.logger.error(f"Error fetching market price for {symbol_str}: {e}")
       return None
 
