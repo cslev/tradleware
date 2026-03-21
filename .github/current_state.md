@@ -1,6 +1,6 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 21 Mar 2026
+> Last updated: 21 Mar 2026 (session 2)
 
 ---
 
@@ -28,13 +28,7 @@
 - Required: add optional `order_execution_strategy` field to webhook payload, pass through in `app.py` to `create_order()`
 
 ### IBKR Stock Trader Improvements
-- [ ] **Fractional share support**: Currently all quantity calculations use `int()` truncation (whole shares only). IBKR natively supports fractional shares — just pass a `float` to `MarketOrder`/`LimitOrder`. Implementation plan:
-  - Add per-bot env var `{IDENTIFIER}_IBKR_FRACTIONAL_SHARES=true/false` (default: false)
-  - Load it in `IBKRTrader.__init__` as `self.fractional_shares`
-  - In `BaseStockTrader._calculate_order_size`: if `fractional_shares=True`, use `round(amount / price, 4)` instead of `int()`
-  - In `app.py` stock branch: skip the hard `int(quantity)` cast when `fractional_shares=True`
-  - Update `_validate_order_params`: `quantity` type hint `Optional[int]` → `Optional[float]`
-  - Note: Not all stocks/ETFs support fractional shares on IBKR — verify per symbol before enabling live
+- [x] **Fractional share support**: Implemented. Per-bot `{IDENTIFIER}_IBKR_FRACTIONAL_SHARES` env var (default: `false`). `_calculate_order_size` uses `round(x, 4)` vs `int(x)`. Layer 4 uses a status-polling loop (0.5 s × 20 = 10 s max) to catch async rejections (e.g. symbol does not support fractionals), raising `RuntimeError` with a descriptive hint. `app.py` skips the hard `int()` cast when `trader.fractional_shares` is `True`. Not all IBKR-listed symbols support fractional shares — verify before enabling.
 
 ### Market hours timezone from env var
 - Currently hardcoded for US/Eastern (`America/New_York`) in `base_stock_trader.py`
@@ -56,6 +50,14 @@
 ---
 
 ## Session History
+
+### 21 Mar 2026 (session 2)
+- **Fractional shares fully implemented** across `ibkr_trader.py`, `base_stock_trader.py`, `app.py`, `.env.example` (Future Goals goal ticked off)
+- **IBKR placeholders removed**: `fetch_account_value`, `cancel_order`, `fetch_open_orders` now raise `NotImplementedError` with explanatory docstrings instead of silent falsy returns
+- **State doc**: Active Goals merged into Future Goals; limit order goal annotated with context
+- **UI — crypto card live price**: Added `/price/{trader_id}` FastAPI endpoint (fallback chain: `last` → `close` → `bid` → `ask`); `refreshBalance()` JS fetches price separately and renders it inside the Account Balances blue box
+- **UI — misc**: Webhook URL row removed from all bot cards; Fractional Shares enabled/disabled indicator added to stock cards
+- **pylint**: 10.00/10 maintained throughout
 
 ### 21 Mar 2026
 - **9-bug audit** across all trader classes + `app.py`: all fixed, committed `56a2d2f`

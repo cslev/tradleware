@@ -32,7 +32,7 @@ TradingView (or any webhook source)
    ├── Web UI dashboard (FastAPI + Tailwind CSS)
    └── Traders
        ├── Crypto: OKX, Independent Reserve, Crypto.com
-       └── Stock:  IBKR (Interactive Brokers) — in progress
+       └── Stock:  IBKR (Interactive Brokers)
 ```
 
 ---
@@ -164,7 +164,7 @@ Every stock broker integration must subclass `BaseStockTrader` (`src/traders/sto
 - **No CCXT** — IBKR uses the TWS/IB API client directly; error wrapping must be handled in the subclass (no `_safe_api_call` provided by the base)
 - **No `post_init()`** — replaced by `connect()` (abstract async method); call this after construction before any trading
 - **Symbol is fixed per trader instance** — bound at init from the env var `{IDENTIFIER}_{BROKER}_SYMBOL`, not taken from the webhook
-- **No `fetch_balance()`** — split into `fetch_positions()` (shares held) and `fetch_account_value()` (cash/buying power)
+- **No `fetch_balance()`** — split into `fetch_positions()` (shares held) and `fetch_account_value()` (cash/buying power). Note: `fetch_account_value()` is abstract in the base but the IBKR implementation raises `NotImplementedError` — cash is fetched inline inside `create_order` via `accountSummaryAsync()`, so the dashboard Summary tab does not show cash values yet.
 - **`fetch_open_orders()`** takes no arguments — scoped to the trader's symbol implicitly
 
 ### Environment variable naming convention
@@ -186,6 +186,7 @@ Per-bot vars use `{IDENTIFIER}_{BROKER}` prefix (broker ID is `IBKR`):
 {IDENTIFIER}_{BROKER}_ACCOUNT_ID         # e.g. U1234567
 {IDENTIFIER}_{BROKER}_SYMBOL             # e.g. AAPL, TSLA
 {IDENTIFIER}_{BROKER}_EXTENDED_HOURS     # true/false
+{IDENTIFIER}_{BROKER}_FRACTIONAL_SHARES  # true/false (default: false) — not all symbols support this; IBKR rejects async if unsupported
 {IDENTIFIER}_{BROKER}_TRADLEWARE_API_KEY
 ```
 
@@ -209,22 +210,23 @@ Always call `can_trade_now()` before placing orders.
 | `connect()` | Establish broker connection; called after construction |
 | `disconnect()` | Close broker connection; called by `close()` |
 | `fetch_positions()` | Returns dict with quantity, avg_cost, market_value, unrealized P&L |
-| `fetch_account_value()` | Returns dict with cash, buying_power, total_value |
+| `fetch_account_value()` | Returns dict with cash, buying_power, total_value. **Raises `NotImplementedError` in `IBKRTrader`** — cash is fetched inline in `create_order`. |
 | `get_market_price(symbol)` | Returns current price as float or None |
-| `create_order(side, spend_percentage, order_execution_strategy, limit_price, params)` | `limit_price` required when strategy is `'maker_limit'` |
-| `cancel_order(order_id)` | Returns bool |
-| `fetch_open_orders()` | Returns list of open order dicts |
+| `create_order(side, spend_percentage, order_execution_strategy, limit_price, quantity, params)` | `limit_price` required when strategy is `'maker_limit'` |
+| `cancel_order(order_id)` | Returns bool. **Raises `NotImplementedError` in `IBKRTrader`** — market orders fill immediately; only needed if limit orders are added. |
+| `fetch_open_orders()` | Returns list of open order dicts. **Raises `NotImplementedError` in `IBKRTrader`** — dashboard visibility only; not a trading blocker. |
 
 ### `create_order` signature (stock)
 
-Note: stock `create_order` uses `limit_price` instead of `quantity` for limit orders — more mature than the crypto side, where limit order webhook support is still a future goal.
+`spend_percentage` and `quantity` are mutually exclusive — pass exactly one. `limit_price` is only required when `order_execution_strategy` is `'maker_limit'`.
 
 ```python
 async def create_order(self,
                        side: str,                              # 'buy' | 'sell'
-                       spend_percentage: float = 1.0,         # 0.0–1.0
+                       spend_percentage: float = None,        # 0.0–1.0; mutually exclusive with quantity
                        order_execution_strategy: str = 'market',
                        limit_price: Optional[float] = None,   # required for 'maker_limit'
+                       quantity: Optional[float] = None,      # exact share count; mutually exclusive with spend_percentage
                        params: dict = None)
 ```
 
@@ -250,10 +252,15 @@ See [.github/current_state.md](current_state.md) for the latest project status a
 
 ## Standing Instruction for Copilot
 
-**At the end of every session where progress was made, update `.github/current_state.md`:**
+### At the end of every session where progress was made, update `.github/current_state.md`
 - Tick off completed goals
 - Add any new goals or blockers discovered
 - Update the "Last updated" date
 - Note the current version if it changed
+- Modify the version in app.py if a new version is under development
 
 This ensures the next session can immediately pick up from where we left off without re-explaining context.
+
+### GIT instructions
+- Every time when you are explicitly asked to commit changes, always go by the implemented feature/bugfix/minor change instead of the files changed. If a new feature/bugfix/minor change spans across multiple files, commit them together with a clear message describing the feature/bugfix/minor change, not the files. For example, if you implemented the IBKR stock trader, the commit message should be "Implement IBKR stock trader with market order support" instead of "Changes in ibkr_trader.py, base_stock_trader.py, app.py, .env.example". This way, the commit history will be more meaningful and easier to understand.
+- Always do this step-by-step, and wait for my approval after each commit before proceeding to the next one. This allows me to review the changes incrementally and provide feedback if necessary, ensuring that we maintain a high-quality codebase and stay aligned on the project goals.
