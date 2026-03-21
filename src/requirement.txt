@@ -7,4 +7,5 @@ python-multipart
 jinja2
 aiohttp
 itsdangerous
+pyyaml
 ib-async
