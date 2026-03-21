@@ -33,7 +33,7 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v2.1"
+TRADLEWARE_VERSION = "v2.2"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -397,6 +397,7 @@ async def get_balance(request: Request, trader_id: str):
       "crypto": f"{total_balances.get(crypto, 0.0):.8f}",  # More decimal places for crypto
       "crypto_unit": crypto,
     }
+
     logger.debug(balance)
     return {"balance": balance}
   except Exception as exc:
@@ -408,6 +409,42 @@ async def get_balance(request: Request, trader_id: str):
       status_code=500,
       content={"error": error_msg}
     )
+
+@app.get("/price/{trader_id}")
+async def get_price(request: Request, trader_id: str):
+  """Fetch current market price for a crypto trader's configured trading pair."""
+  if not is_authenticated(request):
+    return JSONResponse(status_code=401, content={"error": "Authentication required"})
+
+  if trader_id not in traders:
+    return JSONResponse(status_code=404, content={"error": f"Trader {trader_id} not found"})
+
+  trader = traders[trader_id]
+  if trader.bot_type != "crypto":
+    return JSONResponse(status_code=400, content={"error": "Price endpoint is for crypto traders only"})
+
+  pair = trader.crypto_stablecoin_pair
+  quote_currency = pair.split('/')[1] if '/' in pair else ''
+
+  try:
+    ticker = await trader._safe_api_call(trader.exchange.fetch_ticker, pair)  # pylint: disable=protected-access
+    if not ticker:
+      trader.logger.warning(f"fetch_ticker returned None for {pair}")
+      return JSONResponse(status_code=502, content={"error": f"No ticker data returned for {pair}"})
+
+    # Try fields in order of preference
+    price = ticker.get('last') or ticker.get('close') or ticker.get('bid') or ticker.get('ask')
+    if not price or float(price) <= 0:
+      trader.logger.warning(f"Ticker for {pair} returned no usable price: {ticker}")
+      return JSONResponse(status_code=502, content={"error": f"Ticker returned no usable price for {pair}"})
+
+    return {"price": float(price), "quote_currency": quote_currency, "pair": pair}
+
+  except Exception as exc:
+    error_msg = str(exc)
+    trader.logger.error(f"Error fetching price for {pair}: {error_msg}")
+    return JSONResponse(status_code=500, content={"error": error_msg})
+
 
 @app.get("/position/{trader_id}")
 async def get_position(request: Request, trader_id: str):
@@ -863,14 +900,14 @@ async def handle_webhook(request: Request):
       if order_size_type == "percentage":
         trader.logger.info(f"Executing {action.upper()} order for {ticker} with {order_size}% position size")
       else:
-        # For stocks, convert float to int
-        quantity_int = int(quantity)
-        trader.logger.info(f"Executing {action.upper()} order for {ticker}: {quantity_int} shares")
+        # Keep quantity as float for fractional-shares bots, otherwise truncate to int
+        quantity_to_use = quantity if trader.fractional_shares else int(quantity)
+        trader.logger.info(f"Executing {action.upper()} order for {ticker}: {quantity_to_use} shares")
 
       order_result = await trader.create_order(
         side=action,
         spend_percentage=spend_percentage,
-        quantity=int(quantity) if quantity is not None else None,  # Convert to int for stocks
+        quantity=(quantity if trader.fractional_shares else int(quantity)) if quantity is not None else None,
         order_execution_strategy='market',
         params={'dry_run': dry_run}
       )
