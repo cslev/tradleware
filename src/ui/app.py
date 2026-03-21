@@ -26,6 +26,7 @@ from starlette.middleware.sessions import SessionMiddleware
 # First-party imports
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
+from src.misc.config_loader import get_bot_configs
 from src.traders.crypto.okx_trader import OKXTrader
 from src.traders.crypto.ir_trader import IRTrader
 from src.traders.crypto.cryptocom_trader import CryptocomTrader
@@ -70,67 +71,49 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
   logger.info("Initializing trading configurations...")
   logger.info(f"Webhook endpoint configured at: /{WEBHOOK_PATH}")
 
-  active_configs_str = get_env('ACTIVE_TRADING_CONFIGS')
-  if active_configs_str:
-    config_strings = [cfg.strip() for cfg in active_configs_str.split(',') if cfg.strip()]
-
+  bot_configs = get_bot_configs()
+  if bot_configs:
     logger.info("\n--- Initializing Traders ---")
-    logger.debug("Active trading configurations: " + ", ".join(config_strings))
-    for config_str in config_strings:
-      parts = config_str.split('_')
-      if len(parts) < 2:
-        logger.warning(f"Invalid config string format: {config_str}. Expected format is'IDENTIFIER_EXCHANGE', e.g., MYBOT_OKX...Skipping.")
-        continue
+    for config in bot_configs:
+      bot_id = config['id']
 
-      account_identifier = "_".join(parts[:-1])
-      exchange_or_broker_id = parts[-1].lower()
-
-      # Try crypto exchange first
-      trader_class = EXCHANGE_TRADER_CLASSES.get(exchange_or_broker_id)
-      if trader_class:
+      if config['bot_type'] == 'crypto':
+        trader_class = EXCHANGE_TRADER_CLASSES.get(config['exchange'])
+        if not trader_class:
+          logger.warning(f"Unknown exchange '{config['exchange']}' for bot '{bot_id}'. Skipping.")
+          continue
         try:
-          trader = trader_class(account_identifier=account_identifier)
-          traders[config_str] = trader
-          logger.info(f"Initialized crypto trader: {config_str}")
+          trader = trader_class(config)
+          traders[bot_id] = trader
+          logger.info(f"Initialized crypto trader: {bot_id}")
           try:
             await trader.post_init()
-          except Exception as exc:
-            logger.error(f"Could not check pair support for {config_str}: {exc}")
-        except Exception as exc:
-          logger.error(f"Failed to initialize crypto trader {config_str}: {str(exc)}")
-        continue
+          except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(f"Could not check pair support for {bot_id}: {exc}")
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+          logger.error(f"Failed to initialize crypto trader {bot_id}: {str(exc)}")
 
-      # Try stock broker
-      trader_class = BROKER_TRADER_CLASSES.get(exchange_or_broker_id)
-      if trader_class:
+      elif config['bot_type'] == 'stock':
+        trader_class = BROKER_TRADER_CLASSES.get(config['broker'])
+        if not trader_class:
+          logger.warning(f"Unknown broker '{config['broker']}' for bot '{bot_id}'. Skipping.")
+          continue
         try:
-          # Stock traders need symbol and extended_hours from env
-          symbol = get_env(f'{account_identifier}_{exchange_or_broker_id.upper()}_SYMBOL')
-          extended_hours = get_env(f'{account_identifier}_{exchange_or_broker_id.upper()}_EXTENDED_HOURS', 'false').lower() == 'true'
-
-          trader = trader_class(
-            account_identifier=account_identifier,
-            symbol=symbol,
-            extended_hours=extended_hours
-          )
-          traders[config_str] = trader
-          logger.info(f"Initialized stock trader: {config_str} (Symbol: {symbol}, Extended Hours: {extended_hours})")
-
-          # Connect to broker
+          trader = trader_class(config)
+          traders[bot_id] = trader
+          logger.info(f"Initialized stock trader: {bot_id} (Symbol: {config['symbol']})")
           try:
             await trader.connect()
-            logger.success(f"Connected stock trader: {config_str}")
-          except Exception as exc:
-            logger.error(f"Could not connect stock trader {config_str}: {exc}")
-        except Exception as exc:
-          logger.error(f"Failed to initialize stock trader {config_str}: {str(exc)}")
-        continue
+            logger.success(f"Connected stock trader: {bot_id}")
+          except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error(f"Could not connect stock trader {bot_id}: {exc}")
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+          logger.error(f"Failed to initialize stock trader {bot_id}: {str(exc)}")
 
-      # Unknown exchange/broker
-      logger.warning(f"Unknown exchange/broker ID '{exchange_or_broker_id}' in config: {config_str}. Skipping.")
+      else:
+        logger.warning(f"Unknown bot_type '{config['bot_type']}' for bot '{bot_id}'. Skipping.")
   else:
-    logger.error("Error: ACTIVE_TRADING_CONFIGS environment variable is not set. "
-          "Please define which accounts to load (e.g., 'MYBOT_OKX,MYBOT_COINBASEPRO').")
+    logger.error("No bot configurations found. Check the bot_configs/ directory.")
 
   yield  # Server is running here
 
