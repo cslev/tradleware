@@ -25,6 +25,8 @@ services:
     volumes:
       # Mount logs directory to persist logs
       - ./tradleware_data/logs:/app/src/logs:rw
+      # Mount bot configs directory (contains per-exchange YAML files with API keys)
+      - ./bot_configs:/app/bot_configs:ro
     user: "1000:1000"  # Match the tradleware user from Dockerfile
     networks:
       - tradleware-network
