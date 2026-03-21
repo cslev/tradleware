@@ -1,0 +1,6 @@
+# IMPORTANT: Bot config files contain API keys and secrets.
+# They must NEVER be committed to version control.
+# This .gitignore ensures all YAML files in this directory tree are ignored.
+
+*.yaml
+*.yml
