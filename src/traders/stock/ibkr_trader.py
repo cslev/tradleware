@@ -135,6 +135,7 @@ class IBKRTrader(BaseStockTrader):
     Returns True if this was a 'not connected' type error.
     """
     msg = str(exc).lower()
+    #matching on common IB connection error messages to update our is_connected flag accordingly
     if 'not connected' in msg or 'disconnected' in msg:
       if self.is_connected:
         label = f" in {context}" if context else ""
@@ -259,6 +260,7 @@ class IBKRTrader(BaseStockTrader):
             self.logger.debug(f"Cash balance: ${cash_balance:.2f}")
             break
       except Exception as e:
+        self._handle_ib_exception(e, "fetch_positions/accountSummary")
         self.logger.warning(f"Error fetching cash balance: {e}")
       
       self.logger.info(f"Position: {quantity} shares, cost: ${total_cost:.2f}, P&L: ${unrealized_pnl:.2f} ({unrealized_pnl_pct:.2f}%), Cash: ${cash_balance:.2f}")
@@ -282,8 +284,11 @@ class IBKRTrader(BaseStockTrader):
       raise RuntimeError(f"Failed to fetch positions: {e}") from e
 
   async def fetch_account_value(self) -> Dict[str, Any]:
-    """Placeholder - to be implemented"""
-    return {}
+    """
+    Not yet implemented. Cash balance is fetched inline inside create_order via
+    accountSummaryAsync() — this method is reserved for a future dashboard Summary tab.
+    """
+    raise NotImplementedError("fetch_account_value() is not yet implemented for IBKRTrader")
 
   async def get_market_price(self, symbol: Optional[str] = None) -> Optional[float]:
     """
@@ -444,19 +449,23 @@ class IBKRTrader(BaseStockTrader):
       else:
         # LIVE PERCENTAGE MODE: fetch real balance from IB Gateway.
         if side == 'buy':
-          account_summary = await self.ib.accountSummaryAsync()
-          cash_available = 0.0
-          for item in account_summary:
-            if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
-              cash_available = float(item.value)
-              break
-          ctx['cash_available'] = cash_available
+          try:
+            account_summary = await self.ib.accountSummaryAsync()
+            cash_available = 0.0
+            for item in account_summary:
+              if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
+                cash_available = float(item.value)
+                break
+            ctx['cash_available'] = cash_available
+          except Exception as balance_exc:
+            self._handle_ib_exception(balance_exc, "create_order/accountSummary")
+            raise RuntimeError(f"Failed to fetch cash balance: {balance_exc}") from balance_exc
         else:
           position_info = await self.fetch_positions()
           shares = position_info.get('quantity', 0)
           ctx['shares_owned'] = shares
         quantity = self._calculate_order_size(side, spend_percentage, ctx)
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
       self.logger.error(f"[LAYER 3] {exc}")
       raise
 
@@ -518,16 +527,23 @@ class IBKRTrader(BaseStockTrader):
       self.logger.error(f"Order creation failed: {e}")
       raise
     except Exception as e:
+      self._handle_ib_exception(e, "create_order/placeOrder")
       self.logger.error(f"Unexpected error creating order: {e}", exc_info=True)
       return None
 
   async def cancel_order(self, order_id: str) -> bool:
-    """Placeholder - to be implemented"""
-    return False
+    """
+    Not yet implemented. Only relevant once limit orders are supported;
+    all current orders are market orders that fill immediately.
+    """
+    raise NotImplementedError("cancel_order() is not yet implemented for IBKRTrader")
 
   async def fetch_open_orders(self) -> List[Dict[str, Any]]:
-    """Placeholder - to be implemented"""
-    return []
+    """
+    Not yet implemented. Would provide dashboard visibility into pending orders;
+    not required for market-order-only trading.
+    """
+    raise NotImplementedError("fetch_open_orders() is not yet implemented for IBKRTrader")
 
   def _on_error(self, reqId, errorCode, errorString, contract):
     """
