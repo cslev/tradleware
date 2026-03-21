@@ -40,7 +40,8 @@ Whether you're running sophisticated algorithmic strategies or simple indicator-
 
 ## Features
 
-- **Multi-Exchange Support**: OKX, Independent Reserve, and more coming (extensible for other exchanges)
+- **Multi-Exchange Support**: OKX, Independent Reserve, Crypto.com, and IBKR (extensible for other exchanges/brokers)
+- **YAML Bot Config**: Each bot is configured via a simple YAML file — no env var juggling, no naming conventions to memorize
 - **Web UI**: FastAPI-based web interface for monitoring and controlling trading bots
 - **Real-time Logging**: Color-coded logs with real-time updates in the web interface
 - **Webhook Integration**: Secure webhook endpoints for automated trading signals
@@ -71,7 +72,7 @@ docker-compose up -d
 **Benefits:**
 - ⚡ No build time - instant deployment
 - ✅ Pre-tested stable release
-- 🔄 Easy updates with `docker pull lelesan/tradleware:latest`
+- 🔄 Easy updates with `docker pull cslev/tradleware:latest`
 
 ### Option 2: Build from Source
 
@@ -90,76 +91,88 @@ This will:
 - Set up the application with proper permissions
 - Configure health checks for monitoring
 
-### Configure Environment Variables
+### Configure Bot Settings
 
-Before running the container, you need to set up your `.env` file with the necessary configuration.
+Tradleware uses **two separate config layers**:
 
-#### Environment Variables Reference
+- **`bot_configs/`** — per-exchange YAML files holding API keys, trading pairs, and bot IDs (gitignored, stays on your server)
+- **`.env`** — Tradleware-level settings only (dashboard auth, webhook path, logging, Gotify)
+
+#### Step 1 — Set up your bot YAML files
+
+Copy the example files and fill in your credentials:
+
+```bash
+# Crypto exchanges
+cp bot_configs/crypto/okx.yaml.example      bot_configs/crypto/okx.yaml
+cp bot_configs/crypto/cryptocom.yaml.example bot_configs/crypto/cryptocom.yaml
+cp bot_configs/crypto/ir.yaml.example        bot_configs/crypto/ir.yaml
+
+# Stock brokers
+cp bot_configs/stock/ibkr.yaml.example bot_configs/stock/ibkr.yaml
+```
+
+Each YAML file follows this structure (example: `bot_configs/crypto/okx.yaml`):
+
+```yaml
+bots:
+  - id: mybtcbot              # lowercase — used as trader_id in webhook payloads
+    api_key: your_okx_api_key
+    secret_key: your_okx_secret_key
+    passphrase: your_okx_passphrase
+    subaccount_name: MySubaccount
+    hostname: my.okx.com
+    stablecoin_fiat_pair: USDT/SGD
+    crypto_stablecoin_pair: BTC/USDT
+    tradleware_api_key: your_webhook_auth_key  # openssl rand -hex 32
+```
+
+For the IBKR broker, `bot_configs/stock/ibkr.yaml` has a shared `gateway` block plus a `bots` list — see `ibkr.yaml.example` for the full structure.
+
+You only need the YAML files for the exchanges you actually use. Unused files can be left out entirely.
+
+#### Step 2 — Set up `.env`
+
+The `.env` file contains **only Tradleware-level settings** — no bot secrets:
+
+```bash
+cp .env.example .env
+```
+
+#### `.env` Reference
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| **Core Configuration** |
-| `ACTIVE_TRADING_CONFIGS` | ✅ Yes | - | Comma-separated list of trading bot configurations (e.g., `"MYBOT_OKX,OTHERBOT_OKX"`) |
 | **Dashboard & Security** |
 | `DASHBOARD_USERNAME` | No | `admin` | Username for dashboard login |
 | `DASHBOARD_PASSWORD` | No | `changeme` | Password for dashboard login (⚠️ **Change this!**) |
 | `SESSION_SECRET_KEY` | No | Auto-generated | Secret key for session encryption. Generate with `openssl rand -hex 32` |
 | `WEBHOOK_PATH` | No | `webhook` | Custom webhook endpoint path for security (e.g., `ka8Moh4aiNgai4`). Generate with `pwgen -n 14` |
-| `TRUSTED_IPS` | No | - | Comma-separated list of IPs that bypass authentication (e.g., `127.0.0.1,192.168.1.100`) |
+| `TRUSTED_IPS` | No | - | Comma-separated IPs that bypass authentication (e.g., `127.0.0.1,192.168.1.100`) |
 | **UI Configuration** |
-| `LOG_REFRESH_INTERVAL_MS` | No | `5000` | Dashboard log refresh interval in milliseconds (1000-30000 recommended) |
+| `LOG_REFRESH_INTERVAL_MS` | No | `5000` | Dashboard log refresh interval in milliseconds |
+| **Logging** |
+| `LOG_LEVEL` | No | `10` | Minimum log level (10=DEBUG, 20=INFO, 25=SUCCESS, 30=WARNING, 40=ERROR, 50=CRITICAL) |
 | **Gotify Notifications** |
 | `GOTIFY_SERVER_URL` | No | - | Your Gotify server URL (e.g., `https://gotify.example.com`) |
 | `GOTIFY_APP_TOKEN` | No | - | Gotify application token for sending notifications |
-| `GOTIFY_LOG_LEVEL` | No | `30` | Minimum log level for Gotify notifications (10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL) |
-| `LOG_LEVEL` | No | `10` | Minimum log level for general logging (console and file logs). Independent from GOTIFY_LOG_LEVEL. (10=DEBUG, 20=INFO, 25=SUCCESS, 30=WARNING, 40=ERROR, 50=CRITICAL) |
-| **OKX Bot Exchange Configuration** (Replace `{IDENTIFIER}` with your bot name, e.g., `MYBOT`) |
-| `{IDENTIFIER}_OKX_API_KEY` | ✅ Yes | - | OKX exchange API key |
-| `{IDENTIFIER}_OKX_SECRET_KEY` | ✅ Yes | - | OKX exchange secret key |
-| `{IDENTIFIER}_OKX_PASSPHRASE` | ✅ Yes | - | OKX exchange passphrase |
-| `{IDENTIFIER}_OKX_HOSTNAME` | No | `www.okx.com` | OKX API hostname |
-| `{IDENTIFIER}_OKX_SUBACCOUNT_NAME` | ✅ Yes | - | OKX subaccount name to use |
-| `{IDENTIFIER}_OKX_STABLECOIN_FIAT_PAIR` | ✅ Yes | - | Fiat to stablecoin trading pair (e.g., `USDT/SGD`) |
-| `{IDENTIFIER}_OKX_CRYPTO_STABLECOIN_PAIR` | ✅ Yes | - | Crypto to stablecoin trading pair (e.g., `BTC/USDT`) |
-| `{IDENTIFIER}_OKX_TRADLEWARE_API_KEY` | ✅ Yes | - | Webhook authentication key. Generate with `openssl rand -hex 32` |
-| **Independent Reserve Bot Exchange Configuration** (Replace `{IDENTIFIER}` with your bot name, e.g., `TRADLEWAREBOT`) |
-| `{IDENTIFIER}_IR_API_KEY` | ✅ Yes | - | Independent Reserve exchange API key |
-| `{IDENTIFIER}_IR_SECRET_KEY` | ✅ Yes | - | Independent Reserve exchange secret key |
-| `{IDENTIFIER}_IR_HOSTNAME` | No | `api.independentreserve.com` | IR API hostname |
-| `{IDENTIFIER}_IR_STABLECOIN_FIAT_PAIR` | ✅ Yes | - | Fiat to stablecoin trading pair (e.g., `SGD/SGD`) (no stablecoin to crypto is supported at IR) |
-| `{IDENTIFIER}_IR_CRYPTO_STABLECOIN_PAIR` | ✅ Yes | - | Crypto to stablecoin trading pair (e.g., `ETH/SGD`) (no stablecoin to crypto is supported at IR)|
-| `{IDENTIFIER}_IR_TRADLEWARE_API_KEY` | ✅ Yes | - | Webhook authentication key. Generate with `openssl rand -hex 32` |
+| `GOTIFY_LOG_LEVEL` | No | `30` | Minimum log level for Gotify notifications |
 
 #### Quick Setup
 
-1. **Copy the example environment file** (if available) or create a new `.env` file:
+1. **Copy and fill in your bot YAML file(s)**:
    ```bash
-   cp .env.example .env  # If you have an example file
-   # OR
-   touch .env
+   cp bot_configs/crypto/okx.yaml.example bot_configs/crypto/okx.yaml
+   # edit bot_configs/crypto/okx.yaml with your real API keys
    ```
 
-2. **Configure your trading bot(s)**:
-   ```env
-   # Active bot configurations (comma-separated)
-   ACTIVE_TRADING_CONFIGS="MYBTCBOT_OKX"
-   
-   # OKX Exchange Configuration
-   MYBTCBOT_OKX_API_KEY="your-api-key"
-   MYBTCBOT_OKX_SECRET_KEY="your-secret-key"
-   MYBTCBOT_OKX_PASSPHRASE="your-passphrase"
-   MYBTCBOT_OKX_HOSTNAME="www.okx.com"
-   MYBTCBOT_OKX_SUBACCOUNT_NAME="YourSubaccountName"
-   MYBTCBOT_OKX_STABLECOIN_FIAT_PAIR="USDT/SGD"
-   MYBTCBOT_OKX_CRYPTO_STABLECOIN_PAIR="BTC/USDT"
-   
-   # Generate webhook API key (use: openssl rand -hex 32)
-   MYBTCBOT_OKX_TRADLEWARE_API_KEY="your-generated-api-key"
+2. **Copy and configure `.env`**:
+   ```bash
+   cp .env.example .env
    ```
 
-3. **Configure dashboard security**:
+3. **Configure dashboard security** in `.env`:
    ```env
-   # Change default credentials
    DASHBOARD_USERNAME="yourusername"
    DASHBOARD_PASSWORD="your-secure-password"
    
@@ -170,37 +183,11 @@ Before running the container, you need to set up your `.env` file with the neces
    SESSION_SECRET_KEY="your-generated-session-secret"
    ```
 
-4. **Optional: Configure Gotify notifications**:
+4. **Optional: Configure Gotify notifications** in `.env`:
    ```env
    GOTIFY_SERVER_URL="https://your-gotify-server.com"
    GOTIFY_APP_TOKEN="your-gotify-token"
    GOTIFY_LOG_LEVEL=30
-   ```
-
-5. **Optional: Configure UI refresh rate**:
-   ```env
-   LOG_REFRESH_INTERVAL_MS=5000  # 5 seconds
-   ```
-
-6. **Optional: Configure general log level**:
-   ```env
-   LOG_LEVEL=10  # 10=DEBUG, 20=INFO, 25=SUCCESS, 30=WARNING, 40=ERROR, 50=CRITICAL
-   ```
-
-7. **Configure Independent Reserve bot(s)**:
-   ```env
-   # Active bot configurations (comma-separated)
-   ACTIVE_TRADING_CONFIGS="MYBTCBOT_IR"
-   
-   # Independent Reserve Exchange Configuration
-   MYBTCBOT_IR_API_KEY="your-api-key"
-   MYBTCBOT_IR_SECRET_KEY="your-secret-key"
-   MYBTCBOT_IR_HOSTNAME="api.independentreserve.com"
-   MYBTCBOT_IR_STABLECOIN_FIAT_PAIR="USDT/SGD"
-   MYBTCBOT_IR_CRYPTO_STABLECOIN_PAIR="ETH/USDT"
-   
-   # Generate webhook API key (use: openssl rand -hex 32)
-   MYBTCBOT_IR_TRADLEWARE_API_KEY="your-generated-api-key"
    ```
 
 ### Run the Container
@@ -213,7 +200,7 @@ docker-compose up -d
 
 The application will be available at `http://localhost:8080`
 
-````
+```
 
 ### View Logs
 
@@ -239,7 +226,7 @@ docker-compose build --no-cache
 docker-compose up -d
 ```
 
-**Note:** The `docker-compose.yml` mounts the `./logs` directory to persist logs even when the container restarts.
+**Note:** The `docker-compose.yml` mounts `./tradleware_data/logs` (to persist logs) and `./bot_configs` (read-only, so your YAML config files are available inside the container) — both survive container restarts.
 
 ## Gotify Integration
 
@@ -315,7 +302,7 @@ The webhook path is displayed in:
 - The footer of the dashboard
 - The cURL test examples
 
-**Note:** The webhook still requires API key authentication, so even if someone discovers the URL, they cannot execute trades without the correct `MYBTCBOT_OKX_TRADLEWARE_API_KEY`.
+**Note:** The webhook still requires API key authentication, so even if someone discovers the URL, they cannot execute trades without the correct `tradleware_api_key` configured in the bot's YAML file.
 
 
 ---
