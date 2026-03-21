@@ -1,0 +1,26 @@
+# IBKR (Interactive Brokers) Bot Configurations
+# ---------------------------------------------------------------
+# The `gateway:` section contains credentials shared across all IBKR bots.
+# Add one entry per bot under the `bots:` key.
+# Each bot id must be unique, lowercase, alphanumeric + underscores only.
+# The id is used as the trader_id in webhook payloads.
+#
+# File permissions: chmod 600 bot_configs/stock/ibkr.yaml
+# ---------------------------------------------------------------
+
+gateway:
+  host: "127.0.0.1"           # IB Gateway host (auto-forwarded in Docker)
+  port: 8888                  # ghcr.io/extrange/ibkr:stable uses this port for both paper/live
+  username: "your_ib_username"
+  password: "your_ib_password"
+  trading_mode: "live"        # "paper" or "live"
+  vnc_password: "changeme"    # For accessing IB Gateway UI on headless setups
+  read_only: false
+
+bots:
+  - id: myapplebot                        # Used as trader_id in webhook payloads
+    account_id: "U1234567"                # Your IB account ID
+    symbol: "AAPL"                        # Stock symbol to trade
+    extended_hours: false                 # Allow pre-market and after-hours trading
+    fractional_shares: false              # Enable fractional shares (not all symbols support this)
+    tradleware_api_key: "your_tradleware_api_key_here"  # Webhook auth key — generate with: openssl rand -hex 32

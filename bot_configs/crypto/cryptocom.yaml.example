@@ -1,0 +1,18 @@
+# Crypto.com Bot Configurations
+# ---------------------------------------------------------------
+# Add one entry per bot under the `bots:` key.
+# Each bot id must be unique, lowercase, alphanumeric + underscores only.
+# The id is used as the trader_id in webhook payloads.
+#
+# File permissions: chmod 600 bot_configs/crypto/cryptocom.yaml
+# ---------------------------------------------------------------
+
+bots:
+  - id: mywifbot_cdc                      # Used as trader_id in webhook payloads
+    api_key: "your_api_key_here"
+    secret_key: "your_secret_key_here"
+    hostname: "api.crypto.com"            # Crypto.com does not use passphrases
+    subaccount_name: "your_subaccount_name_here"  # use your main account name if not using subaccounts; required by OKX     
+    stablecoin_fiat_pair: "USDT/SGD"      # e.g. USDT/SGD, USDT/USD
+    crypto_stablecoin_pair: "WIF/USDT"    # e.g. BTC/USDT, ETH/USDT
+    tradleware_api_key: "your_tradleware_api_key_here"  # Webhook auth key — generate with: openssl rand -hex 32

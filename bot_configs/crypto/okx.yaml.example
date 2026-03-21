@@ -1,0 +1,19 @@
+# OKX Bot Configurations
+# ---------------------------------------------------------------
+# Add one entry per bot under the `bots:` key.
+# Each bot id must be unique, lowercase, alphanumeric + underscores only.
+# The id is used as the trader_id in webhook payloads.
+#
+# File permissions: chmod 600 bot_configs/crypto/okx.yaml
+# ---------------------------------------------------------------
+
+bots:
+  - id: myokxbot                          # Used as trader_id in webhook payloads
+    api_key: "your_api_key_here"
+    secret_key: "your_secret_key_here"
+    passphrase: "your_passphrase_here"    # Required by OKX
+    hostname: "my.okx.com"                # Use your broker-specific hostname if applicable
+    subaccount_name: "your_subaccount_name_here"  # use your main account name if not using subaccounts; required by OKX     
+    stablecoin_fiat_pair: "USDT/SGD"      # to convert your FIAT currency to stablecoin for trading
+    crypto_stablecoin_pair: "BTC/USDT"    # the actual ticker symbol to trade, must be a crypto/stablecoin pair supported by your broker
+    tradleware_api_key: "your_tradleware_api_key_here"  # Webhook auth key — generate with: openssl rand -hex 32
