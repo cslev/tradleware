@@ -5,11 +5,13 @@ This module provides a web-based dashboard for managing cryptocurrency trading b
 It handles authentication, trader initialization, webhook processing for TradingView
 signals, and provides endpoints for balance monitoring and order management.
 """
+# pylint: disable=too-many-lines
 
 # Standard library imports
 from contextlib import asynccontextmanager
 from datetime import datetime
 import json
+import math
 from pathlib import Path
 import secrets
 
@@ -105,7 +107,7 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
           # Stock traders need symbol and extended_hours from env
           symbol = get_env(f'{account_identifier}_{exchange_or_broker_id.upper()}_SYMBOL')
           extended_hours = get_env(f'{account_identifier}_{exchange_or_broker_id.upper()}_EXTENDED_HOURS', 'false').lower() == 'true'
-          
+
           trader = trader_class(
             account_identifier=account_identifier,
             symbol=symbol,
@@ -113,7 +115,7 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
           )
           traders[config_str] = trader
           logger.info(f"Initialized stock trader: {config_str} (Symbol: {symbol}, Extended Hours: {extended_hours})")
-          
+
           # Connect to broker
           try:
             await trader.connect()
@@ -362,16 +364,16 @@ async def get_balance(request: Request, trader_id: str):
       status_code=404,
       content={"error": f"Trader {trader_id} not found"}
     )
-  
+
   trader = traders[trader_id]
-  
+
   # Check if it's a stock trader
   if trader.bot_type == "stock":
     return JSONResponse(
       status_code=400,
       content={"error": f"Use /position/{trader_id} endpoint for stock traders"}
     )
-  
+
   traders[trader_id].logger.debug(f"asking for balance of {trader_id}")
   try:
     raw_balance = await traders[trader_id].fetch_balance()
@@ -419,30 +421,29 @@ async def get_position(request: Request, trader_id: str):
       status_code=404,
       content={"error": f"Trader {trader_id} not found"}
     )
-  
+
   trader = traders[trader_id]
-  
+
   # Check if it's a stock trader
   if trader.bot_type != "stock":
     return JSONResponse(
       status_code=400,
       content={"error": f"Use /balance/{trader_id} endpoint for crypto traders"}
     )
-  
+
   try:
     # Fetch position data
     position = await trader.fetch_positions()
-    
+
     # Fetch current price
     current_price = await trader.get_market_price()
-    
+
     # Get market status
     market_status = trader.get_market_status()
     can_trade = trader.can_trade_now()
     time_until_open = trader.get_time_until_market_opens()
-    
+
     # Ensure JSON-safe values (handle None, NaN, Infinity)
-    import math
     def make_json_safe(value):
       if value is None:
         return 0.0
@@ -450,7 +451,7 @@ async def get_position(request: Request, trader_id: str):
         if math.isnan(value) or math.isinf(value):
           return 0.0
       return value
-    
+
     return {
       "position": {
         "symbol": position['symbol'],
@@ -470,10 +471,10 @@ async def get_position(request: Request, trader_id: str):
     error_msg = str(exc)
     logger.error(f"Error fetching position for {trader_id}: {error_msg}")
     trader.logger.error(f"❌ Error fetching position: {error_msg}")
-    
+
     # Check if it's a connection error
     is_connection_error = "connection failed" in error_msg.lower() or "cannot connect" in error_msg.lower() or not trader.is_connected
-    
+
     return JSONResponse(
       status_code=500,
       content={
@@ -593,16 +594,16 @@ async def handle_webhook(request: Request):
     dry_run = dry_run.lower() in ['true', '1', 'yes']
   elif not isinstance(dry_run, bool):
     dry_run = False
-  
+
   if dry_run:
     trader.logger.warning("🧪 DRY RUN MODE: Order will be simulated, not executed")
-  
+
   # Parse order_size_type — presence already guaranteed by missing fields check above
   order_size_type = str(data.get("order_size_type")).lower()
   if order_size_type not in ["percentage", "quantity"]:
     trader.logger.error(f"Invalid order_size_type: '{order_size_type}'. Must be 'percentage' or 'quantity'.")
     raise HTTPException(status_code=400, detail=f"Invalid order_size_type: '{order_size_type}'. Must be 'percentage' or 'quantity'.")
-  
+
   # Parse order_size value — presence already guaranteed by missing fields check above
   order_size_raw = data.get("order_size")
   if isinstance(order_size_raw, (int, float)):
@@ -610,13 +611,13 @@ async def handle_webhook(request: Request):
   elif isinstance(order_size_raw, str):
     try:
       order_size = float(order_size_raw.strip())
-    except ValueError:
+    except ValueError as exc:
       trader.logger.error(f"Invalid order_size value: '{order_size_raw}'. Must be a number.")
-      raise HTTPException(status_code=400, detail=f"Invalid order_size value: '{order_size_raw}'. Must be a number.")
+      raise HTTPException(status_code=400, detail=f"Invalid order_size value: '{order_size_raw}'. Must be a number.") from exc
   else:
     trader.logger.error(f"Invalid order_size type: {type(order_size_raw).__name__}. Must be a number.")
     raise HTTPException(status_code=400, detail=f"order_size must be a number, got: {type(order_size_raw).__name__}.")
-  
+
   # Validate based on order_size_type
   if order_size_type == "percentage":
     if not 0.0 < order_size <= 100.0:
@@ -646,6 +647,7 @@ async def handle_webhook(request: Request):
   ######################################################
   ## BRANCH BASED ON TRADER TYPE (CRYPTO vs STOCK)
   ######################################################
+  # pylint: disable=too-many-nested-blocks
   if trader.bot_type == "crypto":
     ######################################################
     ## CRYPTO TRADER: CHECK IF TICKER MATCHES PAIR
@@ -686,7 +688,7 @@ async def handle_webhook(request: Request):
             trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
           else:
             trader.logger.info(f"Executing BUY order for {ticker}: {quantity} {ticker.split('/')[0]}")
-          
+
           order_result = await trader.create_order(
             symbol=ticker,
             side='buy',
@@ -767,7 +769,7 @@ async def handle_webhook(request: Request):
             trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
           else:
             trader.logger.info(f"Executing SELL order for {ticker}: {quantity} {ticker.split('/')[0]}")
-          
+
           order_result = await trader.create_order(
             symbol=ticker,
             side='sell',
@@ -822,7 +824,7 @@ async def handle_webhook(request: Request):
       except Exception as exc:
         trader.logger.error(f"Failed to fetch balance for sell validation: {str(exc)}")
         raise HTTPException(status_code=500, detail=f"Failed to validate balance: {str(exc)}") from exc
-  
+
   elif trader.bot_type == "stock":
     ######################################################
     ## STOCK TRADER: CHECK IF TICKER MATCHES SYMBOL
@@ -835,7 +837,7 @@ async def handle_webhook(request: Request):
         detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
       )
     trader.logger.info(f"VALID ticker: {ticker}")
-    
+
     ######################################################
     # STOCK: Check if market allows trading (skipped for dry_run)
     ######################################################
@@ -853,7 +855,7 @@ async def handle_webhook(request: Request):
         "message": error_msg,
         "processed_at": timestamp_str
       }
-    
+
     ######################################################
     # STOCK: Execute order (balance checks done internally)
     ######################################################
@@ -864,7 +866,7 @@ async def handle_webhook(request: Request):
         # For stocks, convert float to int
         quantity_int = int(quantity)
         trader.logger.info(f"Executing {action.upper()} order for {ticker}: {quantity_int} shares")
-      
+
       order_result = await trader.create_order(
         side=action,
         spend_percentage=spend_percentage,
@@ -872,7 +874,7 @@ async def handle_webhook(request: Request):
         order_execution_strategy='market',
         params={'dry_run': dry_run}
       )
-      
+
       if order_result:
         trader.logger.success(
           f"{'🚀' if action == 'buy' else '💰'} {action.upper()} order executed! "
@@ -889,7 +891,7 @@ async def handle_webhook(request: Request):
           "price": order_result.get('price'),
           "processed_at": timestamp_str
         }
-      
+
       trader.logger.error(f"{action.upper()} order execution failed - no order result returned")
       return {
         "status": "error",
@@ -904,7 +906,7 @@ async def handle_webhook(request: Request):
         "message": f"{action.upper()} order execution failed: {error_msg}",
         "processed_at": timestamp_str
       }
-  
+
   else:
     trader.logger.error(f"Unknown bot_type: {trader.bot_type}")
     raise HTTPException(status_code=500, detail=f"Unknown bot type: {trader.bot_type}")
