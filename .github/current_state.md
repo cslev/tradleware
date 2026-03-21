@@ -1,6 +1,6 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 21 Mar 2026 (session 2)
+> Last updated: 21 Mar 2026 (session 3)
 
 ---
 
@@ -15,6 +15,12 @@
 ---
 
 ## Future Goals
+
+### Consolidate config validation into config_loader
+- Currently `config_loader._validate_bot()` checks for **key existence** (missing fields → bot skipped)
+- `BaseCryptoTrader.__init__` also checks the same fields for **non-empty values** (present but blank → `ValueError`)
+- `BaseStockTrader.__init__` does neither — bare `config['key']` would raise `KeyError` only
+- Plan: move the empty-value check into `config_loader._validate_bot()` (falsy values treated as missing), then remove the redundant block from `BaseCryptoTrader`; add equivalent guard to `BaseStockTrader` or rely on the loader entirely
 
 ### IBKR — unimplemented methods (none block current production use)
 - [ ] `fetch_account_value()` — raises `NotImplementedError`. Cash is already fetched inline inside `create_order` via `accountSummaryAsync()`. Only needed for a future dashboard Summary tab.
@@ -50,6 +56,17 @@
 ---
 
 ## Session History
+
+### 21 Mar 2026 (session 3)
+- **YAML-based bot config system**: replaced `ACTIVE_TRADING_CONFIGS` env var + `{IDENTIFIER}_{EXCHANGE}_*` env vars with per-exchange YAML files in `bot_configs/crypto/` and `bot_configs/stock/`
+- **`src/misc/config_loader.py`** added: `get_bot_configs()` scans YAML files and returns a flat list of typed config dicts
+- **All trader `__init__` signatures updated**: now accept `config: dict` instead of individual `account_identifier`, `exchange_id` etc. parameters — `BaseCryptoTrader`, `BasStockTrader`, all subclasses
+- **`app.py` lifespan rewritten**: iterates `get_bot_configs()` instead of parsing `ACTIVE_TRADING_CONFIGS`; `traders` dict key is now lowercase bot `id` (e.g. `myokxbot`) instead of `MYBOT_OKX`
+- **`.env` cleaned up**: all per-bot vars and `ACTIVE_TRADING_CONFIGS` removed; only Tradleware-level settings remain
+- **`docker-compose.yml`**: added `bot_configs/` volume mount (read-only) into the container
+- **`copilot-instructions.md`**: updated env var convention sections → YAML config sections throughout
+- **pylint**: 10.00/10 maintained
+- **Webhook `trader_id`**: now lowercase bot `id` from YAML (e.g. `"myokxbot"`) — update TradingView alert payloads accordingly
 
 ### 21 Mar 2026 (session 2)
 - **Fractional shares fully implemented** across `ibkr_trader.py`, `base_stock_trader.py`, `app.py`, `.env.example` (Future Goals goal ticked off)

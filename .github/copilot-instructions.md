@@ -53,14 +53,17 @@ TradingView (or any webhook source)
 ## Project Structure
 
 ```
+bot_configs/
+  crypto/     # Per-exchange YAML files (okx.yaml, cryptocom.yaml, ir.yaml)
+  stock/      # Per-broker YAML files (ibkr.yaml)
 src/
   traders/
     crypto/   # OKX, Independent Reserve, Crypto.com traders
-    stock/    # IBKR trader (in progress)
+    stock/    # IBKR trader
   ui/         # FastAPI app, templates, static assets
-  misc/       # Logger, env helpers
+  misc/       # Logger, env helpers, config_loader
 tests/
-tradleware_data/ibkr/
+tradleware_data/
 ```
 
 ---
@@ -69,24 +72,25 @@ tradleware_data/ibkr/
 
 Every exchange integration must subclass `BaseCryptoTrader` (`src/traders/crypto/base_crypto_trader.py`).
 
-### Environment variable naming convention
+### Bot configuration (YAML)
 
-All env vars are constructed automatically from `account_identifier` + `exchange_id`:
+Each exchange has a single YAML file in `bot_configs/crypto/` (e.g. `okx.yaml`, `cryptocom.yaml`, `ir.yaml`). Each file contains a list of bots under that exchange. See the `.yaml.example` files for the full structure.
 
+Key fields per bot:
+```yaml
+bots:
+  - id: mybtcbot              # lowercase, used as trader_id in webhooks
+    api_key: ...
+    secret_key: ...
+    passphrase: ...           # optional depending on exchange
+    subaccount_name: ...      # optional
+    hostname: my.okx.com
+    stablecoin_fiat_pair: USDT/SGD
+    crypto_stablecoin_pair: BTC/USDT
+    tradleware_api_key: ...   # per-bot webhook auth key
 ```
-{IDENTIFIER}_{EXCHANGE}_API_KEY
-{IDENTIFIER}_{EXCHANGE}_SECRET_KEY
-{IDENTIFIER}_{EXCHANGE}_PASSPHRASE        # optional depending on exchange
-{IDENTIFIER}_{EXCHANGE}_SUBACCOUNT_NAME   # optional
-{IDENTIFIER}_{EXCHANGE}_HOSTNAME
-{IDENTIFIER}_{EXCHANGE}_STABLECOIN_FIAT_PAIR   # e.g. USDT/SGD
-{IDENTIFIER}_{EXCHANGE}_CRYPTO_STABLECOIN_PAIR # e.g. BTC/USDT
-{IDENTIFIER}_{EXCHANGE}_TRADLEWARE_API_KEY      # per-bot webhook auth key
-```
 
-The exchange ID in the var names and in `ACTIVE_TRADING_CONFIGS` must use the fixed exchange identifiers: `OKX`, `CRYPTOCOM`, `IR`. Example entry: `MYBTCBOT_OKX`.
-
-The base class reads and validates these automatically. Subclasses only need to call `super().__init__(account_identifier, exchange_id)` and then set up `self.exchange` as a CCXT instance.
+The config is discovered automatically by `src/misc/config_loader.py` via `get_bot_configs()`. Subclasses receive a `config: dict` and only need to call `super().__init__(config, default_type, self.logger)` then set up `self.exchange` as a CCXT instance.
 
 ### `post_init()` (async)
 
@@ -134,9 +138,9 @@ POST to `/{WEBHOOK_PATH}` with JSON body:
 
 ```json
 {
-  "api_key":    "<{IDENTIFIER}_{EXCHANGE}_TRADLEWARE_API_KEY>",
-  "trader_id":  "<IDENTIFIER_EXCHANGE>",
-  "ticker":     "<CRYPTO_STABLECOIN_PAIR>",
+  "api_key":    "<tradleware_api_key from bot YAML>",
+  "trader_id":  "<bot id from YAML, lowercase, e.g. mybtcbot>",
+  "ticker":     "<crypto_stablecoin_pair from YAML, e.g. BTC/USDT>",
   "action":     "buy | sell",
   "timestamp":  "<unix seconds/ms or ISO 8601>",
   "alert_name": "<optional string>",
@@ -146,10 +150,11 @@ POST to `/{WEBHOOK_PATH}` with JSON body:
 }
 ```
 
+- `trader_id` must match the `id` field in the bot's YAML config (always lowercase).
 - `order_size_type: "percentage"` (default) — `order_size` is 0–100 (%). Passed as `spend_percentage` to `create_order`.
 - `order_size_type: "quantity"` — `order_size` is an exact asset amount. Passed as `quantity` to `create_order`.
 - `dry_run: true` — simulates the order without executing it. Good for testing functions and parsing. Still goes through all validation and logging, but `create_order` should skip the actual API call.
-- `ticker` must exactly match the trader's configured `CRYPTO_STABLECOIN_PAIR`.
+- `ticker` must exactly match the trader's configured `crypto_stablecoin_pair` in the YAML.
 
 ---
 
@@ -157,40 +162,40 @@ POST to `/{WEBHOOK_PATH}` with JSON body:
 
 Every stock broker integration must subclass `BaseStockTrader` (`src/traders/stock/base_stock_trader.py`).
 
-> **Note:** Currently, IBKR (Interactive Brokers) is the only broker with a usable API that has been integrated. The patterns, env var conventions, and implementation details below are therefore based on IBKR and are **not as standardized** as the crypto side. When adding a different broker in the future, adapt as needed — the base class defines the contract, but the specifics (auth mechanism, connection method, env var names) will vary per broker.
+> **Note:** Currently, IBKR (Interactive Brokers) is the only broker with a usable API that has been integrated. The patterns and implementation details below are based on IBKR and are **not as standardized** as the crypto side. When adding a different broker in the future, adapt as needed — the base class defines the contract, but the specifics (auth mechanism, connection method, YAML structure) will vary per broker.
 
 ### Key differences from crypto traders
 
 - **No CCXT** — IBKR uses the TWS/IB API client directly; error wrapping must be handled in the subclass (no `_safe_api_call` provided by the base)
 - **No `post_init()`** — replaced by `connect()` (abstract async method); call this after construction before any trading
-- **Symbol is fixed per trader instance** — bound at init from the env var `{IDENTIFIER}_{BROKER}_SYMBOL`, not taken from the webhook
+- **Symbol is fixed per trader instance** — bound at init from `config['symbol']`, not taken from the webhook
 - **No `fetch_balance()`** — split into `fetch_positions()` (shares held) and `fetch_account_value()` (cash/buying power). Note: `fetch_account_value()` is abstract in the base but the IBKR implementation raises `NotImplementedError` — cash is fetched inline inside `create_order` via `accountSummaryAsync()`, so the dashboard Summary tab does not show cash values yet.
 - **`fetch_open_orders()`** takes no arguments — scoped to the trader's symbol implicitly
 
-### Environment variable naming convention
+### Bot configuration (YAML)
 
-IBKR gateway credentials are **global** (shared across all IBKR bots):
+IBKR bot config lives in `bot_configs/stock/ibkr.yaml`. The YAML contains a `gateway` block (shared across all IBKR bots on that host) and a `bots` list:
 
+```yaml
+gateway:
+  host: 127.0.0.1
+  port: 8888
+  username: your_ibkr_username
+  password: your_ibkr_password
+  trading_mode: live          # 'paper' or 'live'
+  vnc_password: changeme
+  read_only: false
+
+bots:
+  - id: myapplebot            # lowercase, used as trader_id in webhooks
+    account_id: U1234567
+    symbol: AAPL
+    extended_hours: false
+    fractional_shares: false  # not all symbols support this; IBKR rejects if unsupported
+    tradleware_api_key: ...   # per-bot webhook auth key
 ```
-IBKR_GATEWAY_HOST      # usually 127.0.0.1
-IBKR_USERNAME
-IBKR_PASSWORD
-IBKR_TRADING_MODE      # 'paper' or 'live'
-IBKR_VNC_PASSWORD      # to access the IBKR Gateway UI for easier troubleshooting on headless setups
-IBKR_READ_ONLY         # true/false
-```
 
-Per-bot vars use `{IDENTIFIER}_{BROKER}` prefix (broker ID is `IBKR`):
-
-```
-{IDENTIFIER}_{BROKER}_ACCOUNT_ID         # e.g. U1234567
-{IDENTIFIER}_{BROKER}_SYMBOL             # e.g. AAPL, TSLA
-{IDENTIFIER}_{BROKER}_EXTENDED_HOURS     # true/false
-{IDENTIFIER}_{BROKER}_FRACTIONAL_SHARES  # true/false (default: false) — not all symbols support this; IBKR rejects async if unsupported
-{IDENTIFIER}_{BROKER}_TRADLEWARE_API_KEY
-```
-
-Example `ACTIVE_TRADING_CONFIGS` entry: `MYAPPLEBOT_IBKR`.
+The config is discovered automatically by `src/misc/config_loader.py`. Subclasses receive a `config: dict` and call `super().__init__(config, logger)`.
 
 ### Market hours helpers (built into base)
 
@@ -243,14 +248,15 @@ See [.github/current_state.md](current_state.md) for the latest project status a
 - Follow existing code patterns strictly — new traders must extend the appropriate base class
 - Keep pylint score at 10.00/10
 - Docker-first deployment; avoid requiring local Python installs for end users
-- Environment variables for all secrets and config (never hardcode)
+- Bot secrets and config live in `bot_configs/` YAML files — never in `.env` or hardcoded
+- `.env` is for Tradleware-level settings only (dashboard auth, logging, webhook path, Gotify)
 - Logging via the custom logger in `src/misc/logger.py` — not raw `print()`
 - Comments and docstrings in English
 - Keep the README and CHANGELOG updated with meaningful changes
 
 ---
 
-## Standing Instruction for Copilot
+## Important Instruction for Copilot
 
 ### At the end of every session where progress was made, update `.github/current_state.md`
 - Tick off completed goals
@@ -264,3 +270,8 @@ This ensures the next session can immediately pick up from where we left off wit
 ### GIT instructions
 - Every time when you are explicitly asked to commit changes, always go by the implemented feature/bugfix/minor change instead of the files changed. If a new feature/bugfix/minor change spans across multiple files, commit them together with a clear message describing the feature/bugfix/minor change, not the files. For example, if you implemented the IBKR stock trader, the commit message should be "Implement IBKR stock trader with market order support" instead of "Changes in ibkr_trader.py, base_stock_trader.py, app.py, .env.example". This way, the commit history will be more meaningful and easier to understand.
 - Always do this step-by-step, and wait for my approval after each commit before proceeding to the next one. This allows me to review the changes incrementally and provide feedback if necessary, ensuring that we maintain a high-quality codebase and stay aligned on the project goals.
+
+### Development instructions and patterns
+- Always use 2-space indentation 
+- always put imports on the top and follow the existing import patterns in the file (e.g. relative vs absolute imports, grouping standard library vs local imports) to make the code consistent and clean and compliant with pylint
+- always avoid trailing whitespaces to be compliant with pylint C0303
