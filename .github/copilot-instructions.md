@@ -2,7 +2,7 @@
 
 ## What is Tradleware?
 
-**Tradleware** is a free, open-source autotrading middleware built in Python. It bridges trading strategies (e.g., platforms like TradingView, custom strategy scripts or applications) via webhooks with cryptocurrency and stock exchanges. Hence the name Tradleware (trading middleware). It runs entirely on the user's own infrastructure — no third-party services, no subscriptions, no data sharing to make it the safest, most private option for self-hosted autotrading.
+**Tradleware** is a free, open-source autotrading middleware built in Python. It bridges trading strategies (e.g., platforms like TradingView, custom strategy scripts or applications) via webhooks with cryptocurrency and stock exchanges. Hence the name Tradleware (trading middleware). It runs entirely on the user's own infrastructure — no third-party services, no subscriptions, no data sharing to make it the safest, most private option for autotrading.
 
 - **License:** GPL v3
 - **Language:** Python 3.11+
