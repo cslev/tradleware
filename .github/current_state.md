@@ -1,6 +1,6 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 21 Mar 2026 (session 3)
+> Last updated: 28 Mar 2026 (session 4)
 
 ---
 
@@ -16,11 +16,6 @@
 
 ## Future Goals
 
-### ~~Consolidate config validation into config_loader~~ ✅ Done
-- `config_loader._validate_bot()` now checks for **missing or empty/null values** (`not bot.get(f)`)
-- Redundant validation block removed from `BaseCryptoTrader.__init__`
-- `BaseStockTrader` gets the same protection for free via the loader
-
 ### IBKR — unimplemented methods (none block current production use)
 - [ ] `fetch_account_value()` — raises `NotImplementedError`. Cash is already fetched inline inside `create_order` via `accountSummaryAsync()`. Only needed for a future dashboard Summary tab.
 - [ ] `cancel_order()` — raises `NotImplementedError`. All orders are market orders that fill immediately; nothing to cancel. Only becomes relevant if limit orders are ever added.
@@ -32,12 +27,6 @@
 - Only worth implementing when a strategy produces specific entry price targets, not just buy/sell signals
 - Required: add optional `order_execution_strategy` field to webhook payload, pass through in `app.py` to `create_order()`
 
-### IBKR Stock Trader Improvements
-- [x] **Fractional share support**: Implemented. Per-bot `{IDENTIFIER}_IBKR_FRACTIONAL_SHARES` env var (default: `false`). `_calculate_order_size` uses `round(x, 4)` vs `int(x)`. Layer 4 uses a status-polling loop (0.5 s × 20 = 10 s max) to catch async rejections (e.g. symbol does not support fractionals), raising `RuntimeError` with a descriptive hint. `app.py` skips the hard `int()` cast when `trader.fractional_shares` is `True`. Not all IBKR-listed symbols support fractional shares — verify before enabling.
-
-### Market hours timezone from env var
-- Currently hardcoded for US/Eastern (`America/New_York`) in `base_stock_trader.py`
-- Should come from an env var to support other exchanges (SGX, HKEX, Euronext) accessible via the same IBKR brokerage
 
 ### Demo / Paper Trading Support (OKX)
 - OKX paper trading lacks functions Tradleware depends on (e.g. fetch_balance). Demo trading support will not be developed. Use `dry_run` in webhooks for testing; note that actual exchange API responses are not captured in dry_run mode.
@@ -55,6 +44,11 @@
 ---
 
 ## Session History
+
+### 28 Mar 2026 (session 4)
+- **Config validation consolidated**: `config_loader._validate_bot()` now rejects empty/null field values (not just missing keys); redundant check removed from `BaseCryptoTrader.__init__`; `BaseStockTrader` gets the same protection via the loader
+- **Market hours configurable per bot**: `base_stock_trader` reads `market_timezone`, `market_open`, `market_close`, `pre_market_open`, `after_hours_close` from YAML config (all optional, US Eastern defaults); `ibkr.yaml.example` documents optional fields with SGX example
+- **pylint**: 10.00/10 maintained
 
 ### 21 Mar 2026 (session 3)
 - **YAML-based bot config system**: replaced `ACTIVE_TRADING_CONFIGS` env var + `{IDENTIFIER}_{EXCHANGE}_*` env vars with per-exchange YAML files in `bot_configs/crypto/` and `bot_configs/stock/`

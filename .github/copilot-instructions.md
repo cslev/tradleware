@@ -193,6 +193,12 @@ bots:
     extended_hours: false
     fractional_shares: false  # not all symbols support this; IBKR rejects if unsupported
     tradleware_api_key: ...   # per-bot webhook auth key
+    # Optional market hours (defaults to US Eastern / NYSE hours):
+    # market_timezone: America/New_York
+    # market_open: "09:30"
+    # market_close: "16:00"
+    # pre_market_open: "04:00"
+    # after_hours_close: "20:00"
 ```
 
 The config is discovered automatically by `src/misc/config_loader.py`. Subclasses receive a `config: dict` and call `super().__init__(config, logger)`.
@@ -201,10 +207,19 @@ The config is discovered automatically by `src/misc/config_loader.py`. Subclasse
 
 | Method | Returns |
 |---|---|
-| `is_market_open()` | `True` during regular hours (9:30–16:00 ET) |
+| `is_market_open()` | `True` during regular hours (per bot config; default 9:30–16:00 ET) |
 | `can_trade_now()` | `True` if regular hours, or extended hours when `extended_hours=True` |
 | `get_market_status()` | `'open'`, `'pre-market'`, `'after-hours'`, or `'closed'` |
 | `get_time_until_market_opens()` | Human-readable string e.g. `"2h 34m"`, or `None` if open |
+
+Market hours are configured per bot in the YAML (all optional, US Eastern defaults):
+```yaml
+    market_timezone: America/New_York  # IANA timezone; default: America/New_York
+    market_open: "09:30"               # default: 09:30
+    market_close: "16:00"              # default: 16:00
+    pre_market_open: "04:00"           # default: 04:00
+    after_hours_close: "20:00"         # default: 20:00
+```
 
 Always call `can_trade_now()` before placing orders.
 
@@ -240,6 +255,7 @@ async def create_order(self,
 ## Current State & Active Goals
 
 See [.github/current_state.md](current_state.md) for the latest project status and active development goals. Any time you make progress on a goal, update that file to reflect the new state — this is crucial for maintaining context across sessions and ensuring the next session can pick up right where you left off without needing to re-explain everything.
+Once a future goal or feature is completed, **remove it from the Future Goals section entirely** and record it in the Session History with a brief note. Do not keep completed items with strikethrough.
 
 ---
 
