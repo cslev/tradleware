@@ -143,6 +143,9 @@ src/strategies/
 .venv
 env/
 venv/
+
+# Local/personal compose overrides
+docker-compose.pi.yml
 ENV/
 env.bak/
 venv.bak/

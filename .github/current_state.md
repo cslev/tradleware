@@ -1,16 +1,19 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 28 Mar 2026 (session 4)
+> Last updated: 28 Mar 2026 (session 5)
 
 ---
 
 ## Current State
 
-**v3.0 in development**
+**v3.0 / v3.0.1 released**
 
-- All crypto traders (OKX, Crypto.com, IR) fully layered: `create_order` has validation, market/balance context, sizing, and execution in all three. `_safe_amount_to_precision` in base class guards against exchange precision quirks. Real-market and dry_run tested.
-- IBKR stock trader (Layers 1–4) operational: webhook-driven buy/sell working, `dry_run` supported, connection state tracking reliable.
+- All crypto traders (OKX, Crypto.com, IR) fully operational.
+- IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
+- Starlette ≥0.36 `TemplateResponse` API break fixed — dashboard renders correctly.
+- Logger enhanced: function name + line number in all log lines; uncaught exceptions captured to log file via `sys.excepthook`.
 - pylint score: **10.00/10** across all of `src/`
+- Multi-arch Docker image (`amd64` + `arm64`) published to Docker Hub as `cslev/tradleware:latest` and `cslev/tradleware:v3.0`.
 
 ---
 
@@ -44,6 +47,15 @@
 ---
 
 ## Session History
+
+### 28 Mar 2026 (session 5)
+- **Starlette ≥0.36 `TemplateResponse` fix**: updated `app.py` render calls to new `TemplateResponse(request, name, context)` signature; fixes `TypeError: unhashable type: 'dict'` crash on all page loads
+- **Logger: function name + line number**: format string updated to include `%(funcName)s-(line %(lineno)d)` in both console and file handlers
+- **Logger: uncaught exception capture**: `_install_global_excepthook()` routes all unhandled exceptions to the log file via `sys.excepthook`
+- **Docker Compose env var quoting fix**: removed inner `"` quotes from `environment:` values; these are passed literally by Compose, causing `ib_gateway` crash loop
+- **README restructured**: linear "Getting Started" 4-step flow; webhook payload section with JSON example; `BUILD.md` pointer; `tradleware_v3.png` screenshot
+- **`.gitignore`**: added `docker-compose.pi.yml` pattern for local compose overrides
+- **Multi-arch image pushed**: `cslev/tradleware:latest` + `cslev/tradleware:v3.0` (amd64 + arm64) on Docker Hub
 
 ### 28 Mar 2026 (session 4)
 - **Config validation consolidated**: `config_loader._validate_bot()` now rejects empty/null field values (not just missing keys); redundant check removed from `BaseCryptoTrader.__init__`; `BaseStockTrader` gets the same protection via the loader

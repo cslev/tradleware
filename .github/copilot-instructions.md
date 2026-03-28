@@ -178,7 +178,7 @@ IBKR bot config lives in `bot_configs/stock/ibkr.yaml`. The YAML contains a `gat
 
 ```yaml
 gateway:
-  host: 127.0.0.1
+  host: ib_gateway  # Docker container name; use 127.0.0.1 only when running outside Docker
   port: 8888
   # Credentials and trading mode live in .env.ibkr at the project root (for Docker only)
 
@@ -290,6 +290,24 @@ This ensures the next session can immediately pick up from where we left off wit
 - Always run `pylint` on the changed files and make sure the score is 10.00/10 before committing. This ensures that the code quality remains high and consistent across the project.
 
 ### Build instructions
-- Once you are instructed to build the project, use `docker-compose -f docker-compose.yml build ` to build the Docker image with the latest tag in the root directory of the project.
-- For the command, you might need to use `sudo` depending on the permissions of your Docker setup. If you encounter permission issues, try `sudo docker-compose -f docker-compose.yml build` instead.
-- Before building, if there is a version number change, make sure to update the version in `app.py` and `.github/current_state.md` to reflect the new version under development. Also update the tag in `docker-compose.yml` file's `build` sectionto match the new version, **but keep the latest as well**, so we should have two tags: **latest** and **new version**. This keeps our documentation accurate and helps us track which features and fixes are included in each version.
+- Before building, if there is a version number change, make sure to update the version in `app.py` and `.github/current_state.md` to reflect the new version under development. Also update the tag in `docker-compose.yml` file's `build` section to match the new version, **but keep the latest as well**, so we should have two tags: **latest** and **new version**.
+- The project uses **multi-arch builds** (amd64 + arm64) via Docker Buildx so the image works on both x86 servers and Raspberry Pi.
+- **One-time builder setup** (only needed once per machine):
+  ```bash
+  docker buildx create --name multiarch --driver docker-container --use
+  docker buildx inspect --bootstrap
+  ```
+- **To build and push to Docker Hub** (replace `vX.Y` with the new version):
+  ```bash
+  docker buildx build \
+    --platform linux/amd64,linux/arm64 \
+    --tag cslev/tradleware:latest \
+    --tag cslev/tradleware:vX.Y \
+    --push \
+    .
+  ```
+  Note: `--push` is required for multi-arch builds — they cannot be loaded to the local Docker daemon.
+- **To test locally** (single-arch, no push):
+  ```bash
+  docker buildx build --platform linux/amd64 --tag cslev/tradleware:latest --load .
+  ```

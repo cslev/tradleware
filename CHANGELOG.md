@@ -43,7 +43,17 @@ All per-bot settings have moved from environment variables into dedicated YAML f
 - **IBKR connection state staleness** — `_sync_connection_state()` and `_handle_ib_exception()` applied to all IB API call sites to detect and recover from silent disconnections
 - **`dry_run` simulation fallback** — real balance fetch is attempted first; simulated values only used when gateway is unreachable
 - **9 additional bugs fixed** across all trader classes and `app.py` (order logging edge cases, balance fetch race conditions, precision handling)
+- **Starlette ≥ 0.36 `TemplateResponse` API break** — updated both `index.html` and `login.html` render calls in `app.py` from the old `TemplateResponse(name, {"request": request, ...})` signature to the new `TemplateResponse(request, name, {...})` signature; fixes `TypeError: unhashable type: 'dict'` crash on every page load
+- **Docker Compose environment variable quoting** — removed extraneous inner quotes from `environment:` values in compose files; Docker Compose passes them literally, causing `GATEWAY_OR_TWS must be either 'gateway' or 'tws': got '"gateway"'` crash loop in `ib_gateway`
 
+### Improvements
+- **Logger: function name and line number** — log format now includes `%(funcName)s-(line %(lineno)d)` for both the console (colored) and file handlers, making it significantly easier to trace log output back to the exact source location
+- **Logger: uncaught exception capture** — `_install_global_excepthook()` installed on first `CustomLogger` instantiation; routes all unhandled exceptions through the logging system (CRITICAL level) so they appear in the log file as well as stdout; `KeyboardInterrupt` is passed through unchanged
+- **README restructured for end users** — "Getting Started" replaces the old "Docker Deployment" section; linear 4-step flow (clone → configure bots → configure `.env` → run); no more build/source references in the main path; dev/build content lives in `BUILD.md`
+- **README: webhook payload documented** — new "Webhook Payload" subsection with full JSON example and field reference table; pointer to dashboard Webhook Details pane
+- **`docker-compose.pi.yml` gitignored** — personal/local compose override files are no longer tracked
+
+---
 #### Technical Improvements
 - **Config validation consolidated** — `config_loader._validate_bot()` is the single source of truth for required-field checks; redundant validation block removed from `BaseCryptoTrader.__init__`; `BaseStockTrader` is protected via the same loader
 - **IBKR unimplemented stubs** — `fetch_account_value()`, `cancel_order()`, `fetch_open_orders()` raise `NotImplementedError` with explanatory docstrings instead of returning silent falsy values
