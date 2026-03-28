@@ -16,11 +16,10 @@
 
 ## Future Goals
 
-### Consolidate config validation into config_loader
-- Currently `config_loader._validate_bot()` checks for **key existence** (missing fields → bot skipped)
-- `BaseCryptoTrader.__init__` also checks the same fields for **non-empty values** (present but blank → `ValueError`)
-- `BaseStockTrader.__init__` does neither — bare `config['key']` would raise `KeyError` only
-- Plan: move the empty-value check into `config_loader._validate_bot()` (falsy values treated as missing), then remove the redundant block from `BaseCryptoTrader`; add equivalent guard to `BaseStockTrader` or rely on the loader entirely
+### ~~Consolidate config validation into config_loader~~ ✅ Done
+- `config_loader._validate_bot()` now checks for **missing or empty/null values** (`not bot.get(f)`)
+- Redundant validation block removed from `BaseCryptoTrader.__init__`
+- `BaseStockTrader` gets the same protection for free via the loader
 
 ### IBKR — unimplemented methods (none block current production use)
 - [ ] `fetch_account_value()` — raises `NotImplementedError`. Cash is already fetched inline inside `create_order` via `accountSummaryAsync()`. Only needed for a future dashboard Summary tab.

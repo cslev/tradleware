@@ -86,12 +86,12 @@ def _load_yaml_file(path: Path) -> dict:
 
 
 def _validate_bot(bot: dict, required: set, source: str) -> bool:
-  """Return True if the bot dict contains all required fields."""
-  missing = required - set(bot.keys())
+  """Return True if the bot dict contains all required fields with non-empty values."""
+  missing = {f for f in required if not bot.get(f)}
   if missing:
     _loader_logger.warning(
       f"Skipping bot '{bot.get('id', '<no id>')}' in {source}: "
-      f"missing required fields: {', '.join(sorted(missing))}"
+      f"missing or empty required fields: {', '.join(sorted(missing))}"
     )
     return False
   return True

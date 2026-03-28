@@ -55,16 +55,6 @@ class BaseCryptoTrader(ABC):
     self.tradleware_api_key = config['tradleware_api_key']
     self.trading_pair_valid = None
 
-    # Validate required fields are non-empty
-    required_fields = ['api_key', 'secret_key', 'hostname',
-                       'stablecoin_fiat_pair', 'crypto_stablecoin_pair', 'tradleware_api_key']
-    missing = [f for f in required_fields if not config.get(f)]
-    if missing:
-      raise ValueError(
-        f"Bot '{self.account_identifier}' ({self.exchange_id}): "
-        f"missing required config fields: {', '.join(missing)}"
-      )
-
     # Validate and derive currency components from stablecoin_fiat_pair
     parts = self.stablecoin_fiat_pair.split("/")
     if len(parts) != 2 or not parts[0] or not parts[1]:
