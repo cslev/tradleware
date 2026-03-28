@@ -136,7 +136,10 @@ celerybeat.pid
 
 # Environments
 .env
+.env.ibkr
 .envrc
+*.bkp
+src/strategies/
 .venv
 env/
 venv/

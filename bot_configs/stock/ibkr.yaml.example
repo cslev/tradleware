@@ -11,11 +11,7 @@
 gateway:
   host: "127.0.0.1"           # IB Gateway host (auto-forwarded in Docker)
   port: 8888                  # ghcr.io/extrange/ibkr:stable uses this port for both paper/live
-  username: "your_ib_username"
-  password: "your_ib_password"
-  trading_mode: "live"        # "paper" or "live"
-  vnc_password: "changeme"    # For accessing IB Gateway UI on headless setups
-  read_only: false
+  # Credentials and trading mode are configured in .env.ibkr at the project root (for Docker only)
 
 bots:
   - id: myapplebot                        # Used as trader_id in webhook payloads

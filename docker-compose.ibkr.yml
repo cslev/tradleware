@@ -5,20 +5,11 @@ services:
     restart: unless-stopped
     ulimits:
       nofile: 10000
+    env_file:
+      - .env.ibkr
     environment:
-      # IBKR Credentials - set these in your .env file
-      USERNAME: ${IBKR_USERNAME}
-      PASSWORD: ${IBKR_PASSWORD}
-      
       # What to start: 'gateway' (lighter) or 'tws' (full platform)
       GATEWAY_OR_TWS: gateway
-      
-      # Trading mode: 'paper' for paper trading, 'live' for live trading
-      IBC_TradingMode: ${IBKR_TRADING_MODE:-paper}
-      
-      # Read-only API mode (safer - no orders will be placed if 'yes')
-      IBC_ReadOnlyApi: ${IBKR_READ_ONLY:-'no'}
-      
       # Auto-restart after logoff (recommended for automated trading)
       TWOFA_TIMEOUT_ACTION: restart
     ports:
