@@ -28,4 +28,4 @@ services:
 
 networks:
   tradleware-network:
-    driver: bridge
+    external: true

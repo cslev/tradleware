@@ -34,7 +34,7 @@ IBC_ReadOnlyApi=no
 
 ```yaml
 gateway:
-  host: "127.0.0.1"   # IB Gateway host
+  host: "ib_gateway"   # Docker container name — resolves via tradleware-network DNS
   port: 8888           # extrange/ibkr image always uses 8888 for both paper and live
 
 bots:

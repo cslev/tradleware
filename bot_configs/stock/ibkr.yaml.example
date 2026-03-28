@@ -9,7 +9,8 @@
 # ---------------------------------------------------------------
 
 gateway:
-  host: "127.0.0.1"           # IB Gateway host (auto-forwarded in Docker)
+  host: "ib_gateway"          # Docker container name — resolves via tradleware-network DNS
+                               # Use "127.0.0.1" only when running Tradleware outside Docker (dev/test)
   port: 8888                  # ghcr.io/extrange/ibkr:stable uses this port for both paper/live
   # Credentials and trading mode are configured in .env.ibkr at the project root (for Docker only)
 
