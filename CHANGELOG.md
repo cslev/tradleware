@@ -5,6 +5,52 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0] - 2026-03-28
+
+### 📈 Stock Trading — IBKR Integration & Major Refactor
+![Tradleware v3 Crypto.com](screenshots/tradleware_v3.png)
+
+#### 🆕 Interactive Brokers (IBKR) Stock Trader
+Tradleware now supports **stock trading** via Interactive Brokers — the first broker integration on the stock side.
+
+- **Webhook-driven buy/sell** — same webhook format as crypto; send `buy`/`sell` signals from TradingView or any strategy source and Tradleware will place market orders through IB Gateway
+- **`dry_run` support** — simulates orders without executing them; attempts a real balance fetch first and only falls back to simulated values (`$10k` / `10 shares`) when the gateway is genuinely unreachable
+- **Fractional shares** — `fractional_shares: true/false` per bot in `ibkr.yaml`; the trader calculates fractional quantities when enabled (note: not all symbols support this — IBKR rejects unsupported ones)
+- **Extended hours trading** — configurable per bot via `extended_hours: true/false`; when enabled, orders are placed outside regular market hours
+- **Market hours awareness** — `is_market_open()`, `can_trade_now()`, `get_market_status()`, `get_time_until_market_opens()` helpers built into `BaseStockTrader`; the trader checks hours before placing any order
+- **Configurable market hours per bot** — `market_timezone`, `market_open`, `market_close`, `pre_market_open`, `after_hours_close` can be set per bot in `ibkr.yaml` (all optional; default: US Eastern / NYSE hours); supports any IANA timezone string (e.g. `Asia/Singapore` for SGX)
+- **Robust connection management** — `_sync_connection_state()` and `_handle_ib_exception()` detect and recover from silent IB Gateway disconnections; applied to all IB API call sites
+- **Per-account multi-bot support** — each bot has its own `account_id`, `symbol`, and `tradleware_api_key` in `ibkr.yaml`; the shared `gateway` block configures the IB Gateway container (host, port, trading mode, VNC password)
+- **Dockerized IB Gateway** — `docker-compose.ibkr.yml` provides a ready-to-use IB Gateway container alongside Tradleware; see `IBKR_SETUP.md` for full setup instructions
+- **`BaseStockTrader`** defines the abstract contract for all future broker integrations; `IBKRTrader` is the first concrete implementation
+
+#### 🏗️ Breaking Changes — YAML-based bot configuration
+All per-bot settings have moved from environment variables into dedicated YAML files:
+- `bot_configs/crypto/` — one file per exchange (e.g. `okx.yaml`, `cryptocom.yaml`, `ir.yaml`)
+- `bot_configs/stock/` — one file per broker (e.g. `ibkr.yaml`)
+- `ACTIVE_TRADING_CONFIGS` and all `{IDENTIFIER}_{EXCHANGE}_*` env vars removed from `.env`
+- `.env` now only contains Tradleware-level settings (dashboard auth, logging, webhook path, Gotify)
+- Each bot is defined by an `id` field (lowercase) used as `trader_id` in webhook payloads — **update your TradingView alert payloads accordingly**
+- See `.yaml.example` files in `bot_configs/` for the full structure
+
+#### New Features
+- **`src/misc/config_loader.py`** — new module; `get_bot_configs()` scans YAML files and returns a flat list of typed config dicts; validates required fields (including empty/null value checks) at load time and skips invalid bots with a warning
+- **Dashboard live crypto price** — new `/price/{trader_id}` endpoint; price is fetched separately alongside balance and displayed in the Account Balances panel on each crypto bot card
+- **`app.py` lifespan rewritten** — iterates `get_bot_configs()` instead of parsing env vars; trader dict key is now the lowercase bot `id`
+- **All trader `__init__` signatures updated** — now accept a single `config: dict` instead of individual positional parameters
+
+#### Bug Fixes
+- **IBKR connection state staleness** — `_sync_connection_state()` and `_handle_ib_exception()` applied to all IB API call sites to detect and recover from silent disconnections
+- **`dry_run` simulation fallback** — real balance fetch is attempted first; simulated values only used when gateway is unreachable
+- **9 additional bugs fixed** across all trader classes and `app.py` (order logging edge cases, balance fetch race conditions, precision handling)
+
+#### Technical Improvements
+- **Config validation consolidated** — `config_loader._validate_bot()` is the single source of truth for required-field checks; redundant validation block removed from `BaseCryptoTrader.__init__`; `BaseStockTrader` is protected via the same loader
+- **IBKR unimplemented stubs** — `fetch_account_value()`, `cancel_order()`, `fetch_open_orders()` raise `NotImplementedError` with explanatory docstrings instead of returning silent falsy values
+- **pylint**: 10.00/10 maintained across all of `src/`
+
+---
+
 ## [v2.1] - 2025-11-01
 
 ### 🎉 New Exchange & Improvements

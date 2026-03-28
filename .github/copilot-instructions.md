@@ -180,11 +180,7 @@ IBKR bot config lives in `bot_configs/stock/ibkr.yaml`. The YAML contains a `gat
 gateway:
   host: 127.0.0.1
   port: 8888
-  username: your_ibkr_username
-  password: your_ibkr_password
-  trading_mode: live          # 'paper' or 'live'
-  vnc_password: changeme
-  read_only: false
+  # Credentials and trading mode live in .env.ibkr at the project root (for Docker only)
 
 bots:
   - id: myapplebot            # lowercase, used as trader_id in webhooks
@@ -291,3 +287,9 @@ This ensures the next session can immediately pick up from where we left off wit
 - Always use 2-space indentation 
 - always put imports on the top and follow the existing import patterns in the file (e.g. relative vs absolute imports, grouping standard library vs local imports) to make the code consistent and clean and compliant with pylint
 - always avoid trailing whitespaces to be compliant with pylint C0303
+- Always run `pylint` on the changed files and make sure the score is 10.00/10 before committing. This ensures that the code quality remains high and consistent across the project.
+
+### Build instructions
+- Once you are instructed to build the project, use `docker-compose -f docker-compose.yml build ` to build the Docker image with the latest tag in the root directory of the project.
+- For the command, you might need to use `sudo` depending on the permissions of your Docker setup. If you encounter permission issues, try `sudo docker-compose -f docker-compose.yml build` instead.
+- Before building, if there is a version number change, make sure to update the version in `app.py` and `.github/current_state.md` to reflect the new version under development. Also update the tag in `docker-compose.yml` file's `build` sectionto match the new version, **but keep the latest as well**, so we should have two tags: **latest** and **new version**. This keeps our documentation accurate and helps us track which features and fixes are included in each version.

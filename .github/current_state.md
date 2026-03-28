@@ -6,7 +6,7 @@
 
 ## Current State
 
-**v2.2 in development**
+**v3.0 in development**
 
 - All crypto traders (OKX, Crypto.com, IR) fully layered: `create_order` has validation, market/balance context, sizing, and execution in all three. `_safe_amount_to_precision` in base class guards against exchange precision quirks. Real-market and dry_run tested.
 - IBKR stock trader (Layers 1–4) operational: webhook-driven buy/sell working, `dry_run` supported, connection state tracking reliable.
