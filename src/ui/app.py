@@ -251,9 +251,9 @@ async def login_page(request: Request):
   is_secure = is_request_secure(request)
 
   return templates.TemplateResponse(
+    request,
     "login.html",
     {
-      "request": request,
       "error": error,
       "using_defaults": using_defaults,
       "is_secure": is_secure,
@@ -319,9 +319,9 @@ async def read_root(request: Request):
   from_trusted_ip = client_ip in TRUSTED_IPS if TRUSTED_IPS else False
 
   return templates.TemplateResponse(
+    request,
     "index.html",
     {
-      "request": request,
       "title": "Tradleware Dashboard",
       "traders": traders,  # Add the traders dictionary we defined globally
       "log_refresh_interval": log_refresh_interval,  # Pass the refresh interval to template
