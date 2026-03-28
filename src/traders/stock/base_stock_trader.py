@@ -45,12 +45,20 @@ class BaseStockTrader(ABC):
     self.positions = {}  # Current positions {symbol: {quantity, avg_cost, ...}}
     self.cash_available = 0.0
 
-    # Market hours (US Eastern Time)
-    self.market_timezone = ZoneInfo('America/New_York')
-    self.regular_open = time(9, 30)      # 9:30 AM ET
-    self.regular_close = time(16, 0)     # 4:00 PM ET
-    self.pre_market_open = time(4, 0)    # 4:00 AM ET
-    self.after_hours_close = time(20, 0) # 8:00 PM ET
+    # Market hours — read from config with US Eastern defaults
+    tz_str = config.get('market_timezone', 'America/New_York')
+    try:
+      self.market_timezone = ZoneInfo(tz_str)
+    except KeyError:
+      self.logger.warning(
+        f"Unknown timezone '{tz_str}' for {self.account_identifier}, "
+        f"falling back to America/New_York"
+      )
+      self.market_timezone = ZoneInfo('America/New_York')
+    self.regular_open = self._parse_time(config.get('market_open', '09:30'))
+    self.regular_close = self._parse_time(config.get('market_close', '16:00'))
+    self.pre_market_open = self._parse_time(config.get('pre_market_open', '04:00'))
+    self.after_hours_close = self._parse_time(config.get('after_hours_close', '20:00'))
 
     # Log buffer for UI (keep last 50 messages)
     self.log_buffer = deque(maxlen=50)
@@ -61,6 +69,15 @@ class BaseStockTrader(ABC):
 
     self.logger.info(f"BaseStockTrader initialized for {self.account_identifier} - {self.broker_id} - {self.symbol}")
 
+
+  @staticmethod
+  def _parse_time(value: str) -> time:
+    """Parse a 'HH:MM' string into a time object."""
+    try:
+      h, m = value.split(':')
+      return time(int(h), int(m))
+    except (ValueError, AttributeError) as exc:
+      raise ValueError(f"Invalid time format '{value}'. Expected 'HH:MM' (e.g. '09:30').") from exc
 
   def _calculate_order_size(self,
                             side: str,

@@ -24,3 +24,10 @@ bots:
     extended_hours: false                 # Allow pre-market and after-hours trading
     fractional_shares: false              # Enable fractional shares (not all symbols support this)
     tradleware_api_key: "your_tradleware_api_key_here"  # Webhook auth key — generate with: openssl rand -hex 32
+    # Market hours — all optional, defaults are US Eastern (NYSE/NASDAQ)
+    # Use IANA timezone names: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+    # market_timezone: "America/New_York"  # Default. Use e.g. "Asia/Singapore" for SGX
+    # market_open: "09:30"                 # Default. SGX: "09:00"
+    # market_close: "16:00"               # Default. SGX: "17:00"
+    # pre_market_open: "04:00"            # Default. SGX: "08:30"
+    # after_hours_close: "20:00"          # Default. SGX: "17:00"
