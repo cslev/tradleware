@@ -26,6 +26,30 @@ log_level_colors = {
 
 }
 
+_excepthook_installed = False
+
+def _install_global_excepthook(logger_instance):
+  """Install a sys.excepthook that routes unhandled exceptions through the logging system.
+
+  Only installed once regardless of how many CustomLogger instances are created.
+  """
+  global _excepthook_installed  # pylint: disable=global-statement
+  if _excepthook_installed:
+    return
+  _excepthook_installed = True
+
+  def _handle_exception(exc_type, exc_value, exc_tb):
+    if issubclass(exc_type, KeyboardInterrupt):
+      # Let Ctrl+C behave normally
+      sys.__excepthook__(exc_type, exc_value, exc_tb)
+      return
+    logger_instance.logger.critical(
+      "Uncaught exception", exc_info=(exc_type, exc_value, exc_tb)
+    )
+
+  sys.excepthook = _handle_exception
+
+
 class ColoredFormatter(logging.Formatter):
   def format(self, record):
     # Store original levelname and message to restore after formatting
@@ -106,7 +130,7 @@ class CustomLogger:
       ch = logging.StreamHandler(sys.stdout)
       ch.setLevel(self.general_log_level)
       # Create a formatter with the current log level colors
-      formatter = ColoredFormatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
+      formatter = ColoredFormatter('%(asctime)s - [%(name)s] - %(funcName)s-(line %(lineno)d) - %(levelname)s - %(message)s',
                                    datefmt='%Y-%m-%d %H:%M:%S')
       ch.setFormatter(formatter)
 
@@ -118,12 +142,15 @@ class CustomLogger:
       logfile = logs_dir / logfile_name
       fh = logging.FileHandler(logfile, mode='a') #rewrite the logfile always
       fh.setLevel(self.general_log_level)
-      fh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
+      fh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(funcName)s-(line %(lineno)d) - %(levelname)s - %(message)s',
                                         datefmt='%Y-%m-%d %H:%M:%S'))
 
       # Add the handlers to the logger
       self.logger.addHandler(ch)
       self.logger.addHandler(fh)
+
+    # Route uncaught exceptions to the log file (installed once globally)
+    _install_global_excepthook(self)
 
   def debug(self, message, exc_info=False):
     self.logger.debug(message, exc_info=exc_info)
