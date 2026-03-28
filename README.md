@@ -1,4 +1,4 @@
-# TRADLEWARE
+# 🛡️ Tradleware: The Sovereign Trading Appliance
 
 <p align="center">
   <img src="src/ui/static/images/logos/logo_v5_horizontal.jpg" alt="Tradleware Logo" width="800">
@@ -16,103 +16,104 @@
 
 
 
-**Tradleware** is a **free, open-source autotrading middleware** that bridges the gap between your trading strategies and cryptocurrency/stock exchanges—built with **privacy-and-security-by-design** from Singapore 🇸🇬 with love (with a Hungarian researcher's obsession with efficiency, paprika-level debugging, and the belief that if it's worth automating, it's worth over-engineering at 3 AM with coffee ☕🇭🇺).
+## Own your infrastructure. Own your alpha.
 
-## High-level Architecture of Tradleware
+Tradleware (*/ˈtreɪ.dəl.wɛər/*) is a free, open-source autotrading middleware that bridges the gap between your trading strategies and the world’s most regulated exchanges. Tradleware is **Security-by-Design**, born from a unique intersection of two worlds:
+
+- Built in Singapore 🇸🇬: Tailored for the world’s most rigorous regulatory environment.
+- Hungarian Engineering 🇭🇺: Forged with the obsessive precision of a PhD in Computer Science and the "Zero-Trust" mindset of a Cybersecurity Researcher.
+
+If a system isn't hardened, audited, and optimized for 24/7 reliability, it isn't worth running. 
+
+**Tradleware** isn't just a script; it’s a high-performance engine for traders who treat their capital like a mission-critical asset.
+
+## Why Tradleware?
+Most "trading bridges" are black boxes in the cloud that demand your API keys and a monthly subscription. Tradleware is different. It is a Sovereign Appliance designed to run on a Raspberry Pi or your home lab.
+
+The "dle" in Tradleware stands for Cradle: our mission is to cradle your sensitive credentials and logic safely within your own network. Your keys never leave your sight. No third-party services. No data harvesting. No "subscription tax." Just raw, private execution.
+
+
+## 🛠️ High-Level Architecture
+Tradleware acts as the hardened "Switchboard" between your signals and the market:
+1.  **Ingress:** Listen on an unpredictable, custom webhook path for JSON signals.
+2.  **Validation:** Verify signals against local, YAML-defined bot configurations.
+3.  **Processing:** Apply custom logic (sizing, fractional checks, fiat-to-stablecoin conversion).
+4.  **Execution:** Secure, local dispatch to the Exchange/Broker API.
 <p align="center">
-  <img src="src/ui/static/images/architecture_v2.1.jpg" alt="Tradleware architecture" width="800">
+  <img src="src/ui/static/images/architecture_v2.2.jpg" alt="Tradleware architecture" width="800">
 </p>
 
-Take full control of your automated trading without compromising your security. Tradleware runs entirely on **your own infrastructure**, meaning your exchange API keys never leave your servers. No third-party services. No data sharing. No subscription fees. Just you, your strategies, and your trades.
+## 🏛️ The Singapore Advantage (MAS-Regulated)
+**Tradleware** is engineered for the Monetary Authority of Singapore (MAS) regulatory framework. Eschewing offshore "ghost" exchanges, it provides native, high-performance execution for Major Payment Institution (MPI) licensed platforms including Interactive Brokers (IBKR) for professional-grade TradFi, Independent Reserve for institutional crypto-fiat rails, and OKX and Crypto.com for liquid, fully-licensed spot markets.
 
-Designed to capture webhooks from popular strategy platforms like **TradingView**, Tradleware validates, processes, and executes trades automatically on exchanges that meet Singapore's rigorous regulatory standards. While my focus is on exchanges approved or being approved by the **Monetary Authority of Singapore (MAS)**—ensuring they've passed through stringent vetting processes—Tradleware can be used anywhere in the world. I simply believe in building on platforms that prioritize compliance, security, and trader protection.
+## 🚀 Key Features
 
-**Key Philosophy:**
-- 🔒 **Privacy First**: Your API keys, your data, your control
-- 💰 **Completely Free**: No hidden costs, no subscriptions, free forever (How ah? coz how i charge u if you run it at home ah??)
-- 🤖 **Automation Done Right**: Secure webhook processing with built-in safety checks
-- 🏛️ **Regulatory Focus**: Prioritizing MAS-compliant exchanges for peace of mind
-- 🌏 **Global Ready**: Use it anywhere, with any supported exchange
+### **🔒 Maximum Operational Security**
+* **Zero-Trust Architecture:** 100% on-premise. Your API keys never leave your network.
+* **The "Cradle" Concept:** Designed to cradle your private credentials safely within your own infrastructure, protecting them from third-party "black box" vulnerabilities.
+* **Webhook Hardening:** Custom endpoints (e.g., changing `/webhook` to an unpredictable path) via `.env` to stay invisible to scanners and block DDoS/Spam bots.
+* **Trusted IP Auto-Login:** Optimized for keyboard/mouse-less Raspberry Pi setups—auto-login from your trusted home subnet only.
+* **E2E Visibility:** Persistent dashboard indicators confirm your session is encrypted end-to-end.
 
-Whether you're running sophisticated algorithmic strategies or simple indicator-based alerts, Tradleware ensures your trades execute reliably, securely, and automatically—all while keeping your sensitive data exactly where it belongs: with you.
+### **📉 Precision Execution & Logic**
+
+* **Hybrid Trade Sizing:** Support for both **Percentage-based** and **Fixed Quantity** trading—essential for traditional stocks that do not support fractional shares.
+* **Conflict-Free ROI:** Tradleware is broker-agnostic. It executes *your* logic, not an exchange's "AI bot" designed to farm transaction fees.
+* **The "USB-C" of Trading:** Pluggable and extensible. Are you a developer? Inject custom Python logic *after* a signal arrives but *before* it hits the exchange.
+
+### **🌱 Efficiency & Sustainability**
+* **The 15W Trading Desk:** Specifically tuned for ARM/Raspberry Pi. Run 24/7 with a carbon footprint smaller than a household lightbulb.
+* **Docker-First:** One-command deployment for both the middleware and the IBKR Gateway.
+* **Real-time Monitoring:** FastAPI Web UI with color-coded logs and **Gotify** push notifications.
+
+
+## 💰 Why Free?
+"How I charge you if you run it at home ah?" 🇸🇬  
+
+Tradleware is open-source because financial sovereignty shouldn't have a middleman tax. If you find value in the research, feel free to contribute to the code or the project.
 
 ---
 
-## Features
+<p align="center">
+  <img src="screenshots/tradleware_v3.png" alt="Tradleware v3 Dashboard" width="50%">
+</p>
 
-- **Multi-Exchange Support**: OKX, Independent Reserve, Crypto.com, and IBKR (extensible for other exchanges/brokers)
-- **YAML Bot Config**: Each bot is configured via a simple YAML file — no env var juggling, no naming conventions to memorize
-- **Web UI**: FastAPI-based web interface for monitoring and controlling trading bots
-- **Real-time Logging**: Color-coded logs with real-time updates in the web interface
-- **Webhook Integration**: Secure webhook endpoints for automated trading signals
-- **Gotify Notifications**: Real-time push notifications for trading events
-- **Convert Functionality**: Automatic fiat to stablecoin conversion
+## Getting Started
 
-![Tradleware v2.0 Dashboard](screenshots/tradleware_v2.png)
+Tradleware runs from a pre-built Docker image — no compilation, no Python setup required. All you need is Docker, your exchange API keys, and the config template files.
 
-## Docker Deployment
+### Step 1 — Get the deployment files
 
-The easiest way to run Tradleware is using Docker. You have two options:
-
-### Option 1: Pull Pre-built Image from Docker Hub (Recommended)
-
-The fastest way to get started - no compilation needed! Just pull the official image (latest for `amd64`):
+Clone the repo to get `docker-compose.yml` and all config templates. You won't touch the source code — this is just the quickest way to get everything in one step:
 
 ```bash
-docker pull cslev/tradleware:latest
-```
-For different versions and architectures, visit [Dockerhub](https://hub.docker.com/repository/docker/cslev/tradleware/tags).
-
-Then run using docker-compose (see [Configure Environment Variables](#configure-environment-variables) section below first):
-
-```bash
-docker-compose up -d
+git clone --depth 1 https://github.com/cslev/tradleware
+cd tradleware
 ```
 
-**Benefits:**
-- ⚡ No build time - instant deployment
-- ✅ Pre-tested stable release
-- 🔄 Easy updates with `docker pull cslev/tradleware:latest`
+> `--depth 1` fetches only the latest snapshot — no full git history, minimal download.
 
-### Option 2: Build from Source
+### Step 2 — Configure your bots
 
-If you prefer to build locally or want to modify the code:
+Tradleware uses two config layers:
 
-Navigate to the project root and build the image:
-
-```bash
-cd /path/to/tradleware
-docker-compose build
-```
-
-This will:
-- Use Python 3.11 slim image as the base
-- Install all dependencies from `src/requirement.txt`
-- Set up the application with proper permissions
-- Configure health checks for monitoring
-
-### Configure Bot Settings
-
-Tradleware uses **two separate config layers**:
-
-- **`bot_configs/`** — per-exchange YAML files holding API keys, trading pairs, and bot IDs (gitignored, stays on your server)
+- **`bot_configs/`** — per-exchange YAML files with API keys and bot settings (gitignored, stays on your server)
 - **`.env`** — Tradleware-level settings only (dashboard auth, webhook path, logging, Gotify)
 
-#### Step 1 — Set up your bot YAML files
-
-Copy the example files and fill in your credentials:
+Copy only the example files for the exchanges you use:
 
 ```bash
-# Crypto exchanges
-cp bot_configs/crypto/okx.yaml.example      bot_configs/crypto/okx.yaml
+# Crypto (copy only what you need)
+cp bot_configs/crypto/okx.yaml.example       bot_configs/crypto/okx.yaml
 cp bot_configs/crypto/cryptocom.yaml.example bot_configs/crypto/cryptocom.yaml
 cp bot_configs/crypto/ir.yaml.example        bot_configs/crypto/ir.yaml
 
-# Stock brokers
+# Stock (IBKR) — also needs .env.ibkr for the gateway container credentials
 cp bot_configs/stock/ibkr.yaml.example bot_configs/stock/ibkr.yaml
+cp .env.ibkr.example                   .env.ibkr
 ```
 
-Each YAML file follows this structure (example: `bot_configs/crypto/okx.yaml`):
+Edit each file with your real credentials. Example structure for `bot_configs/crypto/okx.yaml`:
 
 ```yaml
 bots:
@@ -120,117 +121,84 @@ bots:
     api_key: your_okx_api_key
     secret_key: your_okx_secret_key
     passphrase: your_okx_passphrase
-    subaccount_name: MySubaccount
+    subaccount_name: your_subaccount_name #always better to have a separate subaccount for trading strategies
     hostname: my.okx.com
     stablecoin_fiat_pair: USDT/SGD
     crypto_stablecoin_pair: BTC/USDT
     tradleware_api_key: your_webhook_auth_key  # openssl rand -hex 32
 ```
 
-For the IBKR broker, `bot_configs/stock/ibkr.yaml` has a shared `gateway` block plus a `bots` list — see `ibkr.yaml.example` for the full structure.
+For IBKR, see `bot_configs/stock/ibkr.yaml.example` for the full structure and [IBKR_SETUP.md](IBKR_SETUP.md) for the gateway setup.
 
-You only need the YAML files for the exchanges you actually use. Unused files can be left out entirely.
-
-#### Step 2 — Set up `.env`
-
-The `.env` file contains **only Tradleware-level settings** — no bot secrets:
+### Step 3 — Configure `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-#### `.env` Reference
+Minimum settings to change:
+
+```env
+DASHBOARD_USERNAME="yourusername"
+DASHBOARD_PASSWORD="your-secure-password"
+
+# Randomize the webhook path to protect against automated scans
+# Generate with: pwgen -n 14
+WEBHOOK_PATH="ka8Moh4aiNgai4"
+```
+
+#### Full `.env` reference
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| **Dashboard & Security** |
-| `DASHBOARD_USERNAME` | No | `admin` | Username for dashboard login |
-| `DASHBOARD_PASSWORD` | No | `changeme` | Password for dashboard login (⚠️ **Change this!**) |
-| `SESSION_SECRET_KEY` | No | Auto-generated | Secret key for session encryption. Generate with `openssl rand -hex 32` |
-| `WEBHOOK_PATH` | No | `webhook` | Custom webhook endpoint path for security (e.g., `ka8Moh4aiNgai4`). Generate with `pwgen -n 14` |
-| `TRUSTED_IPS` | No | - | Comma-separated IPs that bypass authentication (e.g., `127.0.0.1,192.168.1.100`) |
-| **UI Configuration** |
-| `LOG_REFRESH_INTERVAL_MS` | No | `5000` | Dashboard log refresh interval in milliseconds |
-| **Logging** |
-| `LOG_LEVEL` | No | `10` | Minimum log level (10=DEBUG, 20=INFO, 25=SUCCESS, 30=WARNING, 40=ERROR, 50=CRITICAL) |
-| **Gotify Notifications** |
-| `GOTIFY_SERVER_URL` | No | - | Your Gotify server URL (e.g., `https://gotify.example.com`) |
-| `GOTIFY_APP_TOKEN` | No | - | Gotify application token for sending notifications |
-| `GOTIFY_LOG_LEVEL` | No | `30` | Minimum log level for Gotify notifications |
+| `DASHBOARD_USERNAME` | No | `admin` | Dashboard login username |
+| `DASHBOARD_PASSWORD` | No | `changeme` | Dashboard login password (⚠️ **Change this!**) |
+| `SESSION_SECRET_KEY` | No | Auto-generated | Session encryption key — `openssl rand -hex 32` |
+| `WEBHOOK_PATH` | No | `webhook` | Webhook URL path — randomize for security (`pwgen -n 14`) |
+| `TRUSTED_IPS` | No | — | Comma-separated IPs that bypass authentication |
+| `LOG_REFRESH_INTERVAL_MS` | No | `5000` | Dashboard log refresh interval (ms) |
+| `LOG_LEVEL` | No | `10` | Min log level: 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR |
+| `GOTIFY_SERVER_URL` | No | — | Gotify server URL for push notifications |
+| `GOTIFY_APP_TOKEN` | No | — | Gotify application token |
+| `GOTIFY_LOG_LEVEL` | No | `30` | Min log level for Gotify notifications |
 
-#### Quick Setup
-
-1. **Copy and fill in your bot YAML file(s)**:
-   ```bash
-   cp bot_configs/crypto/okx.yaml.example bot_configs/crypto/okx.yaml
-   # edit bot_configs/crypto/okx.yaml with your real API keys
-   ```
-
-2. **Copy and configure `.env`**:
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **Configure dashboard security** in `.env`:
-   ```env
-   DASHBOARD_USERNAME="yourusername"
-   DASHBOARD_PASSWORD="your-secure-password"
-   
-   # Generate random webhook path for security (use: pwgen -n 14)
-   WEBHOOK_PATH="ka8Moh4aiNgai4"
-   
-   # Optional: Generate session secret (use: openssl rand -hex 32)
-   SESSION_SECRET_KEY="your-generated-session-secret"
-   ```
-
-4. **Optional: Configure Gotify notifications** in `.env`:
-   ```env
-   GOTIFY_SERVER_URL="https://your-gotify-server.com"
-   GOTIFY_APP_TOKEN="your-gotify-token"
-   GOTIFY_LOG_LEVEL=30
-   ```
-
-### Run the Container
-
-After building, start the container:
+### Step 4 — Run
 
 ```bash
 docker-compose up -d
 ```
 
-The application will be available at `http://localhost:8080`
+Docker pulls `cslev/tradleware:latest` automatically on first run. The dashboard will be available at `http://localhost:8080`.
 
+> For different versions and architectures (including arm64 for Raspberry Pi), visit [Docker Hub](https://hub.docker.com/repository/docker/cslev/tradleware/tags).
+
+### Updating to a new version
+
+```bash
+docker-compose down
+docker-compose pull
+docker-compose up -d
 ```
 
-### View Logs
-
-Check the application logs:
+### View logs
 
 ```bash
 docker-compose logs -f tradleware
 ```
 
-### Stop the Container
+### Stop
 
 ```bash
 docker-compose down
 ```
 
-### Rebuild After Changes
+**Note:** `docker-compose.yml` mounts `./tradleware_data/logs` (persistent logs) and `./bot_configs` (read-only config) — both survive container restarts.
 
-If you make changes to the code or `.env` file:
-
-```bash
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-**Note:** The `docker-compose.yml` mounts `./tradleware_data/logs` (to persist logs) and `./bot_configs` (read-only, so your YAML config files are available inside the container) — both survive container restarts.
+> Want to build from source or contribute? See [BUILD.md](BUILD.md).
 
 ## Gotify Integration
 
-Tradleware supports real-time push notifications via Gotify for important trading events.
+Tradleware supports real-time push notifications via Gotify for important trading events and critical errors — so you never miss a trade execution, a failed order, or anything that needs your attention, even when you're away from the dashboard.
 
 ### Setup Gotify Notifications
 
@@ -241,7 +209,7 @@ Tradleware supports real-time push notifications via Gotify for important tradin
    ```
 
 2. **Configure Environment Variables**:
-   Add these to your `.env` file:
+   Add these to your Tradleware's `.env` file:
    ```env
    GOTIFY_SERVER_URL=https://your-gotify-server.com
    GOTIFY_APP_TOKEN=your_app_token_here
@@ -294,7 +262,7 @@ Tradleware supports configurable webhook endpoints to protect against DDoS attac
 - Easy to guess, vulnerable to scanning
 
 **Secured Endpoint (Example):**
-- URL: `https://your-domain.com/ka8Moh4aiNgai4`
+- URL: `https://your-domain.com/webhook-ka8Moh4aiNgai4`
 - Nearly impossible to guess, protected from random attacks
 
 The webhook path is displayed in:
@@ -302,35 +270,39 @@ The webhook path is displayed in:
 - The footer of the dashboard
 - The cURL test examples
 
-**Note:** The webhook still requires API key authentication, so even if someone discovers the URL, they cannot execute trades without the correct `tradleware_api_key` configured in the bot's YAML file.
+**Note:** The webhook still requires API key authentication, so even if someone discovers the URL, they cannot execute trades without the correct `tradleware_api_key` configured in the bot's YAML file. Moreover, each bot has different keys, thereby limiting further the impact of any small information being compromised.
 
+### Webhook Payload
 
----
----
-## DEV: Run and debug
+Every webhook request must be a `POST` with a JSON body. Here's a full example:
 
-Navigate to project root
-```
-cd /path/to/tradleware
-```
-
-Activate virtual environment
-```
-source .venv/bin/activate
-```
-
-Install dependencies
-```
-pip install -r src/requirement.txt
+```json
+{
+  "api_key":         "your_tradleware_api_key",
+  "trader_id":       "mybtcbot",
+  "ticker":          "BTC/USDT",
+  "action":          "buy",
+  "timestamp":       "2026-03-28T12:00:00Z",
+  "alert_name":      "Supertrend Buy Signal",
+  "order_size":      100,
+  "order_size_type": "percentage",
+  "dry_run":         false
+}
 ```
 
-Start Tailwind CSS watcher (in separate terminal)
-```
-cd src/ui
-npx tailwindcss -i ./static/css/input.css -o ./static/css/output.css --watch
-```
+Key fields:
 
-Run FastAPI app (in main terminal) from project root
-```
-uvicorn src.ui.app:app --host 0.0.0.0 --port 8080 --reload
-```
+| Field | Required | Description |
+|-------|----------|-------------|
+| `api_key` | Yes | The `tradleware_api_key` from the bot's YAML config |
+| `trader_id` | Yes | The `id` field from the bot's YAML config (lowercase) |
+| `ticker` | Yes | Must match the bot's configured `crypto_stablecoin_pair` exactly |
+| `action` | Yes | `buy` or `sell` |
+| `timestamp` | Yes | Unix timestamp (seconds or ms) or ISO 8601 string |
+| `order_size` | Yes | Amount to trade — percentage (0–100) or exact quantity depending on `order_size_type` |
+| `order_size_type` | No | `percentage` (default) or `quantity` |
+| `alert_name` | No | Optional label shown in logs and notifications |
+| `dry_run` | No | `true` to simulate without executing — useful for testing |
+
+> **Tip:** Each bot's dashboard card has a **Webhook Details** pane showing the exact endpoint URL, a ready-to-use cURL example, and a live test button — the easiest way to verify your setup without leaving the UI.
+
