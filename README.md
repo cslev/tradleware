@@ -40,7 +40,7 @@ Tradleware acts as the hardened "Switchboard" between your signals and the marke
 3.  **Processing:** Apply custom logic (sizing, fractional checks, fiat-to-stablecoin conversion).
 4.  **Execution:** Secure, local dispatch to the Exchange/Broker API.
 <p align="center">
-  <img src="src/ui/static/images/architecture_v2.2.jpg" alt="Tradleware architecture" width="800">
+  <img src="src/ui/static/images/arch_v3_revamped.png" alt="Tradleware architecture" width="800">
 </p>
 
 ## 🏛️ The Singapore Advantage (MAS-Regulated)
