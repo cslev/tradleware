@@ -1,6 +1,6 @@
 services:
   ib-gateway:
-    image: ghcr.io/extrange/ibkr:stable
+    image: cslev/ibkr-docker:latest
     container_name: ib_gateway
     restart: unless-stopped
     ulimits:
@@ -12,6 +12,10 @@ services:
       GATEWAY_OR_TWS: gateway
       # Auto-restart after logoff (recommended for automated trading)
       TWOFA_TIMEOUT_ACTION: restart
+      # Persist TWS settings across container restarts
+      TWS_SETTINGS_PATH: /settings
+    volumes:
+      - ./tws-settings:/settings
     ports:
       # noVNC web browser access (no VNC client needed)
       - "6080:6080"

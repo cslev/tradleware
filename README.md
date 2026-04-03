@@ -128,7 +128,7 @@ bots:
     tradleware_api_key: your_webhook_auth_key  # openssl rand -hex 32
 ```
 
-For IBKR, see `bot_configs/stock/ibkr.yaml.example` for the full structure and [IBKR_SETUP.md](IBKR_SETUP.md) for the gateway setup.
+For IBKR, see `bot_configs/stock/ibkr.yaml.example` for the full structure and [IBKR_SETUP.md](IBKR_SETUP.md) for the gateway setup. The IB Gateway runs as a separate Docker container — use the [cslev/ibkr-docker](https://github.com/cslev/ibkr-docker) image, which supports both `linux/amd64` and `linux/arm64` (Raspberry Pi).
 
 ### Step 3 — Configure `.env`
 

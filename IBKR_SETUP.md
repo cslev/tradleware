@@ -46,7 +46,7 @@ bots:
     tradleware_api_key: "your_tradleware_api_key_here"
 ```
 
-**Important:** With the `ghcr.io/extrange/ibkr:stable` Docker image:
+**Important:** With the [`cslev/ibkr-docker`](https://github.com/cslev/ibkr-docker) Docker image:
 - **Always connect to port 8888** — the image handles internal routing
 - The `IBC_TradingMode` setting determines which IBKR servers the gateway authenticates with
 - The image automatically forwards to the correct internal port (4001 for live, 4002 for paper)

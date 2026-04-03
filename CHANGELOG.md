@@ -21,7 +21,7 @@ Tradleware now supports **stock trading** via Interactive Brokers — the first 
 - **Configurable market hours per bot** — `market_timezone`, `market_open`, `market_close`, `pre_market_open`, `after_hours_close` can be set per bot in `ibkr.yaml` (all optional; default: US Eastern / NYSE hours); supports any IANA timezone string (e.g. `Asia/Singapore` for SGX)
 - **Robust connection management** — `_sync_connection_state()` and `_handle_ib_exception()` detect and recover from silent IB Gateway disconnections; applied to all IB API call sites
 - **Per-account multi-bot support** — each bot has its own `account_id`, `symbol`, and `tradleware_api_key` in `ibkr.yaml`; the shared `gateway` block configures the IB Gateway container (host, port, trading mode, VNC password)
-- **Dockerized IB Gateway** — `docker-compose.ibkr.yml` provides a ready-to-use IB Gateway container alongside Tradleware; see `IBKR_SETUP.md` for full setup instructions
+- **Dockerized IB Gateway** — `docker-compose.ibkr.yml` provides a ready-to-use IB Gateway container alongside Tradleware using [`cslev/ibkr-docker:latest`](https://github.com/cslev/ibkr-docker) — a custom multi-arch image (amd64 + arm64/Raspberry Pi) with persistent TWS settings support; see `IBKR_SETUP.md` for full setup instructions
 - **`BaseStockTrader`** defines the abstract contract for all future broker integrations; `IBKRTrader` is the first concrete implementation
 
 #### 🏗️ Breaking Changes — YAML-based bot configuration
