@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <a href="https://tradleware.com"><img src="https://img.shields.io/badge/website-tradleware.com-blue.svg" alt="Website"></a>
   <img src="https://img.shields.io/badge/License-GPL%20v3-blue.svg" alt="License: GPL v3">
   <img src="https://img.shields.io/badge/pylint-10.00/10-brightgreen" alt="Pylint Score">
   <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+">
@@ -15,6 +16,8 @@
 </p>
 
 
+
+> 🌐 **Project website:** [tradleware.com](https://tradleware.com)
 
 ## Own your infrastructure. Own your alpha.
 
