@@ -412,9 +412,16 @@
           <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
             <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
           </svg>
-          Not from trusted IP: <span class="font-mono">{{ client_ip }}</span>
+          Not accessing from trusted IP: <span class="font-mono">{{ client_ip }}</span>
         </p>
         {% endif %}
+        <p class="text-green-400 mt-2">
+          <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4.332 8.027a6.012 6.012 0 011.912-2.706C6.512 5.73 6.974 6 7.5 6A1.5 1.5 0 019 7.5V8a2 2 0 004 0 2 2 0 011.523-1.943A5.977 5.977 0 0116 10c0 .34-.028.675-.083 1H15a2 2 0 00-2 2v2.197A5.973 5.973 0 0110 16v-2a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 00-1.668-1.973z" clip-rule="evenodd"/>
+          </svg>
+          Tradleware's public IP: <span class="font-mono">{{ server_public_ip }}</span>
+        </p>
+        <p class="text-gray-500 text-xs mt-1 ml-5">(Tradleware might still be behind your router and not directly accessible from the internet)</p>
       </div>
       
       <!-- Version Information -->

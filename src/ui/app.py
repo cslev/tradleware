@@ -8,6 +8,7 @@ signals, and provides endpoints for balance monitoring and order management.
 # pylint: disable=too-many-lines
 
 # Standard library imports
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 import json
@@ -21,6 +22,7 @@ from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import requests as http_requests
 from starlette.middleware.sessions import SessionMiddleware
 
 # First-party imports
@@ -34,7 +36,7 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v3.0"
+TRADLEWARE_VERSION = "v3.0.1b"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -64,6 +66,40 @@ traders = {}
 #################### LIFESPAN FUNCTION ####################
 # This function runs on app startup and shutdown to initialize and clean up traders.
 # It uses FastAPI's lifespan context manager to handle startup and shutdown events.
+async def _ibkr_health_loop():
+  """
+  Background task: periodically probe all IBKR trader connections.
+  Sends a Gotify error notification when a connection drops and a success
+  notification when it is restored. Runs every IBKR_HEALTH_CHECK_INTERVAL seconds.
+  """
+  # Give traders time to fully initialise before the first probe
+  await asyncio.sleep(IBKR_HEALTH_CHECK_INTERVAL)
+  while True:
+    for bot_id, trader in traders.items():
+      if not isinstance(trader, IBKRTrader):
+        continue
+      previous = trader.is_connected
+      alive = await trader.health_check()
+      if previous and not alive:
+        trader.logger.error(
+          f"💀 IBKR gateway connection lost for bot '{bot_id}' ({trader.symbol}). "
+          "Reconnect via the dashboard."
+        )
+      elif not previous and alive:
+        trader.logger.success(
+          f"✅ IBKR gateway connection restored for bot '{bot_id}' ({trader.symbol})."
+        )
+      elif alive:
+        trader.logger.debug(
+          f"IBKR health check OK for bot '{bot_id}' ({trader.symbol}): connected=True"
+        )
+      else:
+        trader.logger.error(
+          f"💀 IBKR gateway became unreachable for bot '{bot_id}' ({trader.symbol}). "
+        )
+    await asyncio.sleep(IBKR_HEALTH_CHECK_INTERVAL)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
   """Lifespan context manager for startup/shutdown events"""
@@ -115,9 +151,14 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
   else:
     logger.error("No bot configurations found. Check the bot_configs/ directory.")
 
+  # Start IBKR health-check background task
+  health_task = asyncio.create_task(_ibkr_health_loop())
+  logger.info(f"IBKR health-check loop started (interval: {IBKR_HEALTH_CHECK_INTERVAL}s)")
+
   yield  # Server is running here
 
   # Shutdown
+  health_task.cancel()
   logger.info("Shutting down traders...")
   for trader in traders.values():
     await trader.close()
@@ -144,10 +185,24 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 
 # Get webhook path from environment (default to 'webhook')
 WEBHOOK_PATH = get_env('WEBHOOK_PATH', 'webhook').strip('/')  # Strip leading/trailing slashes
+IBKR_HEALTH_CHECK_INTERVAL = int(get_env('IBKR_HEALTH_CHECK_INTERVAL_S', '1800'))
 
 # Authentication configuration
 DASHBOARD_USERNAME = get_env('DASHBOARD_USERNAME', 'admin')
 DASHBOARD_PASSWORD = get_env('DASHBOARD_PASSWORD', 'changeme')
+
+# Fetch the server's public IP once at startup and cache it
+def _fetch_public_ip() -> str:
+  """Query a lightweight public-IP echo service to determine outbound IP."""
+  for url in ('https://api.ipify.org', 'https://icanhazip.com'):
+    try:
+      resp = http_requests.get(url, timeout=5)
+      return resp.text.strip()
+    except Exception:  # pylint: disable=broad-exception-caught
+      continue
+  return 'unavailable'
+
+SERVER_PUBLIC_IP = _fetch_public_ip()
 TRUSTED_IPS = [ip.strip() for ip in get_env('TRUSTED_IPS', '').split(',') if ip.strip()]
 
 # Initialize a logger for the FastAPI app
@@ -329,6 +384,7 @@ async def read_root(request: Request):
       "is_secure": is_secure,  # Pass connection security status
       "is_trusted_ip": from_trusted_ip,  # Pass trusted IP status
       "client_ip": client_ip,  # Pass client IP for display
+      "server_public_ip": SERVER_PUBLIC_IP,  # Pass server public IP for display
       "version": TRADLEWARE_VERSION  # Pass application version
     }
   )

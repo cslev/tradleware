@@ -497,6 +497,7 @@ class IBKRTrader(BaseStockTrader):
         order = LimitOrder(side.upper(), quantity, limit_price)
         self.logger.info(f"Creating limit order: {side.upper()} {quantity} shares of {self.symbol} @ ${limit_price:.2f}")
 
+      order.account = self.account_id
       trade = self.ib.placeOrder(self.contract, order)
 
       # Poll for a terminal or confirmed status instead of a blind sleep.
@@ -597,9 +598,9 @@ class IBKRTrader(BaseStockTrader):
     elif errorCode == 1102:
       self.logger.warning(f"Connection briefly lost and restored (Error {errorCode}): {errorString}")
 
-    # Market data farm status (informational)
-    elif errorCode in [2103, 2104, 2105, 2106, 2108, 2158]:
-      self.logger.debug(f"Market data status (Error {errorCode}): {errorString}")
+    # Market data farm / connectivity status (informational — not actionable, no Gotify)
+    elif errorCode in [2103, 2104, 2105, 2106, 2107, 2108, 2109, 2119, 2158, 10167]:
+      self.logger.debug(f"IB info (Error {errorCode}): {errorString}")
 
     # Other errors
     else:
@@ -608,6 +609,28 @@ class IBKRTrader(BaseStockTrader):
         self.logger.warning(f"IB System Error {errorCode}: {errorString}")
       else:
         self.logger.warning(f"IB Error {errorCode} (reqId {reqId}): {errorString}")
+
+  async def health_check(self) -> bool:
+    """
+    Probe the IB Gateway connection liveness.
+
+    Uses reqCurrentTimeAsync() as a lightweight round-trip test — it requires
+    a live TWS/Gateway socket response, unlike ib.isConnected() which only
+    reflects local socket state and can be stale after a silent drop.
+
+    Returns:
+      True if the gateway is reachable and responsive, False otherwise.
+    """
+    if not self.ib.isConnected():
+      self.is_connected = False
+      return False
+    try:
+      await asyncio.wait_for(self.ib.reqCurrentTimeAsync(), timeout=5.0)
+      self.is_connected = True
+      return True
+    except Exception:  # pylint: disable=broad-exception-caught
+      self.is_connected = False
+      return False
 
   async def close(self):
     """

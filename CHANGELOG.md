@@ -5,7 +5,21 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v3.0] - 2026-03-28
+## [v3.0.1b] - 2026-04-13
+
+### Bug Fixes
+- **IBKR order account not specified** — `order.account = self.account_id` is now explicitly set on every `MarketOrder` / `LimitOrder` before calling `placeOrder`; fixes IB Gateway rejection when the connected account has sub-accounts or is an FA account
+
+### New Features
+- **IBKR gateway health-check loop** — background `asyncio` task probes each IBKR bot's connection every `IBKR_HEALTH_CHECK_INTERVAL_S` seconds (default: 1800s / 30 min) using a real round-trip `reqCurrentTimeAsync()` call; sends a Gotify **error** notification when a connection is lost or remains down, and a **success** notification when it is restored; configurable via `IBKR_HEALTH_CHECK_INTERVAL_S` in `.env`
+- **Server public IP display** — the dashboard footer now shows the server's outbound public IP (fetched once at startup via `api.ipify.org`); useful for verifying exchange API key IP whitelists
+
+### Improvements
+- **IBKR informational error codes silenced** — error codes `2107` (HMDS data farm inactive), `2109`, `2119` (market data farm connecting), and `10167` (delayed market data) are now logged at `DEBUG` level instead of `WARNING`, eliminating spurious Gotify notifications during out-of-hours gateway startup
+- **Tailwind CSS rebuilt** — `output.css` regenerated to include new utility classes (`text-green-400`, etc.) added in this release
+- **pylint**: 10.00/10 maintained across all of `src/`
+
+---
 
 ### 📈 Stock Trading — IBKR Integration & Major Refactor
 ![Tradleware v3 Crypto.com](screenshots/tradleware_v3.png)

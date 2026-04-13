@@ -1,19 +1,21 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 28 Mar 2026 (session 5)
+> Last updated: 13 Apr 2026 (session 6)
 
 ---
 
 ## Current State
 
-**v3.0 / v3.0.1 released**
+**v3.0.1b under development**
 
 - All crypto traders (OKX, Crypto.com, IR) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
-- Starlette ≥0.36 `TemplateResponse` API break fixed — dashboard renders correctly.
-- Logger enhanced: function name + line number in all log lines; uncaught exceptions captured to log file via `sys.excepthook`.
+- IBKR order account ID now explicitly set on every order — fixes gateway rejection with sub-accounts.
+- IBKR health-check loop: background task probes connections every 30 min; Gotify notification on loss/restore.
+- Server public IP displayed on dashboard footer (fetched once at startup).
+- Informational IBKR error codes (2107, 2109, 2119, 10167) silenced to DEBUG — no Gotify noise.
 - pylint score: **10.00/10** across all of `src/`
-- Multi-arch Docker image (`amd64` + `arm64`) published to Docker Hub as `cslev/tradleware:latest` and `cslev/tradleware:v3.0`.
+- Multi-arch Docker image (`amd64` + `arm64`) last published as `cslev/tradleware:v3.0`.
 
 ---
 
@@ -47,6 +49,14 @@
 ---
 
 ## Session History
+
+### 13 Apr 2026 (session 6)
+- **IBKR order account fix**: `order.account = self.account_id` now set before every `placeOrder` call; fixes rejection when gateway has sub-accounts or FA setup
+- **IBKR health-check loop**: background `asyncio` task in `app.py`; probes each IBKR bot every `IBKR_HEALTH_CHECK_INTERVAL_S` seconds (default 1800s); Gotify error on loss/still-down, Gotify success on restore, debug on healthy
+- **Informational IBKR codes silenced**: error codes 2107, 2109, 2119, 10167 added to the debug-only list — no more spurious Gotify warnings during out-of-hours gateway startup
+- **Server public IP on dashboard**: fetched once at startup via `api.ipify.org`; displayed in dashboard footer with globe icon; useful for exchange API key IP whitelist verification
+- **Tailwind CSS rebuilt**: `output.css` regenerated to include new utility classes
+- **pylint**: 10.00/10 maintained
 
 ### 28 Mar 2026 (session 5)
 - **Starlette ≥0.36 `TemplateResponse` fix**: updated `app.py` render calls to new `TemplateResponse(request, name, context)` signature; fixes `TypeError: unhashable type: 'dict'` crash on all page loads
