@@ -5,6 +5,22 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.2b] - 2026-04-15
+
+### Bug Fixes
+- **IBKR false order failure on TIF preset (error 10349)** — IB error 10349 ("Order TIF was set to DAY based on order preset") causes IB to internally cancel and immediately resubmit the order with TIF=DAY; the polling loop previously treated this transient `Cancelled` state as a terminal failure. Fixed: polling now inspects `trade.log` and skips the `Cancelled` state when the last logged error code is 10349, allowing the resubmitted order to fill normally.
+- **Error 10349 Gotify noise** — IB error 10349 was being logged at `WARNING` level, firing a Gotify notification on every single order. Downgraded to `DEBUG` — it is purely informational and fires on every market order placed without explicit TIF.
+- **fetch_positions logging pollution** — `fetch_positions()` was logging all positions across all symbols in the account (MGK, SCHD, VUSD, etc.) instead of only the symbol the bot is configured for. Now only logs the position for the configured symbol.
+
+### New Features
+- **IBKR auto-reconnect on connection drop** — the IBKR health-check loop now automatically calls `trader.connect()` when a connection is found to be down, instead of only notifying the user to reconnect via the dashboard. Sends a Gotify success notification on successful auto-reconnect, or a Gotify error notification if reconnect fails (retry on next health-check cycle).
+
+### Improvements
+- **Order failure reason surfaced** — when an IBKR order is rejected or cancelled for a non-10349 reason, the IB error code and message are now included in the `RuntimeError` raised to the webhook caller (e.g. `"Reason: [201] Order rejected - Insufficient funds"`), making it easier to diagnose the root cause.
+- **pylint**: 10.00/10 maintained across all of `src/`
+
+---
+
 ## [v3.0.1b] - 2026-04-13
 
 ### Bug Fixes

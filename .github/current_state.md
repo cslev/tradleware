@@ -1,21 +1,25 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 13 Apr 2026 (session 6)
+> Last updated: 15 Apr 2026 (session 7)
 
 ---
 
 ## Current State
 
-**v3.0.1b under development**
+**v3.0.2b released**
 
 - All crypto traders (OKX, Crypto.com, IR) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
 - IBKR order account ID now explicitly set on every order — fixes gateway rejection with sub-accounts.
-- IBKR health-check loop: background task probes connections every 30 min; Gotify notification on loss/restore.
+- IBKR health-check loop: background task probes connections every 30 min; **auto-reconnects** on connection drop; Gotify notification on loss/restore.
+- IBKR false order failure on 10349 transient Cancelled fixed — polling loop now skips transient Cancelled caused by TIF preset.
+- IBKR error 10349 silenced to DEBUG — no Gotify noise on every order.
+- `fetch_positions()` now only logs the position for the configured symbol — no more full account position dumps.
+- Order failure reason (IB error code + message) now surfaced in RuntimeError.
 - Server public IP displayed on dashboard footer (fetched once at startup).
-- Informational IBKR error codes (2107, 2109, 2119, 10167) silenced to DEBUG — no Gotify noise.
+- Informational IBKR error codes (2107, 2109, 2119, 10167) silenced to DEBUG.
 - pylint score: **10.00/10** across all of `src/`
-- Multi-arch Docker image (`amd64` + `arm64`) last published as `cslev/tradleware:v3.0`.
+- Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.0.2` and `latest`.
 
 ---
 
@@ -49,6 +53,14 @@
 ---
 
 ## Session History
+
+### 15 Apr 2026 (session 7)
+- **IBKR false order failure fix (10349)**: polling loop now detects transient `Cancelled` caused by IB error 10349 (TIF preset) via `trade.log` inspection and continues polling instead of raising `RuntimeError`
+- **IBKR error 10349 silenced**: downgraded from `WARNING` to `DEBUG` — fired on every order, purely informational
+- **Order failure reason surfaced**: `_order_errors` dict stores last IB error per `reqId`; included in `RuntimeError` message when order is truly rejected/cancelled
+- **IBKR auto-reconnect**: health-check loop now calls `trader.connect()` automatically when connection is down; Gotify success/error on reconnect outcome
+- **fetch_positions filtered**: only logs position for the configured symbol; ignores all other account positions
+- **Version bumped to v3.0.2**; Docker images published
 
 ### 13 Apr 2026 (session 6)
 - **IBKR order account fix**: `order.account = self.account_id` now set before every `placeOrder` call; fixes rejection when gateway has sub-accounts or FA setup

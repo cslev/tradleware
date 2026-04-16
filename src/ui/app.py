@@ -36,7 +36,7 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v3.0.1b"
+TRADLEWARE_VERSION = "v3.0.2b"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -69,8 +69,9 @@ traders = {}
 async def _ibkr_health_loop():
   """
   Background task: periodically probe all IBKR trader connections.
-  Sends a Gotify error notification when a connection drops and a success
-  notification when it is restored. Runs every IBKR_HEALTH_CHECK_INTERVAL seconds.
+  Automatically attempts to reconnect when a connection is lost. Sends Gotify
+  notifications on loss, reconnect outcome, and restoration.
+  Runs every IBKR_HEALTH_CHECK_INTERVAL seconds.
   """
   # Give traders time to fully initialise before the first probe
   await asyncio.sleep(IBKR_HEALTH_CHECK_INTERVAL)
@@ -83,7 +84,7 @@ async def _ibkr_health_loop():
       if previous and not alive:
         trader.logger.error(
           f"💀 IBKR gateway connection lost for bot '{bot_id}' ({trader.symbol}). "
-          "Reconnect via the dashboard."
+          "Auto-reconnecting..."
         )
       elif not previous and alive:
         trader.logger.success(
@@ -95,8 +96,21 @@ async def _ibkr_health_loop():
         )
       else:
         trader.logger.error(
-          f"💀 IBKR gateway became unreachable for bot '{bot_id}' ({trader.symbol}). "
+          f"💀 IBKR gateway still unreachable for bot '{bot_id}' ({trader.symbol}). "
+          "Retrying connection..."
         )
+      # Auto-reconnect whenever the connection is down
+      if not alive:
+        try:
+          await trader.connect()
+          trader.logger.success(
+            f"✅ IBKR auto-reconnect succeeded for bot '{bot_id}' ({trader.symbol})."
+          )
+        except Exception as reconnect_err:  # pylint: disable=broad-exception-caught
+          trader.logger.error(
+            f"❌ IBKR auto-reconnect failed for bot '{bot_id}' ({trader.symbol}): "
+            f"{reconnect_err}. Will retry in {IBKR_HEALTH_CHECK_INTERVAL}s."
+          )
     await asyncio.sleep(IBKR_HEALTH_CHECK_INTERVAL)
 
 
