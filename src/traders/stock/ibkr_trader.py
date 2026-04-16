@@ -44,6 +44,11 @@ class IBKRTrader(BaseStockTrader):
     self.contract = None  # Will be created on connect
     self.is_connected = False
 
+    # Stores the most recent IB error per reqId so cancelled orders can surface
+    # the root-cause message (e.g. "Order presets disallow this buy") rather
+    # than just reporting "status=Cancelled".
+    self._order_errors: dict = {}
+
     self.logger.info(
         f"IBKRTrader initialized: {self.symbol} on port {self.gateway_port} "
         f"(fractional_shares={'enabled' if self.fractional_shares else 'disabled'})"
@@ -167,17 +172,14 @@ class IBKRTrader(BaseStockTrader):
       all_positions = self.ib.positions()
       # self.logger.debug(f"All positions: {all_positions}")
 
-      # Filter positions for our specific account
+      # Filter positions for our specific account and symbol
       positions = [p for p in all_positions if p.account == self.account_id]
-      self.logger.debug(f"Positions for account {self.account_id}: {positions}")
-      # Debug: log positions for this account
-      self.logger.debug(f"Total positions for account {self.account_id}: {len(positions)}")
-      for p in positions:
-        self.logger.debug(f" Position p is: {p}")
-        self.logger.info(f"  Position: {p.contract.symbol} - {p.position} shares @ ${p.avgCost}")
 
       # Find position for our symbol
       target_pos = next((p for p in positions if p.contract.symbol == self.symbol), None)
+      if target_pos:
+        self.logger.debug(f"Position for {self.symbol}: {target_pos}")
+        self.logger.info(f"  Position: {target_pos.contract.symbol} - {target_pos.position} shares @ ${target_pos.avgCost}")
       if not target_pos:
         self.logger.warning(f"No position found for {self.symbol}")
 
@@ -499,12 +501,18 @@ class IBKRTrader(BaseStockTrader):
 
       order.account = self.account_id
       trade = self.ib.placeOrder(self.contract, order)
+      req_id = trade.order.orderId
 
       # Poll for a terminal or confirmed status instead of a blind sleep.
       # IB validates orders asynchronously — rejections can arrive within ms
       # but may take up to a few seconds under load.
       # Terminal success: Filled, Submitted, PreSubmitted
       # Terminal failure: Rejected, Cancelled, Inactive
+      #
+      # IMPORTANT: error 10349 ("TIF set to DAY based on order preset") causes
+      # IB to internally cancel and resubmit the order with the corrected TIF.
+      # The status transiently shows Cancelled before filling. We detect this
+      # by checking the trade log and skip the Cancelled state in that case.
       TERMINAL_OK     = {'Filled', 'Submitted', 'PreSubmitted'}
       TERMINAL_FAIL   = {'Rejected', 'Cancelled', 'Inactive'}
       POLL_INTERVAL   = 0.5   # seconds between checks
@@ -516,17 +524,33 @@ class IBKRTrader(BaseStockTrader):
         await asyncio.sleep(POLL_INTERVAL)
         elapsed += POLL_INTERVAL
         order_status = trade.orderStatus.status if trade.orderStatus else 'Unknown'
-        if order_status in TERMINAL_OK | TERMINAL_FAIL:
-          break
+        if order_status not in TERMINAL_OK | TERMINAL_FAIL:
+          continue
+        # Transient Cancelled due to 10349 (TIF preset adjustment) — keep polling.
+        if order_status == 'Cancelled':
+          last_error = next(
+            (e.errorCode for e in reversed(trade.log) if e.errorCode != 0),
+            None
+          )
+          if last_error == 10349:
+            self.logger.debug(
+              f"Order {req_id} transiently Cancelled due to 10349 (TIF preset); continuing to poll..."
+            )
+            order_status = 'Unknown'
+            continue
+        break
 
       if order_status in TERMINAL_FAIL:
         hint = (
           f" Note: {self.symbol} may not support fractional shares on IBKR."
           if self.fractional_shares else ""
         )
+        reason = self._order_errors.pop(req_id, None)
+        reason_str = f" Reason: {reason}" if reason else ""
         raise RuntimeError(
-          f"Order rejected by IB Gateway (status={order_status}).{hint}"
+          f"Order rejected by IB Gateway (status={order_status}).{reason_str}{hint}"
         )
+      self._order_errors.pop(req_id, None)  # clean up on success
 
       filled_quantity = float(trade.orderStatus.filled) if trade.orderStatus else 0.0
       avg_fill_price = float(trade.orderStatus.avgFillPrice) if trade.orderStatus and trade.orderStatus.avgFillPrice > 0 else 0.0
@@ -573,14 +597,34 @@ class IBKRTrader(BaseStockTrader):
   def _on_error(self, reqId, errorCode, errorString, contract):
     """
     Handle IB Gateway error events.
-    Error 1100: Connectivity between IBKR and TWS has been lost.
-    Error 1101: Connectivity restored.
-    Error 1102: Connectivity between IBKR and server has been lost and restored.
-    Error 2103: Market data farm connection is inactive but should be available upon demand.
-    Error 2104: Market data farm connection is OK.
-    Error 2105: A historical data farm is disconnected.
-    Error 2106: A historical data farm is connected.
-    Error 2158: Sec-def data farm connection is OK.
+
+    Connection state (critical — affect trading):
+      1100: Connectivity between IB and TWS/Gateway lost. Orders will fail until restored.
+      1101: Connectivity restored; IB re-subscribes data automatically.
+      1102: Connectivity lost and restored in the same session; no action needed.
+
+    Market data farms (informational — do NOT affect order execution or positions):
+      2103: Market data farm connection is broken (live price feed interrupted).
+      2104: Market data farm connection is OK (live price feed restored).
+      2105: Historical data farm is disconnected (historical bars unavailable).
+      2106: Historical data farm is connected (historical bars available again).
+      2107: HMDS data farm inactive — will reconnect on demand.
+      2108: Market data farm connection is inactive — will reconnect on demand.
+      2109: Order Event Warning: attempt to cancel order that has already been filled.
+      2119: Market data farm is connecting.
+
+    Sec-def data farms (informational — only used at contract qualification time):
+      2157: Sec-def data farm connection is broken (security definition lookup interrupted).
+      2158: Sec-def data farm connection is OK (security definition lookup restored).
+      Once a contract is qualified and cached in self.contract, these have no effect.
+
+    Delayed/snapshot data (informational):
+      10167: Requested market data is not subscribed; switching to delayed data.
+
+    Order preset overrides (informational — fire on every order):
+      10349: Order TIF was set to DAY based on account order preset. IB internally
+             cancels and resubmits the order with TIF=DAY; the polling loop detects
+             this transient Cancelled state via trade.log and continues polling.
     """
     # Critical connection loss errors that require reconnection
     if errorCode == 1100:
@@ -599,7 +643,11 @@ class IBKRTrader(BaseStockTrader):
       self.logger.warning(f"Connection briefly lost and restored (Error {errorCode}): {errorString}")
 
     # Market data farm / connectivity status (informational — not actionable, no Gotify)
-    elif errorCode in [2103, 2104, 2105, 2106, 2107, 2108, 2109, 2119, 2158, 10167]:
+    elif errorCode in [2103, 2104, 2105, 2106, 2107, 2108, 2109, 2119, 2157, 2158, 10167]:
+      self.logger.debug(f"IB info (Error {errorCode}): {errorString}")
+
+    # Order preset TIF override — purely informational, fires on every order
+    elif errorCode == 10349:
       self.logger.debug(f"IB info (Error {errorCode}): {errorString}")
 
     # Other errors
@@ -608,6 +656,9 @@ class IBKRTrader(BaseStockTrader):
         # System-level error, not tied to a specific request
         self.logger.warning(f"IB System Error {errorCode}: {errorString}")
       else:
+        # Store against reqId so create_order can surface the reason if the
+        # order is subsequently cancelled.
+        self._order_errors[reqId] = f"[{errorCode}] {errorString}"
         self.logger.warning(f"IB Error {errorCode} (reqId {reqId}): {errorString}")
 
   async def health_check(self) -> bool:
