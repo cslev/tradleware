@@ -211,3 +211,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# extra files to avoid even if nothing like them are planned for now
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+serviceAccountKey*.json
