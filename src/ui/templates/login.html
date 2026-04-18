@@ -15,15 +15,18 @@
     
     <!-- Main login container -->
     <div class="login-container rounded-2xl p-8 relative">
-      <!-- Logo -->
-      <div class="flex justify-center mb-8">
-        <img 
-          src="{{ url_for('static', path='images/logos/logo_v5_vertical.png') }}" 
-          alt="Tradleware Logo" 
-          class="w-24 sm:w-32 md:w-48 drop-shadow-lg"
+      <!-- Logo + Brand -->
+      <div class="flex flex-col items-center mb-8 gap-3">
+        <img
+          src="{{ url_for('static', path='images/logos/logo_v5.png') }}"
+          alt="Tradleware Logo"
+          class="h-40 w-auto drop-shadow-lg"
         >
+        <span style="font-family: 'Fira Code', ui-monospace, monospace; font-size: 2.5rem; font-weight: 700; line-height: 1; letter-spacing: -0.02em;">
+          <span style="color: var(--neon-blue);">Trad</span><span style="color: var(--neon-pink); position: relative; top: -0.15em;">leware</span>
+        </span>
       </div>
-      
+
       <!-- Title -->
   <h1 class="text-2xl sm:text-3xl font-bold text-white text-center mb-2">Welcome Back</h1>
       <p class="text-white text-opacity-80 text-center mb-8">Sign in to access your trading dashboard</p>
