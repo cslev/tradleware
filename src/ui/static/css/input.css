@@ -1,3 +1,42 @@
+/* Sticky navbar */
+.sticky-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(7, 191, 245, 0.3);
+  box-shadow: 0 2px 20px rgba(7, 191, 245, 0.12);
+}
+
+.navbar-content {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1.1rem 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.navbar-logo-img {
+  height: 3.5rem;
+  width: auto;
+  object-fit: contain;
+  margin-right: 1rem;
+}
+
+.navbar-brand {
+  display: flex;
+  align-items: center;
+  font-size: 2.5rem;
+  font-weight: 700;
+  font-family: 'Fira Code', ui-monospace, monospace;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
 /* Blinking animation for unsupported pairs */
 .animate-blink {
   animation: blink-flash 1s steps(1, end) infinite;

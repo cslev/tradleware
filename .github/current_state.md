@@ -1,12 +1,12 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 15 Apr 2026 (session 7)
+> Last updated: 18 Apr 2026 (session 8)
 
 ---
 
 ## Current State
 
-**v3.0.2b released**
+**v3.0.3b in development** (previously v3.0.2b released)
 
 - All crypto traders (OKX, Crypto.com, IR) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
@@ -18,6 +18,7 @@
 - Order failure reason (IB error code + message) now surfaced in RuntimeError.
 - Server public IP displayed on dashboard footer (fetched once at startup).
 - Informational IBKR error codes (2107, 2109, 2119, 10167) silenced to DEBUG.
+- **Sticky navbar added to dashboard**: logo + cyberpunk "Tradleware" brand text (Fira Code, neon blue/pink) + logout button, frosted-glass backdrop, neon-cyan bottom border.
 - pylint score: **10.00/10** across all of `src/`
 - Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.0.2` and `latest`.
 
@@ -53,6 +54,15 @@
 ---
 
 ## Session History
+
+### 18 Apr 2026 (session 8)
+- **Sticky navbar**: replaced the old centered logo+logout `<div>` inside `<main>` with a proper `<header class="sticky-navbar">` element sitting before `<main>`
+- **Navbar design**: frosted-glass background (`rgba(0,0,0,0.85)` + `backdrop-filter: blur`), neon-cyan bottom border/glow, `z-index: 50` to float above the dark overlay
+- **Brand logo**: Fira Code bold, `z-index`-safe; "Trad" in `--neon-blue`, "leware" in `--neon-pink` nudged `top: -0.15em` (matches tradleware-web style)
+- **Logo image**: `logo_v5.png` (icon) shown left of brand text at 3.5rem height
+- **Logout button**: reuses `.login-button` class (cyan→pink hover glow); bumped to `px-6 py-3 text-sm` with `w-5 h-5` icon
+- **Tailwind rebuilt**: `output.css` regenerated; new classes: `.sticky-navbar`, `.navbar-content`, `.navbar-logo-img`, `.navbar-brand`
+- **Version bumped to v3.0.3b**
 
 ### 15 Apr 2026 (session 7)
 - **IBKR false order failure fix (10349)**: polling loop now detects transient `Cancelled` caused by IB error 10349 (TIF preset) via `trade.log` inspection and continues polling instead of raising `RuntimeError`
