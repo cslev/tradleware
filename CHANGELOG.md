@@ -5,6 +5,18 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.3b] - 2026-04-18
+
+### New Features
+- **Sticky navbar on dashboard** — a proper `<header>` element now sits above `<main>` with `position: sticky; top: 0; z-index: 50`; frosted-glass background (`rgba(0,0,0,0.85)` + `backdrop-filter: blur(12px)`); neon-cyan bottom border and glow
+- **Cyberpunk brand in navbar** — "Trad" rendered in `--neon-blue`, "leware" in `--neon-pink` with `top: -0.15em` offset; Fira Code bold 2.5rem; `logo_v5.png` icon at 3.5rem left of text
+- **Login page restyled** — vertical logo replaced with `logo_v5.png` icon (10rem) + same Fira Code Trad/leware brand text below it; "Welcome Back" subtitle retained
+
+### Improvements
+- Logout button enlarged (`px-6 py-3 text-sm`, `w-5 h-5` icon) and repositioned to navbar right
+
+---
+
 ## [v3.0.2b] - 2026-04-15
 
 ### Bug Fixes
