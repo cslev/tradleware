@@ -5,6 +5,22 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.4b] - 2026-04-20
+
+### Bug Fixes
+- **IBKR 1101/1102 double log on reconnect** — error codes `1101` (connectivity restored) and `1102` (briefly lost and restored) both fired on every reconnect event, generating two separate log lines. Merged into a single handler: one `success` log + `is_connected = True`. Also fixes a latent bug where `1102` previously only logged a `WARNING` without updating `is_connected`.
+- **IBKR error 2150 Gotify noise** — error `2150` ("Invalid position trade derived value") fires when IB cannot compute derived P&L because market price is unavailable (e.g. during pre/post-market). Added to the debug-only informational list — no Gotify alert, no `WARNING` log.
+- **Dashboard bot card expands on Webhook Details tab** — switching to the Webhook Details tab caused the card to grow wider than its container due to an unconstrained `<pre>` block. Fixed with `max-width: 100%` on `.tab-content pre` and `min-width: 0` on `.card-col`.
+- **Dashboard hover glow neon top border clipped** — the `box-shadow` top glow on `.bot-card:hover` was clipped by the parent `.card-col`. Fixed by removing `overflow: hidden` from `.card-col` and adding `padding-top: 6px` to give the 4px `translateY` lift room without cropping.
+- **Mobile navbar shows full brand text** — on small screens the "Tradleware" text was visible next to the logo, wasting space. Wrapped in `.navbar-brand-text` and hidden via `display: none` at ≤768px; only the logo icon is shown on mobile.
+
+### Improvements
+- **cURL example uses per-bot ticker** — the Webhook Details tab now generates the cURL example with the correct `ticker` for each bot (from a server-rendered `trader-tickers` JSON data island) instead of the hardcoded placeholder `BTC/USDT`.
+- **cURL example uses real timestamp** — `timestamp` in the cURL example is now set to the actual Unix timestamp at page load (`Date.now()`), replacing the old hardcoded `1700000000`.
+- **IBKR error code handler consolidated** — error code `10349` folded into the shared debug-only `elif errorCode in [...]` branch alongside `2103`–`2158` and `10167`; redundant separate branch removed.
+
+---
+
 ## [v3.0.3b] - 2026-04-18
 
 ### New Features

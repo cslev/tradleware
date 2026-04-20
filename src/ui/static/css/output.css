@@ -95,6 +95,9 @@
   box-shadow: 0 -12px 24px -8px rgba(0,0,0,0.35);
   margin-top: -7px;
 }
+.tab-content pre {
+  max-width: 100%;
+}
 .trader-grid {
   align-items: flex-start;
 }
@@ -461,9 +464,6 @@
   }
   .h-6 {
     height: calc(var(--spacing) * 6);
-  }
-  .h-20 {
-    height: calc(var(--spacing) * 20);
   }
   .h-40 {
     height: calc(var(--spacing) * 40);
@@ -1220,12 +1220,18 @@ html {
 }
 .card-col {
   box-sizing: border-box;
-  padding: 0;
+  padding: 6px 0 0 0;
   margin: 0 0.75rem 1rem 0.75rem;
   display: flex;
   justify-content: center;
   align-items: stretch;
   width: 400px;
+  min-width: 0;
+}
+@media (max-width: 768px) {
+  .navbar-brand-text {
+    display: none;
+  }
 }
 @media (max-width: 768px) {
   .card-col {

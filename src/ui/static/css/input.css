@@ -105,6 +105,10 @@
   box-shadow: 0 -12px 24px -8px rgba(0,0,0,0.35);
   margin-top: -7px;
 }
+/* Prevent pre elements in tabs from expanding card width */
+.tab-content pre {
+  max-width: 100%;
+}
 /* Fix card height expansion: align cards to top, not stretch */
 .trader-grid {
   align-items: flex-start;
@@ -333,12 +337,20 @@ html {
 /* Ensure card columns use border-box so padding does not reduce available width */
 .card-col {
   box-sizing: border-box;
-  padding: 0;
+  padding: 6px 0 0 0; /* top padding to allow hover lift without clipping */
   margin: 0 0.75rem 1rem 0.75rem; /* Add bottom margin back for spacing */
   display: flex;
   justify-content: center;
   align-items: stretch;
   width: 400px; /* Fixed width for desktop */
+  min-width: 0; /* Prevent flex item from expanding beyond set width */
+}
+
+/* Hide brand text on mobile, show only logo */
+@media (max-width: 768px) {
+  .navbar-brand-text {
+    display: none;
+  }
 }
 
 /* Add side padding on mobile devices */

@@ -618,6 +618,9 @@ class IBKRTrader(BaseStockTrader):
       2158: Sec-def data farm connection is OK (security definition lookup restored).
       Once a contract is qualified and cached in self.contract, these have no effect.
 
+    Position derived values (informational — fires when IB cannot compute P&L, e.g. outside market hours):
+      2150: Invalid position trade derived value (market price unavailable; does not affect trading).
+
     Delayed/snapshot data (informational):
       10167: Requested market data is not subscribed; switching to delayed data.
 
@@ -625,29 +628,21 @@ class IBKRTrader(BaseStockTrader):
       10349: Order TIF was set to DAY based on account order preset. IB internally
              cancels and resubmits the order with TIF=DAY; the polling loop detects
              this transient Cancelled state via trade.log and continues polling.
+
+    All codes in the group above share the same handler: debug-level log only, no Gotify alert.
     """
     # Critical connection loss errors that require reconnection
     if errorCode == 1100:
       self.logger.error(f"Connection lost to IB Gateway (Error {errorCode}): {errorString}")
       self.is_connected = False
-      # Note: Auto-reconnection would need to be handled by the application layer
-      # to avoid infinite loops. For now, just log and mark as disconnected.
 
-    # Connection restored
-    elif errorCode == 1101:
+    # Connection restored (1101: restored after loss; 1102: briefly lost and restored in same session)
+    elif errorCode in [1101, 1102]:
       self.logger.success(f"Connection restored to IB Gateway (Error {errorCode}): {errorString}")
       self.is_connected = True
 
-    # Connection lost and restored
-    elif errorCode == 1102:
-      self.logger.warning(f"Connection briefly lost and restored (Error {errorCode}): {errorString}")
-
-    # Market data farm / connectivity status (informational — not actionable, no Gotify)
-    elif errorCode in [2103, 2104, 2105, 2106, 2107, 2108, 2109, 2119, 2157, 2158, 10167]:
-      self.logger.debug(f"IB info (Error {errorCode}): {errorString}")
-
-    # Order preset TIF override — purely informational, fires on every order
-    elif errorCode == 10349:
+    # Market data farm / connectivity status / order preset overrides (informational — not actionable, no Gotify)
+    elif errorCode in [2103, 2104, 2105, 2106, 2107, 2108, 2109, 2119, 2150, 2157, 2158, 10167, 10349]:
       self.logger.debug(f"IB info (Error {errorCode}): {errorString}")
 
     # Other errors

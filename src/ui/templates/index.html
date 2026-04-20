@@ -12,6 +12,7 @@
   <!-- Hidden data for JavaScript -->
   <script id="trader-ids" type="application/json">{{ traders.keys() | list | tojson | safe }}</script>
   <script id="trader-types" type="application/json">{% set trader_types = {} %}{% for id, trader in traders.items() %}{% set _ = trader_types.update({id: trader.bot_type}) %}{% endfor %}{{ trader_types | tojson | safe }}</script>
+  <script id="trader-tickers" type="application/json">{% set trader_tickers = {} %}{% for id, trader in traders.items() %}{% if trader.bot_type == 'crypto' %}{% set _ = trader_tickers.update({id: trader.crypto_stablecoin_pair}) %}{% else %}{% set _ = trader_tickers.update({id: trader.symbol}) %}{% endif %}{% endfor %}{{ trader_tickers | tojson | safe }}</script>
   <script id="log-refresh-interval" type="application/json">{{ log_refresh_interval }}</script>
   <script id="webhook-path" type="text/plain">{{ webhook_path }}</script>
 
@@ -20,7 +21,7 @@
     <div class="navbar-content">
       <span class="navbar-brand">
         <img src="{{ url_for('static', path='images/logos/logo_v5.png') }}" alt="Tradleware Logo" class="navbar-logo-img">
-        <span style="color: var(--neon-blue);">Trad</span><span style="color: var(--neon-pink); position: relative; top: -0.15em;">leware</span>
+        <span class="navbar-brand-text"><span style="color: var(--neon-blue);">Trad</span><span style="color: var(--neon-pink); position: relative; top: -0.15em;">leware</span></span>
       </span>
       <a href="/logout" class="login-button text-white font-bold rounded-full flex items-center uppercase tracking-wider px-6 py-3 text-sm gap-2">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
