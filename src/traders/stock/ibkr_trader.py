@@ -79,7 +79,12 @@ class IBKRTrader(BaseStockTrader):
         clientId=hash(self.account_identifier) % 1000  # Unique client ID per bot
       )
 
-      # Register error handler for connection issues
+      # Register error handler for connection issues.
+      # Remove first to prevent duplicate registrations on reconnect.
+      try:
+        self.ib.errorEvent -= self._on_error
+      except Exception:  # pylint: disable=broad-except
+        pass
       self.ib.errorEvent += self._on_error
 
       # Create stock contract

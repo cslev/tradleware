@@ -5,6 +5,13 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.5b] - 2026-04-25
+
+### Bug Fixes
+- **IBKR duplicate error handler registrations** — `connect()` was called repeatedly (on startup, by the health-check loop on reconnect, and by `fetch_positions`/`create_order` internally), each time adding a new `_on_error` handler via `+=` without removing the old one. With N reconnect attempts, N handlers accumulated on `ib.errorEvent`, causing every IB error event (e.g. error 1100, 2106) to fire N identical log lines and N Gotify notifications simultaneously. Fixed by always doing `self.ib.errorEvent -= self._on_error` before `+= self._on_error` in `connect()`, ensuring exactly one handler registration at all times.
+
+---
+
 ## [v3.0.4b] - 2026-04-20
 
 ### Bug Fixes

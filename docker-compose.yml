@@ -1,6 +1,6 @@
 services:
   tradleware:
-    image: cslev/tradleware:latest  # also available as cslev/tradleware:v3.0.4b
+    image: cslev/tradleware:latest  # also available as cslev/tradleware:v3.0.5b
     container_name: tradleware
     restart: unless-stopped
     ports:

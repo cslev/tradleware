@@ -6,7 +6,7 @@
 
 ## Current State
 
-**v3.0.4b in development** (previously v3.0.3b released)
+**v3.0.5b in development** (previously v3.0.4b released)
 
 - All crypto traders (OKX, Crypto.com, IR) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
@@ -17,6 +17,7 @@
 - IBKR error 2150 (invalid position derived value, fires outside market hours) silenced to DEBUG — no Gotify noise.
 - IBKR error codes 1101 and 1102 (connection restored) merged into a single handler — one `success` log per reconnect event instead of two separate messages.
 - IBKR informational error codes list consolidated: 10349 folded into the shared debug-only branch alongside 2103–2158 and 10167.
+- IBKR duplicate error handler registrations fixed: `_on_error` is now unregistered before re-registering in `connect()`, preventing N handlers accumulating after N reconnects and causing N identical log lines + Gotify notifications per error event.
 - `fetch_positions()` now only logs the position for the configured symbol — no more full account position dumps.
 - Order failure reason (IB error code + message) now surfaced in RuntimeError.
 - Server public IP displayed on dashboard footer (fetched once at startup).
@@ -57,6 +58,10 @@
 ---
 
 ## Session History
+
+### 25 Apr 2026 (session 10)
+- **IBKR duplicate error handler fix**: `connect()` now does `self.ib.errorEvent -= self._on_error` before `+=`; prevents N handlers accumulating after N reconnects, eliminating the burst of N identical error log lines and Gotify notifications per IB event
+- **Version bumped to v3.0.5b**
 
 ### 20 Apr 2026 (session 9)
 - **IBKR error 2150 suppressed**: added to debug-only informational list — fires when IB cannot compute derived P&L (market price unavailable, e.g. outside market hours); no trading impact, no Gotify alert
