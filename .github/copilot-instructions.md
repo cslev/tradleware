@@ -7,7 +7,6 @@
 - **License:** GPL v3
 - **Language:** Python 3.11+
 - **Deployment:** Docker / docker-compose
-- **Location:** Singapore 🇸🇬
 
 ---
 
@@ -16,7 +15,7 @@
 - **Privacy-first:** API keys never leave the user's own servers
 - **Free forever:** Self-hosted, no SaaS costs
 - **Security by design:** Webhook auth, customizable webhook URLs to avoid automated bot scans, session encryption, trusted IP lists make dashboard access smoother on keyboardless systems like your raspberry pi.
-- **Regulatory focus:** Prioritizes MAS (Monetary Authority of Singapore) compliant exchanges, but designed to be flexible for global users
+- **Regulatory focus:** Prioritizes regulated, industry-standard licensed exchanges; designed to be flexible for global users
 - **Extensible architecture:** Base trader classes and clear patterns make it easy to add new exchanges and features without breaking existing functionality
 
 ---
@@ -294,12 +293,12 @@ This ensures the next session can immediately pick up from where we left off wit
 - The project uses **multi-arch builds** (amd64 + arm64) via Docker Buildx so the image works on both x86 servers and Raspberry Pi.
 - **One-time builder setup** (only needed once per machine):
   ```bash
-  docker buildx create --name multiarch --driver docker-container --use
-  docker buildx inspect --bootstrap
+  sudo docker buildx create --name multiarch --driver docker-container --use
+  sudo docker buildx inspect --bootstrap
   ```
 - **To build and push to Docker Hub** (replace `vX.Y` with the new version):
   ```bash
-  docker buildx build \
+  sudo docker buildx build \
     --platform linux/amd64,linux/arm64 \
     --tag cslev/tradleware:latest \
     --tag cslev/tradleware:vX.Y \
@@ -309,5 +308,5 @@ This ensures the next session can immediately pick up from where we left off wit
   Note: `--push` is required for multi-arch builds — they cannot be loaded to the local Docker daemon.
 - **To test locally** (single-arch, no push):
   ```bash
-  docker buildx build --platform linux/amd64 --tag cslev/tradleware:latest --load .
+  sudo docker buildx build --platform linux/amd64 --tag cslev/tradleware:latest --load .
   ```

@@ -259,7 +259,7 @@ First public release of Tradleware - your privacy-first, self-hosted autotrading
 
 ### 📋 Supported Exchanges
 
-- ✅ **OKX** (www.okx.com) - MAS-approved exchange
+- ✅ **OKX** (www.okx.com) - Industry-standard licensed exchange
 
 ### 🐳 Deployment
 

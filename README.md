@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/pylint-10.00/10-brightgreen" alt="Pylint Score">
   <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/platform-docker-blue.svg" alt="Docker">
-  <img src="https://img.shields.io/badge/Made%20in-Singapore%20🇸🇬-red.svg" alt="Made in Singapore">
+  <img src="https://img.shields.io/badge/built%20for-the%20global%20community-blue.svg" alt="Built for the global community">
   <img src="https://img.shields.io/badge/privacy-by%20design-green.svg" alt="Privacy by Design">
   <img src="https://img.shields.io/badge/cost-FREE%20💰-brightgreen.svg" alt="Free">
 </p>
@@ -23,8 +23,8 @@
 
 Tradleware (*/ˈtreɪ.dəl.wɛər/*) is a free, open-source autotrading middleware that bridges the gap between your trading strategies and the world’s most regulated exchanges. Tradleware is **Security-by-Design**, born from a unique intersection of two worlds:
 
-- Built in Singapore 🇸🇬: Tailored for the world’s most rigorous regulatory environment.
-- Hungarian Engineering 🇭🇺: Forged with the obsessive precision of a PhD in Computer Science and the "Zero-Trust" mindset of a Cybersecurity Researcher.
+- PhD-level Engineering 🎓: Forged with the obsessive precision of a PhD in Computer Science and the "Zero-Trust" mindset of a Cybersecurity Researcher.
+- Built for the global community 🌍: Designed to run anywhere, on any hardware, for any trader who values privacy and control.
 
 If a system isn't hardened, audited, and optimized for 24/7 reliability, it isn't worth running. 
 
@@ -46,8 +46,8 @@ Tradleware acts as the hardened "Switchboard" between your signals and the marke
   <img src="src/ui/static/images/arch_v3_revamped.png" alt="Tradleware architecture" width="800">
 </p>
 
-## 🏛️ The Singapore Advantage (MAS-Regulated)
-**Tradleware** is engineered for the Monetary Authority of Singapore (MAS) regulatory framework. Eschewing offshore "ghost" exchanges, it provides native, high-performance execution for Major Payment Institution (MPI) licensed platforms including Interactive Brokers (IBKR) for professional-grade TradFi, Independent Reserve for institutional crypto-fiat rails, and OKX and Crypto.com for liquid, fully-licensed spot markets.
+## 🏛️ Industry-Standard Licensed Exchanges
+**Tradleware** is built for regulated, industry-standard exchanges — eschewing offshore "ghost" exchanges in favour of fully-licensed platforms. It provides native, high-performance execution for Interactive Brokers (IBKR) for professional-grade TradFi, Independent Reserve for institutional crypto-fiat rails, and OKX and Crypto.com for liquid, fully-licensed spot markets.
 
 ## 🚀 Key Features
 
@@ -71,9 +71,9 @@ Tradleware acts as the hardened "Switchboard" between your signals and the marke
 
 
 ## 💰 Why Free?
-"How I charge you if you run it at home ah?" 🇸🇬  
+Tradleware is a personal, open-source hobby project provided free to the developer community. It is not a commercial service or a business enterprise — if you run it on your own hardware, there's nothing to charge you for.
 
-Tradleware is open-source because financial sovereignty shouldn't have a middleman tax. If you find value in the research, feel free to contribute to the code or the project.
+Financial sovereignty shouldn't have a middleman tax. If you find value in it, feel free to contribute to the code or the project.
 
 ---
 
@@ -126,7 +126,7 @@ bots:
     passphrase: your_okx_passphrase
     subaccount_name: your_subaccount_name #always better to have a separate subaccount for trading strategies
     hostname: my.okx.com
-    stablecoin_fiat_pair: USDT/SGD
+    stablecoin_fiat_pair: USDT/USD
     crypto_stablecoin_pair: BTC/USDT
     tradleware_api_key: your_webhook_auth_key  # openssl rand -hex 32
 ```
