@@ -1,12 +1,12 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 20 Apr 2026 (session 9)
+> Last updated: 27 Apr 2026 (session 10)
 
 ---
 
 ## Current State
 
-**v3.0.5b in development** (previously v3.0.4b released)
+**v3.0.6b released** (previously v3.0.5b)
 
 - All crypto traders (OKX, Crypto.com, IR) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.

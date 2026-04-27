@@ -36,7 +36,7 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v3.0.5b"
+TRADLEWARE_VERSION = "v3.0.6b"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -598,6 +598,17 @@ async def handle_webhook(request: Request):
     error_msg = f"Error reading webhook request body: {str(exc)}"
     logger.error(error_msg)
     raise HTTPException(status_code=400, detail=error_msg) from exc
+
+  ########################################################################
+  ## Log the incoming webhook for visibility before any validation
+  ########################################################################
+  incoming_trader_id = data.get("trader_id", "<not set>")
+  incoming_action = data.get("action", "<not set>")
+  incoming_ticker = data.get("ticker", "<not set>")
+  logger.info(
+    f"📥 Webhook received — trader_id: '{incoming_trader_id}', "
+    f"action: '{incoming_action}', ticker: '{incoming_ticker}'"
+  )
 
   ########################################################################
   ## Check if the trader_id is set properly and we indeed have such a BOT

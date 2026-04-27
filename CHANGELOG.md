@@ -5,6 +5,13 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.6b] - 2026-04-27
+
+### Improvements
+- **Webhook received log** — a new `INFO` log line is emitted at the very start of webhook processing, before any validation, showing `trader_id`, `action`, and `ticker`. This makes it immediately visible in logs what was sent even when a request fails validation (e.g. wrong `trader_id`).
+
+---
+
 ## [v3.0.5b] - 2026-04-25
 
 ### Bug Fixes
