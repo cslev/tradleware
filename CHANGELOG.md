@@ -79,8 +79,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [v3.0]
- 
+## [v3.0] - 2026-03-28
+
 ### 📈 Stock Trading — IBKR Integration & Major Refactor
 ![Tradleware v3 Crypto.com](screenshots/tradleware_v3.png)
 
