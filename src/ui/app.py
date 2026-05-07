@@ -14,6 +14,7 @@ from datetime import datetime
 import json
 import math
 from pathlib import Path
+import re
 import secrets
 
 # Third-party imports
@@ -36,7 +37,7 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v3.0.6b"
+TRADLEWARE_VERSION = "v3.0.7b"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -63,9 +64,58 @@ BROKER_TRADER_CLASSES = {
 # Store active traders
 traders = {}
 
+# Update check state — populated by _update_check_loop() at startup and every 6 hours
+_update_state = {
+  "latest_version": None,
+  "update_available": False,
+}
+
 #################### LIFESPAN FUNCTION ####################
 # This function runs on app startup and shutdown to initialize and clean up traders.
 # It uses FastAPI's lifespan context manager to handle startup and shutdown events.
+
+GITHUB_TAGS_URL = "https://api.github.com/repos/cslev/tradleware/tags"
+UPDATE_CHECK_INTERVAL = int(get_env('UPDATE_CHECK_INTERVAL_S', str(6 * 3600)))
+
+
+def _check_for_updates() -> None:
+  """
+  Queries the GitHub Tags API for the latest Tradleware version.
+  Updates _update_state in-place; never raises — failures are logged and silently ignored.
+  """
+  try:
+    resp = http_requests.get(
+      GITHUB_TAGS_URL,
+      headers={"Accept": "application/vnd.github+json"},
+      timeout=10
+    )
+    resp.raise_for_status()
+    tags = resp.json()
+    if not tags:
+      logger.debug("GitHub tags API returned an empty list — skipping update check.")
+      return
+    latest = tags[0]["name"]
+    _update_state["latest_version"] = latest
+    def _ver(v):
+      return tuple(int(x) for x in re.findall(r'\d+', v))
+    _update_state["update_available"] = _ver(latest) > _ver(TRADLEWARE_VERSION)
+    if _update_state["update_available"]:
+      logger.warning(
+        f"🆕 Tradleware update available: {latest} (running {TRADLEWARE_VERSION}). "
+        "Visit https://github.com/cslev/tradleware to update."
+      )
+    else:
+      logger.debug(f"Tradleware is up to date ({TRADLEWARE_VERSION}).")
+  except Exception as exc:  # pylint: disable=broad-exception-caught
+    logger.debug(f"Update check failed (will retry in {UPDATE_CHECK_INTERVAL}s): {exc}")
+
+
+async def _update_check_loop() -> None:
+  """Background task: checks for updates at startup then every UPDATE_CHECK_INTERVAL seconds."""
+  _check_for_updates()
+  while True:
+    await asyncio.sleep(UPDATE_CHECK_INTERVAL)
+    _check_for_updates()
 async def _ibkr_health_loop():
   """
   Background task: periodically probe all IBKR trader connections.
@@ -169,10 +219,15 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
   health_task = asyncio.create_task(_ibkr_health_loop())
   logger.info(f"IBKR health-check loop started (interval: {IBKR_HEALTH_CHECK_INTERVAL}s)")
 
+  # Start update-check background task
+  update_task = asyncio.create_task(_update_check_loop())
+  logger.info(f"Update-check loop started (interval: {UPDATE_CHECK_INTERVAL}s)")
+
   yield  # Server is running here
 
   # Shutdown
   health_task.cancel()
+  update_task.cancel()
   logger.info("Shutting down traders...")
   for trader in traders.values():
     await trader.close()
@@ -399,7 +454,9 @@ async def read_root(request: Request):
       "is_trusted_ip": from_trusted_ip,  # Pass trusted IP status
       "client_ip": client_ip,  # Pass client IP for display
       "server_public_ip": SERVER_PUBLIC_IP,  # Pass server public IP for display
-      "version": TRADLEWARE_VERSION  # Pass application version
+      "version": TRADLEWARE_VERSION,  # Pass application version
+      "update_available": _update_state["update_available"],
+      "latest_version": _update_state["latest_version"],
     }
   )
 

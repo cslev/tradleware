@@ -409,7 +409,7 @@
           Not accessing from trusted IP: <span class="font-mono">{{ client_ip }}</span>
         </p>
         {% endif %}
-        <p class="text-green-400 mt-2">
+        <p class="text-green-300 mt-2">
           <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4.332 8.027a6.012 6.012 0 011.912-2.706C6.512 5.73 6.974 6 7.5 6A1.5 1.5 0 019 7.5V8a2 2 0 004 0 2 2 0 011.523-1.943A5.977 5.977 0 0116 10c0 .34-.028.675-.083 1H15a2 2 0 00-2 2v2.197A5.973 5.973 0 0110 16v-2a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 00-1.668-1.973z" clip-rule="evenodd"/>
           </svg>
@@ -421,6 +421,14 @@
       <!-- Version Information -->
       <p class="text-gray-400 mb-3">
         Your Tradleware version is: <span class="font-mono text-cyan-100">{{ version }}</span>
+        {% if update_available %}
+        <span style="margin-left:10px;color:#ff00ff;font-family:'Fira Code',monospace;font-size:0.8rem;animation:update-pulse 1.5s ease-in-out infinite;">
+          <svg style="display:inline-block;width:0.9rem;height:0.9rem;vertical-align:-0.1rem;margin-right:0.25rem;" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M9 11l3-3m0 0l3 3m-3-3v8m0-13a9 9 0 110 18 9 9 0 010-18z"/></svg>Update available: {{ latest_version }}</span>
+        <style>@keyframes update-pulse { 0%,100%{opacity:1} 50%{opacity:0.25} }</style>
+        {% else %}
+        <span style="margin-left:10px;color:#86efac;font-family:'Fira Code',monospace;font-size:0.8rem;">
+          <svg style="display:inline-block;width:0.9rem;height:0.9rem;vertical-align:-0.1rem;margin-right:0.25rem;" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Up to date!</span>
+        {% endif %}
       </p>
       
       <!-- Webhook Information -->

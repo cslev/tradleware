@@ -5,6 +5,16 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.7b] - 2026-05-07
+
+### New Features
+- **Update availability indicator** — a background task (`_update_check_loop`) polls the GitHub Tags API (`https://api.github.com/repos/cslev/tradleware/tags`) once at startup and then every 6 hours (configurable via `UPDATE_CHECK_INTERVAL_S` in `.env`). The dashboard footer now shows a pulsing neon-magenta **"⬆ Update available: vX.X.X"** badge when a newer version tag exists on GitHub, or a static green **"✔ Up to date!"** indicator when the running version is current. No Gotify notification — visual only.
+
+### Improvements
+- **Dashboard green color unified** — all status-text greens in `index.html` normalised to `text-green-300` / `#86efac` (connection encrypted, trusted IP, server public IP lines).
+
+---
+
 ## [v3.0.6b] - 2026-04-27
 
 ### Improvements

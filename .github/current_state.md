@@ -1,12 +1,12 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 27 Apr 2026 (session 10)
+> Last updated: 7 May 2026 (session 11)
 
 ---
 
 ## Current State
 
-**v3.0.6b released** (previously v3.0.5b)
+**v3.0.7b in development** (previously v3.0.6b released)
 
 - All crypto traders (OKX, Crypto.com, IR) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
@@ -18,6 +18,7 @@
 - IBKR error codes 1101 and 1102 (connection restored) merged into a single handler — one `success` log per reconnect event instead of two separate messages.
 - IBKR informational error codes list consolidated: 10349 folded into the shared debug-only branch alongside 2103–2158 and 10167.
 - IBKR duplicate error handler registrations fixed: `_on_error` is now unregistered before re-registering in `connect()`, preventing N handlers accumulating after N reconnects and causing N identical log lines + Gotify notifications per error event.
+- **Update availability indicator**: background task polls GitHub Tags API at startup and every 6 hours; dashboard footer shows pulsing neon-magenta "⬆ Update available: vX.X.X" when a newer tag exists, or a static green "✔ Up to date!" when current. Configurable via `UPDATE_CHECK_INTERVAL_S` in `.env`.
 - `fetch_positions()` now only logs the position for the configured symbol — no more full account position dumps.
 - Order failure reason (IB error code + message) now surfaced in RuntimeError.
 - Server public IP displayed on dashboard footer (fetched once at startup).
@@ -58,6 +59,11 @@
 ---
 
 ## Session History
+
+### 7 May 2026 (session 11)
+- **Update availability indicator**: `_check_for_updates()` queries GitHub Tags API; `_update_check_loop()` background task runs at startup then every `UPDATE_CHECK_INTERVAL_S` seconds (default 6h); `update_available` and `latest_version` passed to dashboard template; footer shows pulsing neon-magenta badge when behind, static green "✔ Up to date!" when current
+- **Dashboard green color unified**: all status-text greens normalised to `text-green-300` / `#86efac` across `index.html`
+- **Version bumped to v3.0.7b**
 
 ### 25 Apr 2026 (session 10)
 - **IBKR duplicate error handler fix**: `connect()` now does `self.ib.errorEvent -= self._on_error` before `+=`; prevents N handlers accumulating after N reconnects, eliminating the burst of N identical error log lines and Gotify notifications per IB event
