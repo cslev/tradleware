@@ -1,14 +1,14 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 7 May 2026 (session 11)
+> Last updated: 8 May 2026 (session 12)
 
 ---
 
 ## Current State
 
-**v3.0.7b in development** (previously v3.0.6b released)
+**v3.1.0b released**
 
-- All crypto traders (OKX, Crypto.com, IR) fully operational.
+- All crypto traders (OKX, Crypto.com, IR, **Coinbase**) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
 - IBKR order account ID now explicitly set on every order — fixes gateway rejection with sub-accounts.
 - IBKR health-check loop: background task probes connections every 30 min; **auto-reconnects** on connection drop; Gotify notification on loss/restore.
@@ -24,8 +24,9 @@
 - Server public IP displayed on dashboard footer (fetched once at startup).
 - Informational IBKR error codes (2107, 2109, 2119, 10167) silenced to DEBUG.
 - **Sticky navbar added to dashboard**: logo + cyberpunk "Tradleware" brand text (Fira Code, neon blue/pink) + logout button, frosted-glass backdrop, neon-cyan bottom border.
+- **Version hidden from login page**: prevents unauthenticated fingerprinting; version still shown in authenticated dashboard footer.
 - pylint score: **10.00/10** across all of `src/`
-- Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.0.2` and `latest`.
+- Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.1.0b` and `latest`.
 
 ---
 
@@ -37,10 +38,9 @@
 - [ ] `fetch_open_orders()` — raises `NotImplementedError`. Useful for dashboard visibility into pending orders only.
 
 ### Limit Order Support via webhook
-- `order_execution_strategy` is hardcoded to `'market'` in `app.py` (not read from webhook payload)
-- Base class `_calculate_order_size` already supports `maker_limit`; only the webhook wiring is missing
-- Only worth implementing when a strategy produces specific entry price targets, not just buy/sell signals
-- Required: add optional `order_execution_strategy` field to webhook payload, pass through in `app.py` to `create_order()`
+- `order_execution_strategy` is now read from the webhook payload in `app.py` (no longer hardcoded to `'market'`)
+- However, the field is not yet formally documented in the webhook schema or validated at the API boundary — the payload `order_execution_strategy` is only passed through if present
+- Only worth full validation/documentation when strategies actively use specific entry price targets
 
 
 ### Demo / Paper Trading Support (OKX)
@@ -59,6 +59,18 @@
 ---
 
 ## Session History
+
+### 8 May 2026 (session 12)
+- **Coinbase Advanced Trade (CDP) integration**: `CoinbaseTrader` subclassing `BaseCryptoTrader`; CCXT `coinbase` exchange; CDP keys (`organizations/...` format, JWT auto-handled by CCXT); registered in `EXCHANGE_TRADER_CLASSES`
+- **`_get_maker_buy_price` override**: Coinbase USDC/SGD pair is in limit-only mode; base class uses `bid * 0.9999` (order never fills); overridden to use ask price for immediate fill
+- **`convert_fiat_to_stablecoin` defaults to `maker_limit`**: market orders unsupported on USDC/SGD; convert endpoint no longer hardcodes `order_execution_strategy='market'`
+- **Post-placement `fetch_order` call**: Coinbase order response lacks `amount`/`cost` fields; a follow-up `fetch_order` populates them for accurate logging
+- **`coinbase.yaml.example`**: CDP key format documented; `subaccount_name` used as display label (not API field)
+- **Coinbase logo asset added**: `src/ui/static/images/crypto_exchanges/coinbase.png`
+- **Old CoinbasePro logo removed**: `src/ui/static/images/crypto_exchanges/coinbasepro.png` deleted
+- **Bot ID label improved**: dark semi-transparent pill with blur on dashboard exchange cards for legibility against any logo background
+- **Version hidden from login page**: `TRADLEWARE_VERSION` removed from `login.html` to prevent unauthenticated fingerprinting; version retained in authenticated dashboard footer
+- **Version bumped to v3.1.0b**; tag pushed to GitHub; Docker images published (`amd64` + `arm64`) as `cslev/tradleware:latest` + `cslev/tradleware:v3.1.0b`
 
 ### 7 May 2026 (session 11)
 - **Update availability indicator**: `_check_for_updates()` queries GitHub Tags API; `_update_check_loop()` background task runs at startup then every `UPDATE_CHECK_INTERVAL_S` seconds (default 6h); `update_available` and `latest_version` passed to dashboard template; footer shows pulsing neon-magenta badge when behind, static green "✔ Up to date!" when current
