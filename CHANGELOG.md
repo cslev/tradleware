@@ -5,6 +5,19 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.1.0b] - 2026-05-09
+
+### New Features
+- **Coinbase Advanced Trade integration** — full `CoinbaseTrader` implementation using CCXT with Coinbase CDP (Cloud Developer Platform) API keys. Supports market buys/sells, percentage-based and fixed-quantity orders, fiat→stablecoin conversion, and the 4-layer order pattern. CDP key format (`organizations/...`) is handled automatically by CCXT via ES256 JWT signing.
+- **Maker-limit buy override for limit-only pairs** — `CoinbaseTrader` overrides `_get_maker_buy_price` to price limit orders at the **ask** (not bid), so they fill immediately on exchanges that enforce limit-only mode (e.g. USDC/SGD on Coinbase). This provides market-equivalent execution without requiring market order support.
+- **Per-trader `convert_fiat_to_stablecoin` strategy** — removed the hardcoded `order_execution_strategy='market'` from the dashboard's convert endpoint. Each trader now uses its own default (Coinbase defaults to `maker_limit`; OKX, Crypto.com, and IR continue to use `market`).
+
+### Improvements
+- **Bot ID label readability** — the Bot ID pill on dashboard exchange card headers now uses a dark semi-transparent background with blur so it remains legible against any exchange logo image.
+- **Coinbase logo** added to exchange logo assets.
+
+---
+
 ## [v3.0.7b] - 2026-05-07
 
 ### New Features
