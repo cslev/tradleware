@@ -30,9 +30,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs
-from src.traders.crypto.okx_trader import OKXTrader
-from src.traders.crypto.ir_trader import IRTrader
+from src.traders.crypto.coinbase_trader import CoinbaseTrader
 from src.traders.crypto.cryptocom_trader import CryptocomTrader
+from src.traders.crypto.ir_trader import IRTrader
+from src.traders.crypto.okx_trader import OKXTrader
 from src.traders.stock.ibkr_trader import IBKRTrader
 
 
@@ -46,10 +47,10 @@ TRADLEWARE_VERSION = "v3.0.7b"
 
 # Trading configuration
 EXCHANGE_TRADER_CLASSES = {
-  'okx': OKXTrader,
-  'ir': IRTrader,
+  'coinbase': CoinbaseTrader,
   'cryptocom': CryptocomTrader,
-  # 'coinbasepro': CoinbaseProTrader,
+  'ir': IRTrader,
+  'okx': OKXTrader,
   # Add other exchanges here as you create their trader classes
   # 'binance': BinanceTrader,
 }
@@ -1111,8 +1112,7 @@ async def convert_fiat_to_stablecoin(request: Request, trader_id: str):
   try:
     # Call the trader's convert function with 100% of available fiat
     stablecoin_acquired = await trader.convert_fiat_to_stablecoin(
-      spend_percentage=1.0,  # Convert 100% of available fiat
-      order_execution_strategy='market'
+      spend_percentage=1.0  # Convert 100% of available fiat
     )
 
     if stablecoin_acquired > 0:
