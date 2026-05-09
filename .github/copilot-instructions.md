@@ -30,7 +30,7 @@ TradingView (or any webhook source)
    ├── Webhook endpoint (validates & routes signals)
    ├── Web UI dashboard (FastAPI + Tailwind CSS)
    └── Traders
-       ├── Crypto: OKX, Independent Reserve, Crypto.com
+       ├── Crypto: OKX, Independent Reserve, Crypto.com, Coinbase
        └── Stock:  IBKR (Interactive Brokers)
 ```
 
@@ -53,11 +53,11 @@ TradingView (or any webhook source)
 
 ```
 bot_configs/
-  crypto/     # Per-exchange YAML files (okx.yaml, cryptocom.yaml, ir.yaml)
+  crypto/     # Per-exchange YAML files (okx.yaml, cryptocom.yaml, ir.yaml, coinbase.yaml)
   stock/      # Per-broker YAML files (ibkr.yaml)
 src/
   traders/
-    crypto/   # OKX, Independent Reserve, Crypto.com traders
+    crypto/   # OKX, Independent Reserve, Crypto.com, Coinbase traders
     stock/    # IBKR trader
   ui/         # FastAPI app, templates, static assets
   misc/       # Logger, env helpers, config_loader
@@ -71,9 +71,16 @@ tradleware_data/
 
 Every exchange integration must subclass `BaseCryptoTrader` (`src/traders/crypto/base_crypto_trader.py`).
 
+### Checklist
+
+1. Create `bot_configs/crypto/<exchange>.yaml.example`
+2. Create `src/traders/crypto/<exchange>_trader.py` subclassing `BaseCryptoTrader`
+3. Register the class in `src/ui/app.py` → `EXCHANGE_TRADER_CLASSES`
+4. Run `pylint src/traders/crypto/<exchange>_trader.py` — must be 10.00/10
+
 ### Bot configuration (YAML)
 
-Each exchange has a single YAML file in `bot_configs/crypto/` (e.g. `okx.yaml`, `cryptocom.yaml`, `ir.yaml`). Each file contains a list of bots under that exchange. See the `.yaml.example` files for the full structure.
+Each exchange has a single YAML file in `bot_configs/crypto/` (e.g. `okx.yaml`, `cryptocom.yaml`, `ir.yaml`, `coinbase.yaml`). Each file contains a list of bots under that exchange. See the `.yaml.example` files for the full structure.
 
 Key fields per bot:
 ```yaml
@@ -81,19 +88,55 @@ bots:
   - id: mybtcbot              # lowercase, used as trader_id in webhooks
     api_key: ...
     secret_key: ...
-    passphrase: ...           # optional depending on exchange
-    subaccount_name: ...      # optional
+    passphrase: ...           # optional — only if the exchange requires it (e.g. OKX)
+    subaccount_name: ...      # optional — only if the exchange supports subaccounts
     hostname: my.okx.com
     stablecoin_fiat_pair: USDT/SGD
     crypto_stablecoin_pair: BTC/USDT
     tradleware_api_key: ...   # per-bot webhook auth key
 ```
 
-The config is discovered automatically by `src/misc/config_loader.py` via `get_bot_configs()`. Subclasses receive a `config: dict` and only need to call `super().__init__(config, default_type, self.logger)` then set up `self.exchange` as a CCXT instance.
+The config is discovered automatically by `src/misc/config_loader.py` via `get_bot_configs()`. The exchange name is derived from the filename (e.g. `coinbase.yaml` → `exchange = 'coinbase'`). Subclasses receive a `config: dict` and only need to call `super().__init__(config, default_type, self.logger)` then set up `self.exchange` as a CCXT async instance.
+
+**Special auth formats (example — Coinbase CDP keys):**
+Some exchanges use non-standard API key formats. Document these clearly in the `.yaml.example` and in the class docstring. CCXT handles the auth internally in most cases (e.g. JWT signing for Coinbase CDP keys is automatic when `apiKey` starts with `organizations/`).
+
+### Registering in `app.py`
+
+After creating the trader class, add it to `EXCHANGE_TRADER_CLASSES` in `src/ui/app.py`:
+```python
+from src.traders.crypto.<exchange>_trader import <Exchange>Trader
+
+EXCHANGE_TRADER_CLASSES = {
+  ...
+  '<exchange>': <Exchange>Trader,   # key must match the YAML filename without .yaml
+}
+```
+
+### `__init__` pattern
+
+Always create the `CustomLogger` first, then call `super().__init__()`, then instantiate `self.exchange`:
+```python
+def __init__(self, config: dict, default_type: str = 'spot'):
+    self.logger = CustomLogger(
+      name=self.__class__.__name__,
+      gotify_url=get_env('GOTIFY_SERVER_URL'),
+      gotify_token=get_env('GOTIFY_APP_TOKEN'),
+      gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30'))
+    )
+    super().__init__(config, default_type, self.logger)
+    self.exchange = ccxt_async.<exchange>({
+      'apiKey': self.api_key,
+      'secret': self.secret_key,
+      'hostname': self.hostname if self.hostname else '<default_hostname>',
+      'options': {'defaultType': self.default_type},
+      'enableRateLimit': True,
+    })
+```
 
 ### `post_init()` (async)
 
-Must be called after construction (before any trading). It:
+Inherited — must be called after construction (before any trading). It:
 - Loads markets from the exchange via CCXT
 - Sets `self.trading_pair_valid = True/False`
 - Logs available pairs for the crypto symbol if the configured pair is unsupported
@@ -104,7 +147,7 @@ A `deque(maxlen=50)` that captures all logger calls for this trader. The web UI 
 
 ### `close()` (async)
 
-Closes the CCXT exchange connection cleanly. Must be awaited on shutdown to avoid `Unclosed client session` warnings.
+Inherited — closes the CCXT exchange connection cleanly. Must be awaited on shutdown to avoid `Unclosed client session` warnings.
 
 ### `_safe_api_call(api_method, *args, **kwargs)`
 
@@ -126,6 +169,31 @@ result = await self._safe_api_call(self.exchange.fetch_balance)
 | `create_order` | `async def create_order(self, symbol, side, spend_percentage, quantity, order_execution_strategy, dry_run, params)` |
 | `cancel_order` | `async def cancel_order(self, order_id, symbol, params)` |
 | `fetch_open_orders` | `async def fetch_open_orders(self, symbol, since, limit, params)` |
+
+### `create_order` — the 4-layer pattern
+
+Every `create_order` implementation follows this exact structure. Do not deviate.
+
+```
+LAYER 1 — _validate_order_params()         Validates symbol, side, spend%/quantity exclusivity, ranges
+LAYER 2 — _resolve_market_and_balance()    Loads CCXT market dict + fetches live balances into ctx dict
+LAYER 3 — _calculate_order_size()          Returns (order_type, amount_to_trade, price)
+DRY RUN — return mock order dict           Skips Layer 4 entirely; no API call
+LAYER 4 — exchange-specific execution      Place the real order via _safe_api_call
+```
+
+**Layer 3 contract:** For `spend_percentage` market buys, `amount_to_trade` is returned in **QUOTE currency** (the cost to spend). For all other modes (quantity, sells, limit orders) it is in **BASE currency** with precision applied. Layer 4 must handle this distinction.
+
+**Layer 4 — spend% market buy best practice:** Prefer `createMarketBuyOrderWithCost(symbol, cost, params)` if the exchange supports it — it passes the exact quote cost to the exchange and avoids precision loss. Fall back to a ticker-based base-amount calculation with a ~0.5% fee buffer (`adjusted_cost = amount * 0.995`) if unsupported. See `coinbase_trader.py` or `okx_trader.py` for the full pattern.
+
+### Standard optional methods (implement for all traders)
+
+These are not abstract but every trader should include them for feature parity:
+
+- **`list_fiat_markets(fiat_currency)`** — loads all markets, filters by fiat currency, logs results. Useful for discovering available pairs.
+- **`convert_fiat_to_stablecoin(spend_percentage, order_execution_strategy, max_slippage)`** — high-level helper that buys the configured stablecoin with fiat, including slippage check and order status polling.
+
+See any existing trader (`coinbase_trader.py`, `okx_trader.py`, `cryptocom_trader.py`) for the canonical implementation — the logic is identical across exchanges since it uses `create_order` and standard CCXT calls internally.
 
 Use `self._validate_order_params(symbol, side, spend_percentage, quantity)` at the top of `create_order` — it enforces that exactly one of `spend_percentage` or `quantity` is provided, checks valid sides, and validates ranges.
 
