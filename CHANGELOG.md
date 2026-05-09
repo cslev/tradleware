@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Improvements
 - **Bot ID label readability** — the Bot ID pill on dashboard exchange card headers now uses a dark semi-transparent background with blur so it remains legible against any exchange logo image.
 - **Coinbase logo** added to exchange logo assets.
+- **Version hidden from login page** — `TRADLEWARE_VERSION` is no longer displayed on the unauthenticated login page to prevent version fingerprinting by unauthenticated visitors. The version remains visible in the authenticated dashboard footer.
 
 ---
 
