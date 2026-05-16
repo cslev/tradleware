@@ -5,6 +5,18 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.2.0b] - 2026-05-16
+
+### New Features
+- **Kraken Pro exchange integration** — full `KrakenTrader` implementation using CCXT. Supports market and maker-limit orders, percentage-based and fixed-quantity order sizing, fiat→stablecoin conversion, open order listing, and per-bot `bot_configs/crypto/kraken.yaml` configuration. Uses standard API key + private key (base64) authentication — no passphrase required.
+
+### Improvements
+- **Hostname now always populated** — all crypto traders (`OKX`, `Crypto.com`, `IR`, `Coinbase`, `Kraken`) resolve their exchange hostname to a concrete default (e.g. `api.kraken.com`, `okx.com`) if the YAML field is left empty. The resolved hostname is now visible on the bot card in the dashboard.
+- **`hostname` field made optional in bot YAML** — removed from the `_CRYPTO_REQUIRED` validation set in `config_loader.py`. Leaving `hostname` blank (or omitting it entirely) is now valid; each trader falls back to its exchange default automatically.
+- **Return type annotations** — all five crypto trader classes now have explicit return type annotations on `create_order`, `cancel_order`, `fetch_open_orders`, `list_fiat_markets`, and `convert_fiat_to_stablecoin`.
+
+---
+
 ## [v3.1.0b] - 2026-05-09
 
 ### New Features

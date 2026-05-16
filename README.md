@@ -47,7 +47,7 @@ Tradleware acts as the hardened "Switchboard" between your signals and the marke
 </p>
 
 ## 🏛️ Industry-Standard Licensed Exchanges
-**Tradleware** is built for regulated, industry-standard exchanges — eschewing offshore "ghost" exchanges in favour of fully-licensed platforms. It provides native, high-performance execution for Interactive Brokers (IBKR) for professional-grade TradFi, Independent Reserve for institutional crypto-fiat rails, and OKX, Crypto.com, and Coinbase for liquid, fully-licensed spot markets.
+**Tradleware** is built for regulated, industry-standard exchanges — eschewing offshore "ghost" exchanges in favour of fully-licensed platforms. It provides native, high-performance execution for Interactive Brokers (IBKR) for professional-grade TradFi, Independent Reserve for institutional crypto-fiat rails, and OKX, Crypto.com, Coinbase, and Kraken for liquid, fully-licensed spot markets.
 
 ## 🚀 Key Features
 
@@ -111,6 +111,7 @@ cp bot_configs/crypto/okx.yaml.example       bot_configs/crypto/okx.yaml
 cp bot_configs/crypto/cryptocom.yaml.example bot_configs/crypto/cryptocom.yaml
 cp bot_configs/crypto/ir.yaml.example        bot_configs/crypto/ir.yaml
 cp bot_configs/crypto/coinbase.yaml.example  bot_configs/crypto/coinbase.yaml
+cp bot_configs/crypto/kraken.yaml.example    bot_configs/crypto/kraken.yaml
 
 # Stock (IBKR) — also needs .env.ibkr for the gateway container credentials
 cp bot_configs/stock/ibkr.yaml.example bot_configs/stock/ibkr.yaml

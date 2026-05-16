@@ -1,14 +1,14 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 8 May 2026 (session 12)
+> Last updated: 16 May 2026 (session 13)
 
 ---
 
 ## Current State
 
-**v3.1.0b released**
+**v3.2.0b released**
 
-- All crypto traders (OKX, Crypto.com, IR, **Coinbase**) fully operational.
+- All crypto traders (OKX, Crypto.com, IR, Coinbase, **Kraken**) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
 - IBKR order account ID now explicitly set on every order — fixes gateway rejection with sub-accounts.
 - IBKR health-check loop: background task probes connections every 30 min; **auto-reconnects** on connection drop; Gotify notification on loss/restore.
@@ -25,8 +25,10 @@
 - Informational IBKR error codes (2107, 2109, 2119, 10167) silenced to DEBUG.
 - **Sticky navbar added to dashboard**: logo + cyberpunk "Tradleware" brand text (Fira Code, neon blue/pink) + logout button, frosted-glass backdrop, neon-cyan bottom border.
 - **Version hidden from login page**: prevents unauthenticated fingerprinting; version still shown in authenticated dashboard footer.
+- `hostname` YAML field is now optional for all crypto traders — each falls back to its exchange default and displays the resolved hostname on the bot card.
+- Return type annotations added to all five crypto trader classes.
 - pylint score: **10.00/10** across all of `src/`
-- Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.1.0b` and `latest`.
+- Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.2.0b` and `latest`.
 
 ---
 
@@ -59,6 +61,12 @@
 ---
 
 ## Session History
+
+### 16 May 2026 (session 13)
+- **Kraken Pro integration**: `KrakenTrader` subclassing `BaseCryptoTrader`; CCXT `kraken` exchange; API key + base64 private key auth (no passphrase); full 4-layer `create_order` with `createMarketBuyOrderWithCost` and ticker-based fallback; registered in `EXCHANGE_TRADER_CLASSES`; `bot_configs/crypto/kraken.yaml.example` added
+- **Hostname made optional**: removed `hostname` from `_CRYPTO_REQUIRED` in `config_loader.py`; each trader now resolves its default (e.g. `api.kraken.com`) before constructing the CCXT exchange object; `base_crypto_trader.py` uses `.get('hostname', '')` instead of `config['hostname']`; hostname always populated and visible on bot card
+- **Return type annotations**: added to `create_order`, `cancel_order`, `fetch_open_orders`, `list_fiat_markets`, `convert_fiat_to_stablecoin` across all five crypto traders
+- **Version bumped to v3.2.0b**; tag pushed to GitHub; Docker images published (`amd64` + `arm64`) as `cslev/tradleware:latest` + `cslev/tradleware:v3.2.0b`
 
 ### 8 May 2026 (session 12)
 - **Coinbase Advanced Trade (CDP) integration**: `CoinbaseTrader` subclassing `BaseCryptoTrader`; CCXT `coinbase` exchange; CDP keys (`organizations/...` format, JWT auto-handled by CCXT); registered in `EXCHANGE_TRADER_CLASSES`
