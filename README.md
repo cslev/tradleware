@@ -55,7 +55,7 @@ Tradleware acts as the hardened "Switchboard" between your signals and the marke
 | Independent Reserve | Crypto | ✅ | ✅ |
 | Crypto.com | Crypto | ✅ | ✅ |
 | Coinbase | Crypto | ✅ | ✅ |
-| Kraken | Crypto | ✅ | ✅ |
+| Kraken | Crypto | ✅ | ❌ |
 | Interactive Brokers (IBKR) | Stock / TradFi | ✅ | ✅ |
 
 > MAS = Monetary Authority of Singapore. All listed exchanges hold or have received a Major Payment Institution (MPI) or Capital Markets Services (CMS) licence from MAS.
