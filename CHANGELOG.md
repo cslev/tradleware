@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v3.2.0b] - 2026-05-16
 
+<p align="center">
+  <img src="screenshots/tradleware_v3.2.0b.png" alt="Tradleware v3.2.0b Dashboard" width="80%">
+</p>
+
 ### New Features
 - **Kraken Pro exchange integration** — full `KrakenTrader` implementation using CCXT. Supports market and maker-limit orders, percentage-based and fixed-quantity order sizing, fiat→stablecoin conversion, open order listing, and per-bot `bot_configs/crypto/kraken.yaml` configuration. Uses standard API key + private key (base64) authentication — no passphrase required.
 
