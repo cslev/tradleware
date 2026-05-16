@@ -30,6 +30,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs
+from src.traders.crypto.binance_trader import BinanceTrader
 from src.traders.crypto.coinbase_trader import CoinbaseTrader
 from src.traders.crypto.cryptocom_trader import CryptocomTrader
 from src.traders.crypto.ir_trader import IRTrader
@@ -39,7 +40,7 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v3.2.0b"
+TRADLEWARE_VERSION = "v3.3.0b"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -48,13 +49,13 @@ TRADLEWARE_VERSION = "v3.2.0b"
 
 # Trading configuration
 EXCHANGE_TRADER_CLASSES = {
+  'binance': BinanceTrader,
   'coinbase': CoinbaseTrader,
   'cryptocom': CryptocomTrader,
   'ir': IRTrader,
   'kraken': KrakenTrader,
   'okx': OKXTrader,
   # Add other exchanges here as you create their trader classes
-  # 'binance': BinanceTrader,
 }
 
 # Stock broker configuration

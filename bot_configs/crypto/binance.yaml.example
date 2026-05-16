@@ -1,0 +1,70 @@
+# Binance Bot Configurations
+# ---------------------------------------------------------------
+# Add one entry per bot under the `bots:` key.
+# Each bot id must be unique, lowercase, alphanumeric + underscores only.
+# The id is used as the trader_id in webhook payloads.
+#
+# Authentication: Binance uses a standard API key + secret key pair.
+# No passphrase required.
+#
+# Subaccounts: Binance subaccounts each have their own independent API keys.
+# To trade on a subaccount, create API credentials under that subaccount in
+# the Binance dashboard and use those credentials here. Set subaccount_name
+# to the subaccount's label or email for display purposes in the dashboard.
+# To use your main account, leave subaccount_name blank.
+#
+# Binance.US users: set hostname to "api.binance.us"
+#
+# File permissions: chmod 600 bot_configs/crypto/binance.yaml
+# ---------------------------------------------------------------
+
+bots:
+  - id: mybtcbot                                    # Used as trader_id in webhook payloads
+    api_key: "your_binance_api_key_here"            # From Binance → Profile → API Management
+    secret_key: "your_binance_secret_key_here"      # Secret shown only once at creation
+    hostname: ""                                    # Leave empty for default api.binance.com; use "api.binance.us" for Binance.US
+    subaccount_name: ""                             # Optional: subaccount label/email for dashboard display.
+    #                                               # Binance subaccounts use their own API keys — set api_key/secret_key
+    #                                               # to the subaccount's credentials above, and put the subaccount
+    #                                               # label or email here for reference in the dashboard.
+    stablecoin_fiat_pair: "USDT/USDC"             # To convert your fiat/stablecoin to the quote currency if needed
+    crypto_stablecoin_pair: "BTC/USDT"             # The trading pair, e.g. BTC/USDT, ETH/USDT, SOL/USDT
+    tradleware_api_key: "generate_with_openssl_rand_hex_32"  # Webhook auth key — generate with: openssl rand -hex 32
+
+  # Example: second bot on a Binance subaccount
+  # - id: myethbot_sub
+  #   api_key: "subaccount_api_key_here"
+  #   secret_key: "subaccount_secret_key_here"
+  #   hostname: ""
+  #   subaccount_name: "trading-sub@example.com"   # Label shown on the dashboard bot card
+  #   stablecoin_fiat_pair: "USDT/USDC"
+  #   crypto_stablecoin_pair: "ETH/USDT"
+  #   tradleware_api_key: "another_tradleware_api_key_here"
+
+
+# ─── Binance API Key Setup ──────────────────────────────────────────────────
+# 1. Log in to Binance → top-right profile icon → API Management
+# 2. Click "Create API" → choose "System generated" → give it a label
+# 3. Complete 2FA verification
+# 4. Enable the following permissions:
+#      ✅ Enable Reading
+#      ✅ Enable Spot & Margin Trading
+#    Leave all other permissions (Futures, Withdrawals, etc.) DISABLED
+# 5. Restrict access to your server's IP for security (strongly recommended)
+# 6. Copy the API Key and Secret Key (secret shown only once — save it immediately)
+#
+# For subaccounts:
+# 1. Go to Binance → Profile → Sub-Account
+# 2. Create a sub-account or select an existing one
+# 3. Under the sub-account, go to API Management and create API keys there
+# 4. Use those sub-account API credentials in this YAML
+#
+# Binance.US users:
+# - Set hostname to "api.binance.us"
+# - Binance.US has a reduced set of available trading pairs
+#
+# Notes:
+# - No passphrase required — only api_key + secret_key
+# - CCXT maps Binance symbols to standard slash notation (BTC/USDT, ETH/USDT)
+# - Default trading type is spot; futures are not supported by Tradleware
+# ────────────────────────────────────────────────────────────────────────────
