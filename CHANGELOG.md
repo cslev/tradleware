@@ -5,6 +5,13 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.3.0b] - 2026-05-16
+
+### New Features
+- **Binance exchange integration** — full `BinanceTrader` implementation using CCXT. Supports market and maker-limit orders, percentage-based and fixed-quantity order sizing, fiat→stablecoin conversion, open order listing, and per-bot `bot_configs/crypto/binance.yaml` configuration. Uses standard API key + secret key (HMAC-SHA256) authentication — no passphrase required. Subaccounts are supported by creating API keys under each Binance subaccount and configuring them as separate bots; `subaccount_name` is a display-only label for the dashboard. Binance.US users can set `hostname: api.binance.us`.
+
+---
+
 ## [v3.2.0b] - 2026-05-16
 
 <p align="center">

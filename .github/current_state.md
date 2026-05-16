@@ -1,14 +1,14 @@
 # Tradleware — Current State & Active Goals
 
-> Last updated: 16 May 2026 (session 13)
+> Last updated: 16 May 2026 (session 14)
 
 ---
 
 ## Current State
 
-**v3.2.0b released**
+**v3.3.0b released**
 
-- All crypto traders (OKX, Crypto.com, IR, Coinbase, **Kraken**) fully operational.
+- All crypto traders (OKX, Crypto.com, IR, Coinbase, Kraken, **Binance**) fully operational.
 - IBKR stock trader operational: webhook-driven buy/sell, `dry_run`, connection state tracking.
 - IBKR order account ID now explicitly set on every order — fixes gateway rejection with sub-accounts.
 - IBKR health-check loop: background task probes connections every 30 min; **auto-reconnects** on connection drop; Gotify notification on loss/restore.
@@ -28,7 +28,7 @@
 - `hostname` YAML field is now optional for all crypto traders — each falls back to its exchange default and displays the resolved hostname on the bot card.
 - Return type annotations added to all five crypto trader classes.
 - pylint score: **10.00/10** across all of `src/`
-- Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.2.0b` and `latest`.
+- Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.3.0b` and `latest`.
 
 ---
 
@@ -61,6 +61,14 @@
 ---
 
 ## Session History
+
+### 16 May 2026 (session 14)
+- **Binance exchange integration**: `BinanceTrader` subclassing `BaseCryptoTrader`; CCXT `binance` exchange; standard API key + secret key (HMAC-SHA256), no passphrase; registered in `EXCHANGE_TRADER_CLASSES`
+- **Subaccount support**: Binance subaccounts use their own independent API keys; `subaccount_name` is a display-only label for the dashboard bot card
+- **Hostname default**: resolves to `api.binance.com`; Binance.US users set `hostname: api.binance.us`
+- **`createMarketBuyOrderWithCost`**: used for spend% market buys (Binance natively supports `quoteOrderQty`); ticker-based fallback retained
+- **`binance.yaml.example`**: full setup docs with subaccount pattern and API key permission guide
+- **Version bumped to v3.3.0b**
 
 ### 16 May 2026 (session 13)
 - **Kraken Pro integration**: `KrakenTrader` subclassing `BaseCryptoTrader`; CCXT `kraken` exchange; API key + base64 private key auth (no passphrase); full 4-layer `create_order` with `createMarketBuyOrderWithCost` and ticker-based fallback; registered in `EXCHANGE_TRADER_CLASSES`; `bot_configs/crypto/kraken.yaml.example` added
