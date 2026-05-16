@@ -346,6 +346,30 @@ Once a future goal or feature is completed, **remove it from the Future Goals se
 
 This ensures the next session can immediately pick up from where we left off without re-explaining context.
 
+### Updating News/Hírek Pages from CHANGELOG
+
+Whenever the Tradleware CHANGELOG is updated with a new release, mirror it to the tradleware-web News/Hírek pages:
+
+1. **Read the CHANGELOG** (`/home/lele/git/tradleware/CHANGELOG.md`) to get the latest release version, date, and features
+2. **Extract non-technical points:**
+   - Describe features/fixes in plain language — NO function names, error codes, technical jargon
+   - Use simple sentences focused on user impact (e.g. "Coinbase support" instead of "CoinbaseTrader CCXT implementation")
+   - Keep each release summary to 2–3 sentences max
+3. **Update News/Hírek pages:**
+   - Add a new release entry to the top of the `releases` array in:
+     - `astrowind/src/pages/news.astro` (English)
+     - `astrowind/src/pages/hu/news.astro` (Hungarian) — must be a faithful translation
+   - Link to the GitHub release tag: `https://github.com/cslev/tradleware/releases/tag/vX.Y.Zb`
+   - Date format: YYYY-MM-DD (from CHANGELOG)
+   - Use `icon: 'tabler:package'` for version releases, `icon: 'tabler:article'` for blog posts
+4. **Update the announcement banner:**
+   - Edit `astrowind/src/components/widgets/Announcement.astro`
+   - Update `latestVersion` and `releaseDate` constants at the top of the file
+   - The banner is shared across EN/HU languages automatically
+5. **Validate:**
+   - Check both files with `get_errors` to confirm MDX/Astro syntax
+   - The banner should immediately display the new version on the live site once deployed
+
 ### GIT instructions
 - Every time when you are explicitly asked to commit changes, always go by the implemented feature/bugfix/minor change instead of the files changed. If a new feature/bugfix/minor change spans across multiple files, commit them together with a clear message describing the feature/bugfix/minor change, not the files. For example, if you implemented the IBKR stock trader, the commit message should be "Implement IBKR stock trader with market order support" instead of "Changes in ibkr_trader.py, base_stock_trader.py, app.py, .env.example". This way, the commit history will be more meaningful and easier to understand.
 - Always do this step-by-step, and wait for my approval after each commit before proceeding to the next one. This allows me to review the changes incrementally and provide feedback if necessary, ensuring that we maintain a high-quality codebase and stay aligned on the project goals.
