@@ -40,11 +40,14 @@ class CryptocomTrader(BaseCryptoTrader):
     if self.subaccount_name:
       cryptocom_options['subAccount'] = self.subaccount_name
 
+    if not self.hostname:
+      self.hostname = 'api.crypto.com'
+
     # Initialize ccxt_async.cryptocom with credentials and specific options
     self.exchange = ccxt_async.cryptocom({
       'apiKey': self.api_key,
       'secret': self.secret_key,
-      'hostname': self.hostname if self.hostname else "api.crypto.com",
+      'hostname': self.hostname,
       'options': cryptocom_options,
       'enableRateLimit': True, # Always good to enable rate limiting
     })
@@ -95,7 +98,7 @@ class CryptocomTrader(BaseCryptoTrader):
     orders = await self._safe_api_call(self.exchange.fetch_open_orders, symbol, since, limit, params)
     return orders
 
-  async def list_fiat_markets(self, fiat_currency:str="SGD"):
+  async def list_fiat_markets(self, fiat_currency:str="SGD") -> List[Dict[str, Any]]:
     """
     Fetches and lists all markets on Crypto.com that involve fiat_currency.
     This helps in identifying the correct trading symbol if BTC/fiat_currency isn't directly available.
@@ -135,7 +138,7 @@ class CryptocomTrader(BaseCryptoTrader):
   async def convert_fiat_to_stablecoin(self,
                                         spend_percentage: float = 1.0,
                                         order_execution_strategy: str = 'market',
-                                        max_slippage: float = 0.05):
+                                        max_slippage: float = 0.05) -> float:
     """
     Converts a percentage of available fiat currency into a stablecoin.
 
@@ -222,7 +225,7 @@ class CryptocomTrader(BaseCryptoTrader):
                          quantity: float = None,
                          order_execution_strategy: str = 'market',
                          dry_run: bool = False,
-                         params: dict = None):
+                         params: dict = None) -> Optional[Dict[str, Any]]:
     """
     Creates an order on the Crypto.com account with flexible execution and amount.
 
@@ -481,7 +484,11 @@ class CryptocomTrader(BaseCryptoTrader):
       self.logger.error(f"❌ Failed to place order for {symbol}. The exchange API call returned None (check logs above for details).")
     return order
 
-  async def cancel_order(self, order_id: str, symbol: str = None, params: dict = None):
+  async def cancel_order(self,
+                         order_id: str,
+                         symbol: str = None,
+                         params: dict = None
+                         ) -> Optional[Dict[str, Any]]:
     """
     Cancels an order by its ID on the Crypto.com account.
 

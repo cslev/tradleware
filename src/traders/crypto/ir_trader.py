@@ -54,11 +54,14 @@ class IRTrader(BaseCryptoTrader):
       "defaultType": self.default_type,
     }
 
+    if not self.hostname:
+      self.hostname = 'api.independentreserve.com'
+
     # Initialize ccxt async exchange instance
     self.exchange = ccxt_async.independentreserve({
       "apiKey": self.api_key,
       "secret": self.secret_key,
-      'hostname': self.hostname if self.hostname else "independentreserve.com",
+      'hostname': self.hostname,
       "options": ir_options,
       "enableRateLimit": True,
     })
@@ -113,7 +116,7 @@ class IRTrader(BaseCryptoTrader):
     orders = await self._safe_api_call(self.exchange.fetch_open_orders, symbol, since, limit, params)
     return orders
 
-  async def list_fiat_markets(self, fiat_currency: str = "SGD"):
+  async def list_fiat_markets(self, fiat_currency: str = "SGD") -> List[Dict[str, Any]]:
     """
     List markets on the exchange that involve the provided fiat currency.
 
@@ -146,7 +149,7 @@ class IRTrader(BaseCryptoTrader):
   async def convert_fiat_to_stablecoin(self,
                                        spend_percentage: float = 1.0,
                                        order_execution_strategy: str = "market",
-                                       max_slippage: float = 0.05):
+                                       max_slippage: float = 0.05) -> float:
     """
     Convert a percentage of the account's fiat balance into the configured stablecoin.
 
@@ -222,7 +225,7 @@ class IRTrader(BaseCryptoTrader):
                          quantity: float = None,
                          order_execution_strategy: str = "market",
                          dry_run: bool = False,
-                         params: dict = None):
+                         params: dict = None) -> Optional[Dict[str, Any]]:
     """
     Create an order on Independent Reserve according to the provided strategy.
 
@@ -440,7 +443,11 @@ class IRTrader(BaseCryptoTrader):
 
     return order
 
-  async def cancel_order(self, order_id: str, symbol: str = None, params: dict = None):
+  async def cancel_order(self,
+                         order_id: str,
+                         symbol: str = None,
+                         params: dict = None
+                         ) -> Optional[Dict[str, Any]]:
     """
     Cancel a specific order.
 

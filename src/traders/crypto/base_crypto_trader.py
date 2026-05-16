@@ -49,7 +49,7 @@ class BaseCryptoTrader(ABC):
     self.secret_key = config['secret_key']
     self.passphrase = config.get('passphrase', '')
     self.subaccount_name = config.get('subaccount_name', '')
-    self.hostname = config['hostname']
+    self.hostname = config.get('hostname', '')
     self.stablecoin_fiat_pair = config['stablecoin_fiat_pair']
     self.crypto_stablecoin_pair = config['crypto_stablecoin_pair']
     self.tradleware_api_key = config['tradleware_api_key']

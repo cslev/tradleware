@@ -37,12 +37,15 @@ class OKXTrader(BaseCryptoTrader):
       'subAccount': self.subaccount_name, # CRITICAL: This tells ccxt to target the subaccount
     }
 
+    if not self.hostname:
+      self.hostname = 'my.okx.com'
+
     # Initialize ccxt_async.okx with credentials and specific options
     self.exchange = ccxt_async.okx({
       'apiKey': self.api_key,
       'secret': self.secret_key,
       'password': self.passphrase, # OKX uses 'password' for the passphrase
-      'hostname': self.hostname if self.hostname else "okx.com",
+      'hostname': self.hostname,
       'options': okx_options,
       'enableRateLimit': True, # Always good to enable rate limiting
     })
@@ -76,7 +79,12 @@ class OKXTrader(BaseCryptoTrader):
 
 
 
-  async def fetch_open_orders(self, symbol: str = None, since: int = None, limit: int = None, params: dict = None) -> Optional[List[Dict[str, Any]]]:
+  async def fetch_open_orders(self,
+                              symbol: str = None,
+                              since: int = None,
+                              limit: int = None,
+                              params: dict = None
+                              ) -> Optional[List[Dict[str, Any]]]:
     """
     Fetches all open orders for the OKX subaccount.
 
@@ -96,7 +104,7 @@ class OKXTrader(BaseCryptoTrader):
     return orders
 
 
-  async def list_fiat_markets(self, fiat_currency:str="SGD"):
+  async def list_fiat_markets(self, fiat_currency:str="SGD") -> List[Dict[str, Any]]:
     """
     Fetches and lists all markets on OKX that involve fiat_currency.
     This helps in identifying the correct trading symbol if BTC/fiat_currency isn't directly available.
@@ -134,10 +142,10 @@ class OKXTrader(BaseCryptoTrader):
     return fiat_markets
 
 
-  async def convert_fiat_to_stablecoin(self,
+  async def convert_fiat_to_stablecoin( self,
                                         spend_percentage: float = 1.0,
                                         order_execution_strategy: str = 'market',
-                                        max_slippage: float = 0.05):
+                                        max_slippage: float = 0.05) -> float:
     """
     Converts a percentage of available fiat currency (e.g., SGD) into a stablecoin (e.g., USDT).
 
@@ -226,7 +234,7 @@ class OKXTrader(BaseCryptoTrader):
                          quantity: float = None,
                          order_execution_strategy: str = 'market',
                          dry_run: bool = False,
-                         params: dict = None):
+                         params: dict = None) -> Optional[Dict[str, Any]]:
     """
     Creates an order on the OKX subaccount with flexible execution and amount.
 
@@ -494,7 +502,11 @@ class OKXTrader(BaseCryptoTrader):
 
 
 
-  async def cancel_order(self, order_id: str, symbol: str = None, params: dict = None):
+  async def cancel_order(self,
+                         order_id: str,
+                         symbol: str = None,
+                         params: dict = None
+                         ) -> Optional[Dict[str, Any]]:
     """
     Cancels an order by its ID on the OKX subaccount.
 

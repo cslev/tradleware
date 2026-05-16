@@ -41,10 +41,12 @@ class CoinbaseTrader(BaseCryptoTrader):
     # Initialize the CCXT async Coinbase exchange client.
     # CCXT detects CDP keys automatically from the apiKey/secret format and
     # handles all JWT signing internally — no extra options required.
+    if not self.hostname:
+      self.hostname = 'api.coinbase.com'
     self.exchange = ccxt_async.coinbase({
       'apiKey': self.api_key,
       'secret': self.secret_key,
-      'hostname': self.hostname if self.hostname else 'api.coinbase.com',
+      'hostname': self.hostname,
       'options': {
         'defaultType': self.default_type,
       },
@@ -116,7 +118,7 @@ class CoinbaseTrader(BaseCryptoTrader):
     )
     return orders
 
-  async def list_fiat_markets(self, fiat_currency: str = "USD"):
+  async def list_fiat_markets(self, fiat_currency: str = "USD") -> List[Dict[str, Any]]:
     """
     Fetches and lists all markets on Coinbase that involve fiat_currency.
     Useful for identifying available trading pairs when fiat is not directly tradeable.
@@ -165,12 +167,11 @@ class CoinbaseTrader(BaseCryptoTrader):
       self.logger.error(f"❌ Error listing {fiat_currency} markets for {self.exchange_id}: {exc}")
     return fiat_markets
 
-  async def convert_fiat_to_stablecoin(
-    self,
-    spend_percentage: float = 1.0,
-    order_execution_strategy: str = 'maker_limit',
-    max_slippage: float = 0.05
-  ):
+  async def convert_fiat_to_stablecoin(self,
+                                        spend_percentage: float = 1.0,
+                                        order_execution_strategy: str = 'maker_limit',
+                                        max_slippage: float = 0.05
+                                      ) -> float:
     """
     Converts a percentage of available fiat currency into a stablecoin.
 
@@ -286,16 +287,15 @@ class CoinbaseTrader(BaseCryptoTrader):
 
 
 
-  async def create_order(
-    self,
-    symbol: str,
-    side: str,
-    spend_percentage: float = None,
-    quantity: float = None,
-    order_execution_strategy: str = 'market',
-    dry_run: bool = False,
-    params: dict = None
-  ):
+  async def create_order( self,
+                          symbol: str,
+                          side: str,
+                          spend_percentage: float = None,
+                          quantity: float = None,
+                          order_execution_strategy: str = 'market',
+                          dry_run: bool = False,
+                          params: dict = None
+                        ) -> Optional[Dict[str, Any]]:
     """
     Creates an order on Coinbase with flexible execution and amount.
 
@@ -552,7 +552,11 @@ class CoinbaseTrader(BaseCryptoTrader):
       )
     return order
 
-  async def cancel_order(self, order_id: str, symbol: str = None, params: dict = None):
+  async def cancel_order(self,
+                         order_id: str,
+                         symbol: str = None,
+                         params: dict = None
+                         ) -> Optional[Dict[str, Any]]:
     """
     Cancels an order by its ID on the Coinbase account.
 

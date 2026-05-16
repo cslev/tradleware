@@ -68,7 +68,8 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 _BOT_CONFIGS_DIR = _PROJECT_ROOT / 'bot_configs'
 
 # Required fields per bot type (id and tradleware_api_key are always required)
-_CRYPTO_REQUIRED = {'id', 'api_key', 'secret_key', 'hostname',
+# hostname is intentionally excluded — it is optional for all exchanges (each falls back to its default)
+_CRYPTO_REQUIRED = {'id', 'api_key', 'secret_key',
                     'stablecoin_fiat_pair', 'crypto_stablecoin_pair', 'tradleware_api_key'}
 _STOCK_REQUIRED = {'id', 'account_id', 'symbol', 'tradleware_api_key'}
 
