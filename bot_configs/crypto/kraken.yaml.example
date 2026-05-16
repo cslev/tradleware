@@ -1,0 +1,27 @@
+bots:
+  - id: mybtcbot                                    # Used as trader_id in webhook payloads
+    api_key: "your_kraken_api_key_here"             # Kraken API key (from Security > API > Add Key)
+    secret_key: "your_kraken_private_key_here"      # Kraken private key (base64 string shown once at creation)
+    hostname: ""                                    # Leave empty to use the default api.kraken.com
+    subaccount_name: ""                             # Not used by Kraken; or assign or assing a name for your own reference 
+    stablecoin_fiat_pair: "USDT/USD"               # To convert your fiat to stablecoin if needed
+    crypto_stablecoin_pair: "BTC/USDT"             # The trading pair, e.g. BTC/USDT, ETH/USD
+    tradleware_api_key: "generate_with_openssl_rand_hex_32"  # Webhook auth key — generate with: openssl rand -hex 32
+
+
+# ─── Kraken API Key Setup ───────────────────────────────────────────────────
+# 1. Log in to Kraken Pro → Security → API → Add Key
+# 2. Give the key a description (e.g. "tradleware")
+# 3. Enable the following permissions:
+#      Query Funds, Query Open Orders & Trades, Create & Modify Orders,
+#      Cancel/Close Orders
+# 4. Optionally restrict by IP for security.
+# 5. Copy the API Key and the Private Key (shown only once).
+#
+# Notes:
+# - No passphrase/OTP required — only api_key + secret_key.
+# - Kraken uses its own internal ticker symbols (e.g. XXBTZUSD) but CCXT
+#   maps them to standard slash notation (BTC/USD, ETH/USDT) transparently.
+# - For USD-quoted pairs use BTC/USD, ETH/USD etc.
+# - For USDT-quoted pairs use BTC/USDT, ETH/USDT etc.
+# ────────────────────────────────────────────────────────────────────────────

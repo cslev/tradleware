@@ -33,12 +33,13 @@ from src.misc.config_loader import get_bot_configs
 from src.traders.crypto.coinbase_trader import CoinbaseTrader
 from src.traders.crypto.cryptocom_trader import CryptocomTrader
 from src.traders.crypto.ir_trader import IRTrader
+from src.traders.crypto.kraken_trader import KrakenTrader
 from src.traders.crypto.okx_trader import OKXTrader
 from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v3.1.0b"
+TRADLEWARE_VERSION = "v3.2.0b"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -50,6 +51,7 @@ EXCHANGE_TRADER_CLASSES = {
   'coinbase': CoinbaseTrader,
   'cryptocom': CryptocomTrader,
   'ir': IRTrader,
+  'kraken': KrakenTrader,
   'okx': OKXTrader,
   # Add other exchanges here as you create their trader classes
   # 'binance': BinanceTrader,
