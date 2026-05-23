@@ -346,29 +346,6 @@ Once a future goal or feature is completed, **remove it from the Future Goals se
 
 This ensures the next session can immediately pick up from where we left off without re-explaining context.
 
-### Updating News/Hírek Pages from CHANGELOG
-
-Whenever the Tradleware CHANGELOG is updated with a new release, mirror it to the tradleware-web News/Hírek pages:
-
-1. **Read the CHANGELOG** (`/home/lele/git/tradleware/CHANGELOG.md`) to get the latest release version, date, and features
-2. **Extract non-technical points:**
-   - Describe features/fixes in plain language — NO function names, error codes, technical jargon
-   - Use simple sentences focused on user impact (e.g. "Coinbase support" instead of "CoinbaseTrader CCXT implementation")
-   - Keep each release summary to 2–3 sentences max
-3. **Update News/Hírek pages:**
-   - Add a new release entry to the top of the `releases` array in:
-     - `astrowind/src/pages/news.astro` (English)
-     - `astrowind/src/pages/hu/news.astro` (Hungarian) — must be a faithful translation
-   - Link to the GitHub release tag: `https://github.com/cslev/tradleware/releases/tag/vX.Y.Zb`
-   - Date format: YYYY-MM-DD (from CHANGELOG)
-   - Use `icon: 'tabler:package'` for version releases, `icon: 'tabler:article'` for blog posts
-4. **Update the announcement banner:**
-   - Edit `astrowind/src/components/widgets/Announcement.astro`
-   - Update `latestVersion` and `releaseDate` constants at the top of the file
-   - The banner is shared across EN/HU languages automatically
-5. **Validate:**
-   - Check both files with `get_errors` to confirm MDX/Astro syntax
-   - The banner should immediately display the new version on the live site once deployed
 
 ### GIT instructions
 - Every time when you are explicitly asked to commit changes, always go by the implemented feature/bugfix/minor change instead of the files changed. If a new feature/bugfix/minor change spans across multiple files, commit them together with a clear message describing the feature/bugfix/minor change, not the files. For example, if you implemented the IBKR stock trader, the commit message should be "Implement IBKR stock trader with market order support" instead of "Changes in ibkr_trader.py, base_stock_trader.py, app.py, .env.example". This way, the commit history will be more meaningful and easier to understand.
@@ -381,6 +358,7 @@ Whenever the Tradleware CHANGELOG is updated with a new release, mirror it to th
 - Always run `pylint` on the changed files and make sure the score is 10.00/10 before committing. This ensures that the code quality remains high and consistent across the project.
 
 ### Build instructions
+
 - Before building, if there is a version number change, make sure to update the version in `app.py` and `.github/current_state.md` to reflect the new version under development. Also update the tag in `docker-compose.yml` file's `build` section to match the new version, **but keep the latest as well**, so we should have two tags: **latest** and **new version**.
 - The project uses **multi-arch builds** (amd64 + arm64) via Docker Buildx so the image works on both x86 servers and Raspberry Pi.
 - **One-time builder setup** (only needed once per machine):
@@ -388,17 +366,31 @@ Whenever the Tradleware CHANGELOG is updated with a new release, mirror it to th
   sudo docker buildx create --name multiarch --driver docker-container --use
   sudo docker buildx inspect --bootstrap
   ```
+
+#### 🚨 Release label prompt for builds
+
+- **When you ask Copilot to build and push Docker images, Copilot will now prompt you for a release label or changelog message.**
+- You should copy-paste your release notes or changelog (e.g. from CHANGELOG.md) when prompted. Copilot will then add it as a Docker label using `--label org.opencontainers.image.description="..."` in the build command.
+- This label will be embedded in the image and can be inspected later with:
+  ```bash
+  docker inspect cslev/tradleware:vX.Y | grep description
+  ```
+
 - **To build and push to Docker Hub** (replace `vX.Y` with the new version):
   ```bash
   sudo docker buildx build \
     --platform linux/amd64,linux/arm64 \
     --tag cslev/tradleware:latest \
     --tag cslev/tradleware:vX.Y \
+    --label org.opencontainers.image.description="<paste your changelog or release notes here>" \
     --push \
     .
   ```
   Note: `--push` is required for multi-arch builds — they cannot be loaded to the local Docker daemon.
+
 - **To test locally** (single-arch, no push):
   ```bash
   sudo docker buildx build --platform linux/amd64 --tag cslev/tradleware:latest --load .
   ```
+
+**Copilot must always prompt for a release label before building Docker images, and use the label in the build command.**
