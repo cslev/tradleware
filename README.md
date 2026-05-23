@@ -315,6 +315,7 @@ Key fields:
 | `api_key` | Yes | The `tradleware_api_key` from the bot's YAML config |
 | `trader_id` | Yes | The `id` field from the bot's YAML config (lowercase) |
 | `ticker` | Yes | Must match the bot's configured `crypto_stablecoin_pair` exactly |
+|  |  | ⚠️ **Important:** If you use TradingView or any system where you cannot control the exact ticker format, always hardcode the `crypto_stablecoin_pair` (e.g., `BTC/USDT`) in your webhook payload. TradingView may send `BTCUSD` or `BTC USD`, which will **not** match the required format. The `ticker` field **must** match your bot's YAML `crypto_stablecoin_pair` (e.g., `BTC/USDT`, `ETH/USDT`) exactly, or the signal will be rejected. |
 | `action` | Yes | `buy` or `sell` |
 | `timestamp` | Yes | Unix timestamp (seconds or ms) or ISO 8601 string |
 | `order_size` | Yes | Amount to trade — percentage (0–100) or exact quantity depending on `order_size_type` |

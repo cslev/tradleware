@@ -40,7 +40,7 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v3.3.0b"
+TRADLEWARE_VERSION = "v3.3.1b"
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -797,14 +797,19 @@ async def handle_webhook(request: Request):
     trader.logger.info(f"Order mode: QUANTITY ({quantity})")
 
   ################################################
-  #### CHECK IF ACTION SIGNAL IS BUY OR SELL
+  #### CHECK IF ACTION SIGNAL IS BUY/SELL/LONG/SHORT
   ################################################
-  action = data.get("action", "").lower()
-  if action not in ["buy", "sell"]:
-    trader.logger.error(f"INVALID action: {action}")
-    raise HTTPException(status_code=400, detail="Invalid action. Must be 'buy' or 'sell'.")
+  action_raw = data.get("action", "").lower()
+  # Normalize TradingView/standard signals
+  if action_raw in ["buy", "long"]:
+    action = "buy"
+  elif action_raw in ["sell", "short"]:
+    action = "sell"
+  else:
+    trader.logger.error(f"INVALID action: {action_raw}")
+    raise HTTPException(status_code=400, detail="Invalid action. Must be one of: 'buy', 'sell', 'long', 'short'.")
 
-  trader.logger.info(f"VALID Action {action} ")
+  trader.logger.info(f"VALID Action {action} (raw: {action_raw})")
 
   ######################################################
   ## BRANCH BASED ON TRADER TYPE (CRYPTO vs STOCK)

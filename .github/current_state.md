@@ -1,10 +1,11 @@
 # Tradleware — Current State & Active Goals
 
 > Last updated: 16 May 2026 (session 14)
+> Last updated: 23 May 2026 (session 15)
 
----
 
 ## Current State
+**v3.3.1b released**
 
 **v3.3.0b released**
 
@@ -28,14 +29,13 @@
 - `hostname` YAML field is now optional for all crypto traders — each falls back to its exchange default and displays the resolved hostname on the bot card.
 - Return type annotations added to all five crypto trader classes.
 - pylint score: **10.00/10** across all of `src/`
-- Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.3.0b` and `latest`.
+ Multi-arch Docker image (`amd64` + `arm64`) published as `cslev/tradleware:v3.3.1b` and `latest`.
 
----
 
 ## Future Goals
 
 ### IBKR — unimplemented methods (none block current production use)
-- [ ] `fetch_account_value()` — raises `NotImplementedError`. Cash is already fetched inline inside `create_order` via `accountSummaryAsync()`. Only needed for a future dashboard Summary tab.
+ **Version bumped to v3.3.1b**
 - [ ] `cancel_order()` — raises `NotImplementedError`. All orders are market orders that fill immediately; nothing to cancel. Only becomes relevant if limit orders are ever added.
 - [ ] `fetch_open_orders()` — raises `NotImplementedError`. Useful for dashboard visibility into pending orders only.
 
@@ -61,6 +61,11 @@
 ---
 
 ## Session History
+
+### 23 May 2026 (session 15)
+- **TradingView action normalization**: Webhook handler now accepts 'long'/'short' as 'buy'/'sell' and normalizes for all bots. No changes needed in trader classes.
+- **Ticker documentation warning**: README and docs now strongly emphasize that the `ticker` field in webhook payloads must match the bot's `crypto_stablecoin_pair` (e.g., `BTC/USDT`), not a generic ticker or space-separated format. Added warning for TradingView users.
+- **Version bumped to v3.3.1b**
 
 ### 16 May 2026 (session 14)
 - **Binance exchange integration**: `BinanceTrader` subclassing `BaseCryptoTrader`; CCXT `binance` exchange; standard API key + secret key (HMAC-SHA256), no passphrase; registered in `EXCHANGE_TRADER_CLASSES`

@@ -5,6 +5,12 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.3.1b] - 2026-05-23
+
+### Improvements
+- Webhook handler now accepts TradingView 'long'/'short' as 'buy'/'sell' (normalized for all bots).
+- README and docs now strongly emphasize that the `ticker` field in webhook payloads must match the bot's `crypto_stablecoin_pair` (e.g., `BTC/USDT`), not a generic ticker or space-separated format. Added warning for TradingView users.
+
 ## [v3.3.0b] - 2026-05-16
 
 <p align="center">
