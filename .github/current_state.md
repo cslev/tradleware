@@ -2,9 +2,12 @@
 
 > Last updated: 16 May 2026 (session 14)
 > Last updated: 23 May 2026 (session 15)
+> Last updated: 02 Jun 2026 (session 16)
 
 
 ## Current State
+**v3.3.2b released**
+
 **v3.3.1b released**
 
 **v3.3.0b released**
@@ -61,6 +64,13 @@
 ---
 
 ## Session History
+
+### 02 Jun 2026 (session 16)
+- **Security: CVE-2026-48710 (BadHost) assessment**: confirmed Tradleware is not affected — no custom `BaseHTTPMiddleware` using `request.url.path` for access control; auth is route-level via `request.session`
+- **Dependency upgrade**: Starlette 0.52.1 → 1.2.1, FastAPI 0.129.0 → 0.136.3 (Host header validation fix per RFC 9112/3986)
+- **`src/requirement.txt`**: pinned `fastapi>=0.136.3`; added explicit `starlette>=1.0.1` constraint
+- **Version bumped to v3.3.2b**
+- **Multi-arch Docker image published**: `cslev/tradleware:v3.3.2b` and `latest` (amd64 + arm64)
 
 ### 23 May 2026 (session 15)
 - **TradingView action normalization**: Webhook handler now accepts 'long'/'short' as 'buy'/'sell' and normalizes for all bots. No changes needed in trader classes.

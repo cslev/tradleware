@@ -1,7 +1,8 @@
 ccxt
 python-dotenv
 colorama
-fastapi
+fastapi>=0.136.3
+starlette>=1.0.1
 uvicorn[standard]
 python-multipart
 jinja2
