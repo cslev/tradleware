@@ -5,6 +5,16 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.3.2b] - 2026-06-02
+
+### Security
+- **CVE-2026-48710 (BadHost) assessment** — confirmed Tradleware is not directly exploitable (no custom `BaseHTTPMiddleware` using `request.url.path` for access control; auth is route-level via session). Upgraded as a precaution.
+- **Starlette 0.52.1 → 1.2.1** — pulls in Host header validation per RFC 9112/3986.
+- **FastAPI 0.129.0 → 0.136.3** — updated alongside Starlette (tightly coupled dependency).
+- **`src/requirement.txt`** — pinned `fastapi>=0.136.3`; added explicit `starlette>=1.0.1` minimum constraint.
+
+---
+
 ## [v3.3.1b] - 2026-05-23
 
 ### Improvements
