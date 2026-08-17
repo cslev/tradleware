@@ -187,7 +187,7 @@
     "trader_id": "{% endraw %}{{ trader_id }}{% raw %}",
     "ticker": "{{ticker}}",
     "action": "{{strategy.order.action}}",
-    "timestamp": "{{time}}",
+    "timestamp": "{{timenow}}",
     "alert_name": "{{strategy.order.comment}}",
     "order_size": 100,
     "order_size_type": "percentage", // or "quantity"
@@ -335,7 +335,7 @@
   "trader_id": "{% endraw %}{{ trader_id }}{% raw %}",
   "ticker": "{{ticker}}",
   "action": "{{strategy.order.action}}",
-  "timestamp": "{{time}}",
+  "timestamp": "{{timenow}}",
   "alert_name": "{{strategy.order.comment}}",
   "order_size": 100,
   "order_size_type": "percentage",   // or "quantity"

@@ -10,7 +10,7 @@ signals, and provides endpoints for balance monitoring and order management.
 # Standard library imports
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 import ipaddress
 import json
 import math
@@ -31,6 +31,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.misc.logger import CustomLogger
 from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs
+from src.misc.replay_guard import ReplayGuard, parse_signal_timestamp, signal_fingerprint
 from src.traders.crypto.binance_trader import BinanceTrader
 from src.traders.crypto.coinbase_trader import CoinbaseTrader
 from src.traders.crypto.cryptocom_trader import CryptocomTrader
@@ -261,6 +262,47 @@ app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
 WEBHOOK_PATH = get_env('WEBHOOK_PATH', 'webhook').strip('/')  # Strip leading/trailing slashes
 IBKR_HEALTH_CHECK_INTERVAL = int(get_env('IBKR_HEALTH_CHECK_INTERVAL_S', '1800'))
 
+# Webhook replay protection — how far the signal's own timestamp may be from now,
+# in seconds, in either direction
+WEBHOOK_MAX_AGE_DEFAULT_S = 300
+# Floor for the window: below this, ordinary clock drift between the signal source
+# and this host starts rejecting valid signals
+WEBHOOK_MAX_AGE_FLOOR_S = 30
+
+
+def _read_freshness_window() -> tuple:
+  """
+  Read WEBHOOK_MAX_AGE_S, clamped to a sane range.
+
+  The window can be widened or narrowed, but never switched off: a webhook whose
+  timestamp is not checked stays replayable forever, which is the whole point of the
+  control. Returns (seconds, note) where note is a message for the logger, which does
+  not exist yet at this point in startup, or None.
+  """
+  raw = get_env('WEBHOOK_MAX_AGE_S', str(WEBHOOK_MAX_AGE_DEFAULT_S))
+  try:
+    value = int(float(str(raw).strip()))
+  except (TypeError, ValueError):
+    return WEBHOOK_MAX_AGE_DEFAULT_S, (
+      f"WEBHOOK_MAX_AGE_S='{raw}' is not a number — using "
+      f"{WEBHOOK_MAX_AGE_DEFAULT_S}s."
+    )
+  if value < WEBHOOK_MAX_AGE_FLOOR_S:
+    return WEBHOOK_MAX_AGE_FLOOR_S, (
+      f"WEBHOOK_MAX_AGE_S={value} is below the {WEBHOOK_MAX_AGE_FLOOR_S}s floor and "
+      "would reject valid signals on ordinary clock drift — using the floor."
+    )
+  return value, None
+
+
+WEBHOOK_MAX_AGE_S, _WEBHOOK_MAX_AGE_NOTE = _read_freshness_window()
+# Where accepted signal fingerprints are remembered across restarts. Defaults into
+# the logs directory because that is the only path persisted by docker-compose.
+WEBHOOK_REPLAY_DB = get_env(
+  'WEBHOOK_REPLAY_DB',
+  str(Path(__file__).resolve().parent.parent / 'logs' / 'webhook_replay.json')
+)
+
 # Authentication configuration
 DASHBOARD_USERNAME = get_env('DASHBOARD_USERNAME', 'admin')
 DASHBOARD_PASSWORD = get_env('DASHBOARD_PASSWORD', 'changeme')
@@ -357,6 +399,20 @@ elif TRUSTED_IPS:
     "TRUSTED_IPS is matched against the direct connection address. Set TRUSTED_PROXIES "
     "if Tradleware runs behind a reverse proxy or tunnel."
   )
+
+# Webhook replay protection — a signal must be recent, and is accepted only once
+if _WEBHOOK_MAX_AGE_NOTE:
+  logger.warning(_WEBHOOK_MAX_AGE_NOTE)
+logger.info(
+  f"Webhook freshness window: {WEBHOOK_MAX_AGE_S}s. Signals must carry a current "
+  "timestamp — TradingView alerts must send {{timenow}}, not {{time}} (bar time)."
+)
+if WEBHOOK_MAX_AGE_S > 3600:
+  logger.warning(
+    f"Webhook freshness window is {WEBHOOK_MAX_AGE_S}s — a captured signal stays "
+    "replayable for that long. Keep it as short as your signal source allows."
+  )
+replay_guard = ReplayGuard(WEBHOOK_REPLAY_DB, WEBHOOK_MAX_AGE_S, logger)
 
 
 # Mount static files (for CSS, JS, images). Paths are now relative to /src/ui/
@@ -783,6 +839,11 @@ async def handle_webhook(request: Request):
     logger.error(error_msg)
     raise HTTPException(status_code=400, detail=error_msg) from exc
 
+  # Valid JSON is not necessarily an object — every field lookup below assumes one
+  if not isinstance(data, dict):
+    logger.error(f"Webhook body is a JSON {type(data).__name__}, expected an object")
+    raise HTTPException(status_code=400, detail="Webhook body must be a JSON object.")
+
   ########################################################################
   ## Log the incoming webhook for visibility before any validation
   ########################################################################
@@ -831,34 +892,9 @@ async def handle_webhook(request: Request):
 
 
   ########################################
-  # Convert timestamp to datetime
+  # Convert timestamp to datetime (timezone-aware, UTC)
   ########################################
-  timestamp_dt = None
-  if timestamp_raw:
-    try:
-      # Handle both unix timestamp (seconds) and milliseconds
-      if isinstance(timestamp_raw, (int, float)):
-        # If timestamp is larger than 10 digits, it's likely in milliseconds
-        if timestamp_raw > 9999999999:  # Greater than year 2286 in seconds
-          timestamp_dt = datetime.fromtimestamp(timestamp_raw / 1000)
-        else:
-          timestamp_dt = datetime.fromtimestamp(timestamp_raw)
-      elif isinstance(timestamp_raw, str):
-        # Try to parse as integer first
-        try:
-          timestamp_num = int(float(timestamp_raw))
-          if timestamp_num > 9999999999:
-            timestamp_dt = datetime.fromtimestamp(timestamp_num / 1000)
-          else:
-            timestamp_dt = datetime.fromtimestamp(timestamp_num)
-        except ValueError:
-          # If not a number, try to parse as ISO format
-          timestamp_dt = datetime.fromisoformat(timestamp_raw.replace('Z', '+00:00'))
-    except (ValueError, OSError) as exc:
-      trader.logger.warning(f"Invalid timestamp format: {timestamp_raw}, error: {exc}")
-      timestamp_dt = datetime.now()  # Fallback to current time
-  else:
-    timestamp_dt = datetime.now()  # Fallback if no timestamp provided
+  timestamp_dt = parse_signal_timestamp(timestamp_raw)
 
   ###############################################
   ##### CHECK IF ALL FIELDS WERE SENT PROPERLY
@@ -868,9 +904,43 @@ async def handle_webhook(request: Request):
     trader.logger.error(f"Missing fields: {', '.join(missing)}")
     raise HTTPException(status_code=400, detail=f"Missing fields: {', '.join(missing)}")
 
+  ###############################################
+  ##### REPLAY PROTECTION
+  ###############################################
+  # The API key travels inside the body, so a captured request is a reusable trading
+  # capability unless the signal is required to be recent and accepted only once.
+  if timestamp_dt is None:
+    trader.logger.error(
+      f"Rejected signal for {trader_id}: timestamp '{timestamp_raw}' could not be read. "
+      "Send unix seconds/ms or ISO 8601 — TradingView alerts must send "
+      "{{timenow}}."
+    )
+    raise HTTPException(status_code=400, detail="Invalid timestamp — send unix seconds/ms or ISO 8601.")
+
+  age_seconds = (datetime.now(timezone.utc) - timestamp_dt).total_seconds()
+  if abs(age_seconds) > WEBHOOK_MAX_AGE_S:
+    when = "old" if age_seconds > 0 else "in the future"
+    trader.logger.error(
+      f"Rejected signal for {trader_id}: timestamp is {abs(age_seconds):.0f}s {when}, "
+      f"limit is {WEBHOOK_MAX_AGE_S}s. Cause is a replayed request, a clock that is "
+      "out of sync, or a bar timestamp — TradingView alerts must send "
+      "{{timenow}}, not {{time}}."
+    )
+    raise HTTPException(status_code=400, detail="Signal timestamp is outside the freshness window.")
+
+  if not await replay_guard.register(signal_fingerprint(trader_id, body)):
+    trader.logger.error(
+      f"Rejected signal for {trader_id}: identical request already processed. "
+      "This is a replay, or the signal source sent the same alert twice."
+    )
+    raise HTTPException(status_code=409, detail="Duplicate signal — this request was already processed.")
+
   # Format timestamp for logging
-  timestamp_str = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
-  trader.logger.info(f"Webhook received payload: {json.dumps(data, indent=2)}")
+  timestamp_str = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+  # The payload carries the bot's API key — redact it before it reaches the log file
+  trader.logger.info(
+    f"Webhook received payload: {json.dumps({**data, 'api_key': '***'}, indent=2)}"
+  )
 
   ###############################################
   ##### CHECK IF ORDER SIZE is SENT

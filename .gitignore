@@ -219,3 +219,6 @@ __marimo__/
 *.pfx
 credentials.json
 serviceAccountKey*.json
+
+# Runtime state written by the app (webhook replay-protection cache)
+src/logs/webhook_replay.json*

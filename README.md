@@ -173,6 +173,7 @@ WEBHOOK_PATH="ka8Moh4aiNgai4"
 | `DASHBOARD_PASSWORD` | No | `changeme` | Dashboard login password (⚠️ **Change this!**) |
 | `SESSION_SECRET_KEY` | No | Auto-generated | Session encryption key — `openssl rand -hex 32` |
 | `WEBHOOK_PATH` | No | `webhook` | Webhook URL path — randomize for security (`pwgen -n 14`) |
+| `WEBHOOK_MAX_AGE_S` | No | `300` | How stale a signal's timestamp may be before it is rejected (minimum `30`) — see [Replay protection](#replay-protection) |
 | `TRUSTED_IPS` | No | — | Comma-separated IPs that bypass authentication |
 | `TRUSTED_PROXIES` | No | — | Comma-separated IPs/CIDRs of reverse proxies allowed to report the client IP — see below |
 | `LOG_REFRESH_INTERVAL_MS` | No | `5000` | Dashboard log refresh interval (ms) |
@@ -330,7 +331,7 @@ Every webhook request must be a `POST` with a JSON body. Here's a full example:
   "trader_id":       "mybtcbot",
   "ticker":          "BTC/USDT",
   "action":          "buy",
-  "timestamp":       "2026-03-28T12:00:00Z",
+  "timestamp":       "2026-03-28T12:00:00Z",   // must be the current time — see Replay protection
   "alert_name":      "Supertrend Buy Signal",
   "order_size":      100,
   "order_size_type": "percentage",
@@ -347,11 +348,41 @@ Key fields:
 | `ticker` | Yes | Must match the bot's configured `crypto_stablecoin_pair` exactly |
 |  |  | ⚠️ **Important:** If you use TradingView or any system where you cannot control the exact ticker format, always hardcode the `crypto_stablecoin_pair` (e.g., `BTC/USDT`) in your webhook payload. TradingView may send `BTCUSD` or `BTC USD`, which will **not** match the required format. The `ticker` field **must** match your bot's YAML `crypto_stablecoin_pair` (e.g., `BTC/USDT`, `ETH/USDT`) exactly, or the signal will be rejected. |
 | `action` | Yes | `buy` or `sell` |
-| `timestamp` | Yes | Unix timestamp (seconds or ms) or ISO 8601 string |
+| `timestamp` | Yes | Unix timestamp (seconds or ms) or ISO 8601 string — **must be the moment the signal fired**, see [Replay protection](#replay-protection) |
 | `order_size` | Yes | Amount to trade — percentage (0–100) or exact quantity depending on `order_size_type` |
 | `order_size_type` | No | `percentage` (default) or `quantity` |
 | `alert_name` | No | Optional label shown in logs and notifications |
 | `dry_run` | No | `true` to simulate without executing — useful for testing |
 
 > **Tip:** Each bot's dashboard card has a **Webhook Details** pane showing the exact endpoint URL, a ready-to-use cURL example, and a live test button — the easiest way to verify your setup without leaving the UI.
+
+### Replay protection
+
+The `api_key` travels inside the request body, so anyone who captures one webhook request
+holds a reusable trading capability: the same bytes, sent again, would place another real
+order. Tradleware blocks that in two ways, both always on:
+
+1. **Freshness window** — the `timestamp` in the payload must be within `WEBHOOK_MAX_AGE_S`
+   seconds of this host's clock (default 300s, in either direction). Anything older or
+   further in the future is rejected with `400`.
+2. **Single use** — the exact request body is remembered until it falls outside the
+   freshness window, and a repeat is rejected with `409`. The record is written to disk, so
+   restarting Tradleware does not reopen the window.
+
+**⚠️ TradingView users: send `{{timenow}}`, not `{{time}}`.**
+
+```json
+"timestamp": "{{timenow}}"
+```
+
+`{{time}}` is the timestamp of the *bar*, not of the alert. On a 4-hour chart it is already
+up to 4 hours old when the alert fires, and on a daily chart up to 24 hours — every signal
+would be rejected as stale. `{{timenow}}` is the moment the alert fired, which is what the
+freshness window needs. The example on each bot's **Webhook Details** pane is already
+correct; copy it from there.
+
+If signals start being rejected, the log line names the cause — a stale timestamp, a clock
+that is out of sync with the signal source, or a duplicate delivery. `WEBHOOK_MAX_AGE_S`
+can be widened if your source is slow, but it cannot be switched off: an unbounded window
+means captured requests replay forever.
 

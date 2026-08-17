@@ -352,8 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const traderTickers = JSON.parse(document.getElementById('trader-tickers').textContent);
   const logRefreshInterval = JSON.parse(document.getElementById('log-refresh-interval').textContent);
   const webhookPath = document.getElementById('webhook-path').textContent;
-  const loadTimestamp = Math.floor(Date.now() / 1000);
-  
+
   // Show just the webhook path with placeholder for domain
   const webhookUrl = `https://[YOUR_TRADLEWARE_DOMAIN]/${webhookPath}`;
   
@@ -375,7 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
       curlPre.textContent =
         `curl -X POST ${webhookUrl}?alert_name=MyStrategyAlert \\
   -H "Content-Type: application/json" \\
-  -d '{\n    "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",\n    "trader_id": "${traderId}",\n    "ticker": "${ticker}",\n    "action": "buy",\n    "timestamp": "${loadTimestamp}",\n    "alert_name": "MyStrategyAlertFromBody",\n    "order_size": 100,\n    "order_size_type": "percentage",\n    "dry_run": false\n  }'`;
+  -d '{\n    "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",\n    "trader_id": "${traderId}",\n    "ticker": "${ticker}",\n    "action": "buy",\n    "timestamp": "'"$(date +%s)"'",\n    "alert_name": "MyStrategyAlertFromBody",\n    "order_size": 100,\n    "order_size_type": "percentage",\n    "dry_run": false\n  }'`;
     }
   });
   
