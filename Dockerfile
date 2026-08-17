@@ -44,4 +44,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/ || exit 1
 
 # Command to run the application
-CMD ["python", "-m", "uvicorn", "src.ui.app:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]
+# --no-proxy-headers: uvicorn must not rewrite the client address from
+# X-Forwarded-For (it trusts 127.0.0.1 by default). Tradleware resolves the
+# client IP itself via TRUSTED_PROXIES, which requires request.client.host to be
+# the real TCP peer.
+CMD ["python", "-m", "uvicorn", "src.ui.app:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log", "--no-proxy-headers"]

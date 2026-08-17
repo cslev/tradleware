@@ -174,11 +174,41 @@ WEBHOOK_PATH="ka8Moh4aiNgai4"
 | `SESSION_SECRET_KEY` | No | Auto-generated | Session encryption key — `openssl rand -hex 32` |
 | `WEBHOOK_PATH` | No | `webhook` | Webhook URL path — randomize for security (`pwgen -n 14`) |
 | `TRUSTED_IPS` | No | — | Comma-separated IPs that bypass authentication |
+| `TRUSTED_PROXIES` | No | — | Comma-separated IPs/CIDRs of reverse proxies allowed to report the client IP — see below |
 | `LOG_REFRESH_INTERVAL_MS` | No | `5000` | Dashboard log refresh interval (ms) |
 | `LOG_LEVEL` | No | `10` | Min log level: 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR |
 | `GOTIFY_SERVER_URL` | No | — | Gotify server URL for push notifications |
 | `GOTIFY_APP_TOKEN` | No | — | Gotify application token |
 | `GOTIFY_LOG_LEVEL` | No | `30` | Min log level for Gotify notifications |
+
+#### Running behind a reverse proxy or tunnel
+
+`TRUSTED_IPS` is matched against the address Tradleware sees the connection come from. When
+Tradleware sits behind nginx, Caddy, Traefik or a Cloudflare Tunnel, every request arrives from
+the proxy, so the real client address is only available in the `X-Forwarded-For` / `X-Real-IP`
+headers — which the client itself can set to anything.
+
+Tradleware therefore ignores those headers unless the request comes from an address listed in
+`TRUSTED_PROXIES`:
+
+```env
+# The address (or subnet) Tradleware sees your proxy connect from
+TRUSTED_PROXIES=172.18.0.0/16
+```
+
+- **No proxy (default):** leave `TRUSTED_PROXIES` empty. Forwarded headers are ignored entirely
+  and `TRUSTED_IPS` is matched against the real connection address.
+- **With a proxy:** list only the proxy's own address. Tradleware then takes the rightmost
+  `X-Forwarded-For` hop that is not itself a trusted proxy — the address the proxy actually
+  observed, not the one the client claimed.
+- ⚠️ Never set `TRUSTED_PROXIES` to a range you do not control (and never to `0.0.0.0/0`).
+  Doing so lets anyone bypass `TRUSTED_IPS` with a single spoofed header.
+
+Make sure the proxy **overwrites** rather than appends the client's headers — for nginx,
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` is correct, since Tradleware
+reads the chain from the right. If you run Tradleware outside Docker, start uvicorn with
+`--no-proxy-headers` so `TRUSTED_PROXIES` stays the single source of truth (the bundled
+Dockerfile already does this).
 
 ### Step 4 — Run
 

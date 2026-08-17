@@ -11,6 +11,7 @@ signals, and provides endpoints for balance monitoring and order management.
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
+import ipaddress
 import json
 import math
 from pathlib import Path
@@ -278,6 +279,39 @@ def _fetch_public_ip() -> str:
 SERVER_PUBLIC_IP = _fetch_public_ip()
 TRUSTED_IPS = [ip.strip() for ip in get_env('TRUSTED_IPS', '').split(',') if ip.strip()]
 
+
+def _parse_ip_networks(raw: str) -> tuple:
+  """
+  Parse a comma-separated list of IP addresses and/or CIDR blocks.
+
+  Bare addresses are widened to single-host networks (/32, /128) so membership
+  tests are uniform. Never raises: malformed entries are returned to the caller
+  instead of being logged, because this runs before the logger is constructed.
+
+  Returns:
+    tuple: (list of ip_network objects, list of rejected raw entries)
+  """
+  networks = []
+  invalid = []
+  for entry in raw.split(','):
+    entry = entry.strip()
+    if not entry:
+      continue
+    try:
+      networks.append(ipaddress.ip_network(entry, strict=False))
+    except ValueError:
+      invalid.append(entry)
+  return networks, invalid
+
+
+# Reverse proxies that are allowed to speak for their clients.
+# Forwarded headers (X-Forwarded-For, X-Real-IP, X-Forwarded-Proto) are set by
+# whoever sends the request, so they are only honoured when the direct TCP peer
+# matches one of these addresses or CIDR blocks. With no trusted proxy
+# configured (the default) the connection address is always authoritative —
+# otherwise anyone could grant themselves a trusted IP by sending a header.
+TRUSTED_PROXIES, _INVALID_PROXIES = _parse_ip_networks(get_env('TRUSTED_PROXIES', ''))
+
 # Initialize a logger for the FastAPI app
 # Ensure CustomLogger is correctly imported from src.misc.logger
 logger = CustomLogger(name='Tradleware',
@@ -292,6 +326,24 @@ if TRUSTED_IPS:
 else:
   logger.warning("No trusted IPs configured. All access requires authentication.")
 
+# Log trusted-proxy configuration — this decides whether forwarded headers count
+if _INVALID_PROXIES:
+  logger.error(
+    "Ignoring invalid TRUSTED_PROXIES entries (expected an IP address or CIDR block): "
+    f"{', '.join(_INVALID_PROXIES)}"
+  )
+if TRUSTED_PROXIES:
+  logger.info(
+    f"Trusted proxies configured: {', '.join(str(net) for net in TRUSTED_PROXIES)} — "
+    "forwarded headers are honoured only from these peers."
+  )
+elif TRUSTED_IPS:
+  logger.info(
+    "No trusted proxies configured — X-Forwarded-For / X-Real-IP are ignored and "
+    "TRUSTED_IPS is matched against the direct connection address. Set TRUSTED_PROXIES "
+    "if Tradleware runs behind a reverse proxy or tunnel."
+  )
+
 
 # Mount static files (for CSS, JS, images). Paths are now relative to /src/ui/
 # BUT, FastAPI needs the path relative to the app's *startup directory*
@@ -304,21 +356,57 @@ templates = Jinja2Templates(directory="src/ui/templates")
 
 #################### AUTHENTICATION HELPERS ####################
 
+def _parse_ip(value: str):
+  """Return an ip_address for `value`, or None when it is not a valid IP literal."""
+  try:
+    parsed = ipaddress.ip_address(value.strip())
+  except (ValueError, AttributeError):
+    return None
+  # Normalise IPv4-mapped IPv6 (e.g. '::ffff:192.168.1.5') to plain IPv4
+  return parsed.ipv4_mapped if getattr(parsed, 'ipv4_mapped', None) else parsed
+
+def is_trusted_proxy(address: str) -> bool:
+  """Check if an address belongs to one of the configured trusted reverse proxies"""
+  if not TRUSTED_PROXIES:
+    return False
+  parsed = _parse_ip(address)
+  if parsed is None:
+    return False
+  return any(parsed in network for network in TRUSTED_PROXIES)
+
 def get_client_ip(request: Request) -> str:
-  """Get the real client IP address, accounting for proxies"""
-  # Check X-Forwarded-For header (set by reverse proxies)
-  forwarded = request.headers.get("X-Forwarded-For")
-  if forwarded:
-    # X-Forwarded-For can contain multiple IPs, take the first one
-    return forwarded.split(",")[0].strip()
+  """
+  Get the real client IP address, accounting for proxies.
 
-  # Check X-Real-IP header (alternative proxy header)
-  real_ip = request.headers.get("X-Real-IP")
-  if real_ip:
-    return real_ip.strip()
+  Forwarded headers are supplied by the sender and can claim anything, so they are
+  only honoured when the direct TCP peer is a configured trusted proxy. For every
+  other peer the connection address is authoritative — otherwise a plain
+  `curl -H 'X-Forwarded-For: <trusted ip>'` would be enough to pass as trusted.
+  """
+  peer = request.client.host if request.client else "unknown"
+  if not is_trusted_proxy(peer):
+    return peer
 
-  # Fallback to direct client IP
-  return request.client.host if request.client else "unknown"
+  # The peer is a trusted proxy: walk X-Forwarded-For right to left and take the
+  # rightmost hop that is not itself a trusted proxy. Entries further left were
+  # appended by an upstream we do not control and may be client-supplied.
+  forwarded = request.headers.get("X-Forwarded-For", "")
+  for hop in reversed(forwarded.split(",")):
+    hop = hop.strip()
+    if not hop:
+      continue
+    if _parse_ip(hop) is None:
+      break  # malformed chain — stop trusting the rest of it
+    if not is_trusted_proxy(hop):
+      return hop
+
+  # No usable X-Forwarded-For — fall back to X-Real-IP from that same trusted hop
+  real_ip = request.headers.get("X-Real-IP", "").strip()
+  if real_ip and _parse_ip(real_ip) is not None:
+    return real_ip
+
+  # Only trusted proxies in the chain, or no forwarded headers at all
+  return peer
 
 def is_trusted_ip(client_ip: str) -> bool:
   """Check if the client IP is in the trusted IPs list"""
@@ -347,10 +435,17 @@ def require_auth(request: Request):
     raise HTTPException(status_code=401, detail="Authentication required")
 
 def is_request_secure(request: Request) -> bool:
-  # Check X-Forwarded-Proto header (used by most proxies/tunnels)
-  xf_proto = request.headers.get("X-Forwarded-Proto")
-  if xf_proto:
-    return xf_proto.lower() == "https"
+  """Check if the client reached Tradleware over HTTPS"""
+  # Check X-Forwarded-Proto header (used by most proxies/tunnels), but only when it
+  # comes from a trusted proxy — a direct client could otherwise claim HTTPS on a
+  # plain HTTP connection and hide the insecure-connection warning.
+  peer = request.client.host if request.client else ""
+  if is_trusted_proxy(peer):
+    xf_proto = request.headers.get("X-Forwarded-Proto")
+    if xf_proto:
+      # Comma-separated when proxies are chained; the first entry is the scheme
+      # the browser actually used.
+      return xf_proto.split(",")[0].strip().lower() == "https"
   # Fallback to scheme (for direct access)
   return request.url.scheme == "https"
 
