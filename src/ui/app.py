@@ -426,7 +426,13 @@ if WEBHOOK_MAX_AGE_S > 3600:
     f"Webhook freshness window is {WEBHOOK_MAX_AGE_S}s — a captured signal stays "
     "replayable for that long. Keep it as short as your signal source allows."
   )
-replay_guard = ReplayGuard(WEBHOOK_REPLAY_DB, WEBHOOK_MAX_AGE_S, logger)
+# A fingerprint has to stay cached for as long as its signal could still pass the
+# freshness check, otherwise the signal becomes replayable again the moment the
+# fingerprint expires. A signal may be dated up to WEBHOOK_MAX_AGE_S in the future and
+# still be accepted, and it goes on passing the freshness check until
+# WEBHOOK_MAX_AGE_S past that timestamp — so in the worst case it must be remembered
+# for twice the window, counted from when it was first accepted.
+replay_guard = ReplayGuard(WEBHOOK_REPLAY_DB, WEBHOOK_MAX_AGE_S * 2, logger)
 
 # Webhook transport security
 if WEBHOOK_REQUIRE_HTTPS:

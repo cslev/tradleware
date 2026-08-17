@@ -399,9 +399,10 @@ order. Tradleware blocks that in two ways, both always on:
 1. **Freshness window** — the `timestamp` in the payload must be within `WEBHOOK_MAX_AGE_S`
    seconds of this host's clock (default 300s, in either direction). Anything older or
    further in the future is rejected with `400`.
-2. **Single use** — the exact request body is remembered until it falls outside the
-   freshness window, and a repeat is rejected with `409`. The record is written to disk, so
-   restarting Tradleware does not reopen the window.
+2. **Single use** — the exact request body is remembered for as long as it could still pass
+   the freshness check, and a repeat is rejected with `409`. The record is written to disk,
+   so restarting Tradleware does not reopen the window. Expired records are discarded
+   automatically, so the file only ever holds the last few minutes of signals.
 
 **⚠️ TradingView users: send `{{timenow}}`, not `{{time}}`.**
 

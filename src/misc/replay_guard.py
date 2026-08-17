@@ -76,10 +76,16 @@ class ReplayGuard:
   """
   Remembers recently accepted signal fingerprints and refuses repeats.
 
-  Entries expire after `ttl_seconds`; anything older is already refused by the
-  freshness window, so the cache stays small. State is rewritten atomically after
-  every accepted signal. If the path cannot be used the guard keeps working in memory
-  and warns once — losing persistence is far better than refusing to trade.
+  Entries expire `ttl_seconds` after they were accepted, and expired entries are
+  dropped before every membership test, so the cache stays small and a stale entry can
+  never cause a false rejection. The caller must size `ttl_seconds` so that an entry
+  outlives its signal's freshness: a signal accepted while dated in the future goes on
+  passing a +/-W freshness check until W past its own timestamp, which can be up to 2W
+  after it was accepted. A shorter TTL would make it replayable again in between.
+
+  State is rewritten atomically after every accepted signal. If the path cannot be used
+  the guard keeps working in memory and warns once — losing persistence is far better
+  than refusing to trade.
   """
 
   def __init__(self, path, ttl_seconds: int, logger):
