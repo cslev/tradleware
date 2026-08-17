@@ -386,3 +386,18 @@ that is out of sync with the signal source, or a duplicate delivery. `WEBHOOK_MA
 can be widened if your source is slow, but it cannot be switched off: an unbounded window
 means captured requests replay forever.
 
+#### Keep the host clock synced
+
+Freshness is measured against this host's clock, so a machine that drifts more than
+`WEBHOOK_MAX_AGE_S` seconds from real time will reject perfectly valid signals. The
+*timezone* is irrelevant — everything is compared in UTC — only *accuracy* matters. This
+bites Raspberry Pi setups in particular: a Pi has no battery-backed clock and starts up
+with the wrong time until NTP corrects it.
+
+Fix it on the **host**, not in the container — Docker inherits the host clock:
+
+```bash
+sudo timedatectl set-ntp true   # Debian / Raspberry Pi OS / Ubuntu
+timedatectl status              # want: "System clock synchronized: yes"
+```
+
