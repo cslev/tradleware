@@ -368,6 +368,25 @@ app.mount("/static", StaticFiles(directory="src/ui/static"), name="static")
 templates = Jinja2Templates(directory="src/ui/templates")
 
 
+def mask_secret(value, visible: int = 4) -> str:
+  """
+  Render a live secret as a fixed-width mask plus at most `visible` trailing characters.
+
+  Enough to tell two keys apart on the dashboard, not enough to be useful in a
+  screenshot, a screen share, or over someone's shoulder. The mask is a fixed width
+  so it does not leak the length of the secret, and secrets too short to mask
+  meaningfully are hidden entirely.
+  """
+  if not value:
+    return 'Not configured'
+  text = str(value)
+  suffix = text[-visible:] if len(text) > visible * 2 else ''
+  return f"{'•' * 8}{suffix}"
+
+
+templates.env.filters['mask_secret'] = mask_secret
+
+
 #################### AUTHENTICATION HELPERS ####################
 
 def _parse_ip(value: str):

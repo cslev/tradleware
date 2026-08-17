@@ -165,7 +165,7 @@
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-gray-500">Exchange API Key:</span>
-                  <span class="font-mono">{{ trader.api_key[:8] }}...{{ trader.api_key[-8:] }}</span>
+                  <span class="font-mono">{{ trader.api_key | mask_secret }}</span>
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-gray-500">Exchange Hostname:</span>
@@ -173,13 +173,7 @@
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-gray-500">Tradleware API Key:</span>
-                  <span class="font-mono">
-                    {% if trader.tradleware_api_key %}
-                      {{ trader.tradleware_api_key[:8] }}...{{ trader.tradleware_api_key[-8:] }}
-                    {% else %}
-                      Not configured
-                    {% endif %}
-                  </span>
+                  <span class="font-mono">{{ trader.tradleware_api_key | mask_secret }}</span>
                 </div>
               </div>
             </div>
@@ -326,13 +320,7 @@
                 </div>
                 <div class="flex justify-between items-center">
                   <span class="text-gray-500">Tradleware API Key:</span>
-                  <span class="font-mono">
-                    {% if trader.tradleware_api_key %}
-                      {{ trader.tradleware_api_key[:8] }}...{{ trader.tradleware_api_key[-8:] }}
-                    {% else %}
-                      Not configured
-                    {% endif %}
-                  </span>
+                  <span class="font-mono">{{ trader.tradleware_api_key | mask_secret }}</span>
                 </div>
               </div>
             </div>
