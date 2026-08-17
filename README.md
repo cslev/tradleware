@@ -173,6 +173,7 @@ WEBHOOK_PATH="ka8Moh4aiNgai4"
 | `DASHBOARD_PASSWORD` | No | `changeme` | Dashboard login password (⚠️ **Change this!**) |
 | `SESSION_SECRET_KEY` | No | Auto-generated | Session encryption key — `openssl rand -hex 32` |
 | `WEBHOOK_PATH` | No | `webhook` | Webhook URL path — randomize for security (`pwgen -n 14`) |
+| `WEBHOOK_REQUIRE_HTTPS` | No | `true` | Refuse webhooks not delivered over TLS — requires `TRUSTED_PROXIES`, see [Webhooks must use HTTPS](#webhooks-must-use-https) |
 | `WEBHOOK_MAX_AGE_S` | No | `300` | How stale a signal's timestamp may be before it is rejected (minimum `30`) — see [Replay protection](#replay-protection) |
 | `TRUSTED_IPS` | No | — | Comma-separated IPs that bypass authentication |
 | `TRUSTED_PROXIES` | No | — | Comma-separated IPs/CIDRs of reverse proxies allowed to report the client IP — see below |
@@ -355,6 +356,39 @@ Key fields:
 | `dry_run` | No | `true` to simulate without executing — useful for testing |
 
 > **Tip:** Each bot's dashboard card has a **Webhook Details** pane showing the exact endpoint URL, a ready-to-use cURL example, and a live test button — the easiest way to verify your setup without leaving the UI.
+
+### Webhooks must use HTTPS
+
+The `api_key` travels **inside the request body**. Delivered over plain HTTP it is readable
+by anyone on the network path, who can then place orders of their own — replay protection
+does not help against that, since they can compose a brand-new signal rather than repeat
+an old one. Webhooks are therefore refused with `403` unless they arrived over TLS.
+
+**Tradleware does not terminate TLS itself.** There is no certificate configuration; uvicorn
+serves plain HTTP inside the container. So the supported setup is a TLS-terminating proxy in
+front, and `TRUSTED_PROXIES` set so its `X-Forwarded-Proto` header is believed:
+
+```env
+TRUSTED_PROXIES=172.18.0.0/16   # the address your proxy connects from
+WEBHOOK_REQUIRE_HTTPS=true      # the default
+```
+
+Those two settings work together — without `TRUSTED_PROXIES`, the proxy's header is
+(correctly) distrusted and **every webhook is rejected**. Tradleware warns about exactly this
+combination at startup. The rejection log line names which of the three cases applies:
+
+| Log says | Meaning | Fix |
+|---|---|---|
+| *arrived over plain HTTP* | No TLS anywhere in the chain | Put a TLS-terminating proxy in front |
+| *not in TRUSTED_PROXIES* | Proxy is terminating TLS, but Tradleware does not trust it | Set `TRUSTED_PROXIES` to the proxy's address |
+| *client reached the proxy over plain HTTP* | The proxy is reachable over `http://` | Redirect HTTP→HTTPS at the proxy |
+
+If you terminate TLS in uvicorn directly (`--ssl-keyfile` / `--ssl-certfile`, outside Docker),
+that is recognised too and no proxy configuration is needed.
+
+`WEBHOOK_REQUIRE_HTTPS=false` disables the check. That is only reasonable when the signal
+source runs on the same host or a trusted LAN — never for a webhook reachable from the
+internet, which includes every TradingView setup.
 
 ### Replay protection
 

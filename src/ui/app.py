@@ -296,6 +296,20 @@ def _read_freshness_window() -> tuple:
 
 
 WEBHOOK_MAX_AGE_S, _WEBHOOK_MAX_AGE_NOTE = _read_freshness_window()
+
+
+def _env_flag(key: str, default: bool) -> bool:
+  """Read a boolean environment variable, accepting true/false, 1/0, yes/no, on/off."""
+  raw = get_env(key, 'true' if default else 'false')
+  return str(raw).strip().lower() in ('true', '1', 'yes', 'on')
+
+
+# Refuse webhooks that did not reach Tradleware over TLS. The bot's API key travels
+# inside the request body, so a cleartext delivery hands it to anyone on the path,
+# who can then place orders of their own — replay protection does not help against
+# that, because they can mint a brand new signal. Tradleware does not terminate TLS
+# itself, so in practice this requires a TLS-terminating proxy plus TRUSTED_PROXIES.
+WEBHOOK_REQUIRE_HTTPS = _env_flag('WEBHOOK_REQUIRE_HTTPS', True)
 # Where accepted signal fingerprints are remembered across restarts. Defaults into
 # the logs directory because that is the only path persisted by docker-compose.
 WEBHOOK_REPLAY_DB = get_env(
@@ -413,6 +427,23 @@ if WEBHOOK_MAX_AGE_S > 3600:
     "replayable for that long. Keep it as short as your signal source allows."
   )
 replay_guard = ReplayGuard(WEBHOOK_REPLAY_DB, WEBHOOK_MAX_AGE_S, logger)
+
+# Webhook transport security
+if WEBHOOK_REQUIRE_HTTPS:
+  logger.info("Webhooks must arrive over HTTPS (WEBHOOK_REQUIRE_HTTPS=true).")
+  if not TRUSTED_PROXIES:
+    logger.warning(
+      "⚠️  Webhooks require HTTPS but no TRUSTED_PROXIES are configured. Tradleware "
+      "does not terminate TLS itself, so every webhook will be rejected unless uvicorn "
+      "was started with --ssl-keyfile/--ssl-certfile. Put Tradleware behind a "
+      "TLS-terminating proxy and set TRUSTED_PROXIES to the address it connects from."
+    )
+else:
+  logger.warning(
+    "⚠️  Webhook HTTPS enforcement is DISABLED — the bot API key crosses the network in "
+    "cleartext, and anyone who can observe one request can place their own orders. "
+    "Only acceptable when the signal source is on this host or a trusted LAN."
+  )
 
 
 # Mount static files (for CSS, JS, images). Paths are now relative to /src/ui/
@@ -824,6 +855,37 @@ async def handle_webhook(request: Request):
   Note: The webhook path is configurable via WEBHOOK_PATH environment variable.
   Default: /webhook, but can be set to any random string for security (e.g., /x7f9k2m4p8)
   """
+  ########################################################################
+  ## TRANSPORT SECURITY
+  ## The bot's API key is carried in the body, so a cleartext delivery leaks a
+  ## working trading credential to anyone on the path. Checked before the body is
+  ## read: if the transport is wrong, the credential has already been exposed.
+  ########################################################################
+  if WEBHOOK_REQUIRE_HTTPS and not is_request_secure(request):
+    peer = request.client.host if request.client else "unknown"
+    forwarded_proto = request.headers.get("X-Forwarded-Proto")
+    if forwarded_proto and not is_trusted_proxy(peer):
+      reason = (
+        f"it arrived from {peer}, which is not in TRUSTED_PROXIES, so its "
+        "X-Forwarded-Proto header cannot be believed. Set TRUSTED_PROXIES to the "
+        "address your TLS-terminating proxy connects from"
+      )
+    elif forwarded_proto:
+      reason = (
+        f"the proxy reported X-Forwarded-Proto: {forwarded_proto[:20]} — the client "
+        "reached the proxy over plain HTTP"
+      )
+    else:
+      reason = (
+        "it arrived over plain HTTP. Tradleware does not serve HTTPS itself: put it "
+        "behind a TLS-terminating proxy and set TRUSTED_PROXIES"
+      )
+    logger.error(f"Rejected webhook from {peer}: {reason}.")
+    raise HTTPException(
+      status_code=403,
+      detail="Webhooks must be delivered over HTTPS."
+    )
+
   ## reading JSON body with error handling
   try:
     body = await request.body()
