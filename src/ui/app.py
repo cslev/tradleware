@@ -264,6 +264,13 @@ IBKR_HEALTH_CHECK_INTERVAL = int(get_env('IBKR_HEALTH_CHECK_INTERVAL_S', '1800')
 # Authentication configuration
 DASHBOARD_USERNAME = get_env('DASHBOARD_USERNAME', 'admin')
 DASHBOARD_PASSWORD = get_env('DASHBOARD_PASSWORD', 'changeme')
+# True when the shipped defaults are still in place or either field is empty.
+# Surfaced as a startup warning and as the banner on the login page.
+USING_DEFAULT_CREDENTIALS = (
+  (DASHBOARD_USERNAME == 'admin' and DASHBOARD_PASSWORD == 'changeme')
+  or not DASHBOARD_USERNAME
+  or not DASHBOARD_PASSWORD
+)
 
 # Fetch the server's public IP once at startup and cache it
 def _fetch_public_ip() -> str:
@@ -319,8 +326,15 @@ logger = CustomLogger(name='Tradleware',
                       gotify_token=get_env('GOTIFY_APP_TOKEN'),
                       gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30')))
 
-# Log authentication configuration at startup
-logger.info(f"Dashboard credentials loaded - Username: '{DASHBOARD_USERNAME}', Password: '{DASHBOARD_PASSWORD}'")
+# Log authentication configuration at startup.
+# The password is never logged: this goes to the console, to tradleware_data/logs,
+# and is pushed to the Gotify server when GOTIFY_LOG_LEVEL is set to INFO or lower.
+logger.info(f"Dashboard credentials loaded - Username: '{DASHBOARD_USERNAME}' (password hidden)")
+if USING_DEFAULT_CREDENTIALS:
+  logger.warning(
+    "Dashboard is using default or empty credentials — set DASHBOARD_USERNAME and "
+    "DASHBOARD_PASSWORD in .env before exposing Tradleware to any network."
+  )
 if TRUSTED_IPS:
   logger.info(f"Trusted IPs configured: {', '.join(TRUSTED_IPS)}")
 else:
@@ -465,11 +479,6 @@ async def login_page(request: Request):
   # Get error message from query params if login failed
   error = request.query_params.get("error")
 
-  # Check if default credentials are still in use
-  using_defaults = (
-    DASHBOARD_USERNAME == "admin" and DASHBOARD_PASSWORD == "changeme"
-  ) or not DASHBOARD_USERNAME or not DASHBOARD_PASSWORD
-
   # Check if connection is secure (HTTPS)
   is_secure = is_request_secure(request)
 
@@ -478,7 +487,7 @@ async def login_page(request: Request):
     "login.html",
     {
       "error": error,
-      "using_defaults": using_defaults,
+      "using_defaults": USING_DEFAULT_CREDENTIALS,
       "is_secure": is_secure,
       "version": TRADLEWARE_VERSION  # Pass application version
     }
@@ -787,7 +796,9 @@ async def handle_webhook(request: Request):
     trader.logger.error(f"No Tradleware API key configured for trader {trader_id}")
     raise HTTPException(status_code=500, detail="Trader is not configured with a Tradleware API key")
   if not api_key or api_key != expected_api_key:
-    trader.logger.error(f"Unauthorized webhook attempt for trader {trader_id} - wrong API KEY: {api_key}.")
+    # The submitted key is never logged: it is attacker-controlled (log injection),
+    # a near-miss value is likely a real secret, and ERROR is pushed to Gotify.
+    trader.logger.error(f"Unauthorized webhook attempt for trader {trader_id} - invalid API key.")
     raise HTTPException(status_code=401, detail="Invalid API key.")
 
   ## Ok bot exists and API key is valid, let's extract other fields

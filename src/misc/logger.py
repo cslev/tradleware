@@ -122,7 +122,10 @@ class CustomLogger:
       self.general_log_level = logging.DEBUG
 
     self.logger.setLevel(self.general_log_level)
-    print(f"Logger initialized by {name} - gotify_url: {self.gotify_url}, gotify_token: {self.gotify_token}, gotify_log_level: {self.gotify_log_level}, general_log_level: {self.general_log_level}")
+    # The Gotify app token grants push access to the user's server — report only
+    # whether it is configured, never the value itself
+    gotify_token_state = 'set' if self.gotify_token else 'not set'
+    print(f"Logger initialized by {name} - gotify_url: {self.gotify_url}, gotify_token: {gotify_token_state}, gotify_log_level: {self.gotify_log_level}, general_log_level: {self.general_log_level}")
 
     # Only add handlers if they don't already exist (avoid duplicates)
     if not self.logger.handlers:
