@@ -534,6 +534,18 @@ def get_client_ip(request: Request) -> str:
   # Only trusted proxies in the chain, or no forwarded headers at all
   return peer
 
+def is_loopback(address: str) -> bool:
+  """
+  Check if an address is a loopback address.
+
+  Requests from loopback are the container's own health check — `curl /` every 30
+  seconds — so they are left out of the access logs, which they would otherwise drown.
+  This is a logging filter only and never grants access: reaching Tradleware over
+  loopback still requires a session or an entry in TRUSTED_IPS.
+  """
+  parsed = _parse_ip(address)
+  return parsed is not None and parsed.is_loopback
+
 def is_trusted_ip(client_ip: str) -> bool:
   """Check if the client IP is in the trusted IPs list"""
   if not TRUSTED_IPS:
@@ -546,7 +558,7 @@ def is_authenticated(request: Request) -> bool:
 
   # Check if IP is trusted first (bypass authentication)
   if is_trusted_ip(client_ip):
-    if client_ip != "127.0.0.1":
+    if not is_loopback(client_ip):
       logger.debug(f"Access granted from trusted IP: {client_ip}")
     return True
 
@@ -646,11 +658,11 @@ async def read_root(request: Request):
 
   # Check authentication
   if not is_authenticated(request):
-    if client_ip != "127.0.0.1":
+    if not is_loopback(client_ip):
       logger.warning(f"Unauthenticated access attempt to dashboard from IP: {client_ip}")
     return RedirectResponse(url="/login", status_code=303)
 
-  if client_ip != "127.0.0.1":
+  if not is_loopback(client_ip):
     logger.debug(f"Dashboard accessed from IP: {client_ip}")
 
   # Get log refresh interval from environment (default to 5000ms = 5 seconds)
@@ -660,7 +672,7 @@ async def read_root(request: Request):
   is_secure = is_request_secure(request)
 
   # Check if accessing from trusted IP
-  from_trusted_ip = client_ip in TRUSTED_IPS if TRUSTED_IPS else False
+  from_trusted_ip = is_trusted_ip(client_ip)
 
   return templates.TemplateResponse(
     request,
