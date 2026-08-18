@@ -171,7 +171,9 @@ WEBHOOK_PATH="ka8Moh4aiNgai4"
 |----------|----------|---------|-------------|
 | `DASHBOARD_USERNAME` | No | `admin` | Dashboard login username |
 | `DASHBOARD_PASSWORD` | No | `changeme` | Dashboard login password (⚠️ **Change this!**) |
-| `SESSION_SECRET_KEY` | No | Auto-generated | Session encryption key — `openssl rand -hex 32` |
+| `SESSION_SECRET_KEY` | No | Auto-generated | Session encryption key — `openssl rand -hex 32`. Auto-generated keys change on restart, signing everyone out |
+| `SESSION_HTTPS_ONLY` | No | `true` | Mark the session cookie `Secure`. With this on, signing in requires HTTPS — set `false` only for LAN-only setups |
+| `SESSION_MAX_AGE_S` | No | `43200` | Session lifetime in seconds (12h). Signed cookies cannot be revoked server-side, so this is the only bound on a stolen one |
 | `WEBHOOK_PATH` | No | `webhook` | Webhook URL path — randomize for security (`pwgen -n 14`) |
 | `WEBHOOK_REQUIRE_HTTPS` | No | `true` | Refuse webhooks not delivered over TLS — requires `TRUSTED_PROXIES`, see [Webhooks must use HTTPS](#webhooks-must-use-https) |
 | `TRADER_LOCK_TIMEOUT_S` | No | `60` | How long a request waits for a bot that is already executing before returning `503` |

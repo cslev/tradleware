@@ -253,10 +253,31 @@ env_path = Path(__file__).parent.parent.parent / '.env'
 print(f"======> Loading .env from: {env_path}")
 load_dotenv(dotenv_path=env_path, override=True)
 
+def _env_flag(key: str, default: bool) -> bool:
+  """Read a boolean environment variable, accepting true/false, 1/0, yes/no, on/off."""
+  raw = get_env(key, 'true' if default else 'false')
+  return str(raw).strip().lower() in ('true', '1', 'yes', 'on')
+
+
 # Add session middleware for authentication
 # Generate a secure session key or use one from environment
 SESSION_SECRET_KEY = get_env('SESSION_SECRET_KEY') or secrets.token_urlsafe(32)
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
+SESSION_KEY_IS_EPHEMERAL = not get_env('SESSION_SECRET_KEY')
+# Mark the session cookie Secure so a browser never transmits it over plain HTTP.
+# The flag reflects the browser's view of the connection, so it works normally behind
+# a TLS-terminating proxy even though Tradleware itself speaks HTTP.
+SESSION_HTTPS_ONLY = _env_flag('SESSION_HTTPS_ONLY', True)
+# Session lifetime. Starlette's own default is 14 days; these sessions are signed
+# cookies with no server-side store, so a stolen cookie stays valid until it expires
+# and logging out cannot revoke it. A shorter life is the only bound on that.
+SESSION_MAX_AGE_S = int(get_env('SESSION_MAX_AGE_S', '43200'))
+app.add_middleware(
+  SessionMiddleware,
+  secret_key=SESSION_SECRET_KEY,
+  max_age=SESSION_MAX_AGE_S,
+  https_only=SESSION_HTTPS_ONLY,
+  same_site='lax'
+)
 
 # Get webhook path from environment (default to 'webhook')
 WEBHOOK_PATH = get_env('WEBHOOK_PATH', 'webhook').strip('/')  # Strip leading/trailing slashes
@@ -296,12 +317,6 @@ def _read_freshness_window() -> tuple:
 
 
 WEBHOOK_MAX_AGE_S, _WEBHOOK_MAX_AGE_NOTE = _read_freshness_window()
-
-
-def _env_flag(key: str, default: bool) -> bool:
-  """Read a boolean environment variable, accepting true/false, 1/0, yes/no, on/off."""
-  raw = get_env(key, 'true' if default else 'false')
-  return str(raw).strip().lower() in ('true', '1', 'yes', 'on')
 
 
 # Refuse webhooks that did not reach Tradleware over TLS. The bot's API key travels
@@ -439,6 +454,29 @@ if WEBHOOK_MAX_AGE_S > 3600:
 # WEBHOOK_MAX_AGE_S past that timestamp — so in the worst case it must be remembered
 # for twice the window, counted from when it was first accepted.
 replay_guard = ReplayGuard(WEBHOOK_REPLAY_DB, WEBHOOK_MAX_AGE_S * 2, logger)
+
+# Session cookie configuration
+logger.info(
+  f"Session cookie: Secure={SESSION_HTTPS_ONLY}, HttpOnly=True, SameSite=lax, "
+  f"lifetime {SESSION_MAX_AGE_S}s."
+)
+if not SESSION_HTTPS_ONLY:
+  logger.warning(
+    "⚠️  Session cookie is not marked Secure (SESSION_HTTPS_ONLY=false) — it will be "
+    "sent over plain HTTP, where anyone on the path can copy it and take over the "
+    "dashboard session. Only acceptable on a trusted LAN."
+  )
+elif not TRUSTED_PROXIES:
+  logger.info(
+    "Session cookie is marked Secure. Signing in requires an HTTPS connection, so "
+    "either reach Tradleware through a TLS-terminating proxy with TRUSTED_PROXIES set, "
+    "or use TRUSTED_IPS for local access."
+  )
+if SESSION_KEY_IS_EPHEMERAL:
+  logger.info(
+    "No SESSION_SECRET_KEY set — a random one was generated, so everyone is signed out "
+    "whenever Tradleware restarts. Set it in .env to keep sessions across restarts."
+  )
 
 # Webhook transport security
 if WEBHOOK_REQUIRE_HTTPS:
@@ -690,6 +728,20 @@ async def login(request: Request, username: str = Form(...), password: str = For
   password_match = secrets.compare_digest(password, DASHBOARD_PASSWORD)
 
   if username_match and password_match:
+    # A Secure cookie is discarded by the browser on a plain HTTP page, so the login
+    # would appear to succeed and then bounce straight back here forever. Say so
+    # instead of looping.
+    if SESSION_HTTPS_ONLY and not is_request_secure(request):
+      logger.error(
+        f"Login by '{username}' from {client_ip} succeeded but the session cookie "
+        "cannot be set: it is marked Secure and this connection is plain HTTP. Reach "
+        "the dashboard over HTTPS, or set SESSION_HTTPS_ONLY=false for LAN-only use."
+      )
+      return RedirectResponse(
+        url="/login?error=HTTPS+is+required+to+sign+in.+Reach+the+dashboard+over+HTTPS"
+            "+or+set+SESSION_HTTPS_ONLY%3Dfalse",
+        status_code=303
+      )
     # Set session as authenticated
     request.session["authenticated"] = True
     logger.debug(f"✓ Successful login from IP: {client_ip}")
