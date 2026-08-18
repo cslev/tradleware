@@ -28,7 +28,7 @@ import requests as http_requests
 from starlette.middleware.sessions import SessionMiddleware
 
 # First-party imports
-from src.misc.logger import CustomLogger
+from src.misc.logger import CustomLogger, flush_gotify_queue
 from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs
 from src.misc.replay_guard import ReplayGuard, parse_signal_timestamp, signal_fingerprint
@@ -237,6 +237,10 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
   logger.info("Shutting down traders...")
   for trader in traders.values():
     await trader.close()
+  # Notifications are delivered by a daemon thread, so drain the backlog before the
+  # process exits or the last few would be discarded
+  if not flush_gotify_queue(timeout=5.0):
+    logger.warning("Gotify notifications still pending at shutdown — some were not sent.")
 ##########################===================###################
 
 

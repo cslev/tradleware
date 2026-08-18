@@ -1,6 +1,8 @@
 import logging
+import queue
 import sys
 import json
+import threading
 from pathlib import Path
 import colorama
 from colorama import Fore, Style
@@ -9,6 +11,111 @@ from .get_env import get_env  # Import centralized get_env helper
 
 # Initialize colorama
 colorama.init(autoreset=True)
+
+
+#################### GOTIFY DELIVERY ####################
+# Sending a Gotify notification is an ordinary blocking HTTP request, and loggers are
+# called from inside async request handlers. Posting inline would stall the event loop
+# for the whole round trip, so one slow or unreachable notification server would freeze
+# trading for every bot — and any unauthenticated request that produces an ERROR could
+# trigger that stall on demand. Notifications are therefore handed to a single
+# background thread, shared by every CustomLogger in the process, and the caller
+# returns immediately.
+
+_GOTIFY_QUEUE = queue.Queue(maxsize=100)
+_gotify_worker = None
+_gotify_worker_lock = threading.Lock()
+_gotify_dropped = 0
+
+
+def _gotify_worker_loop():
+  """Deliver queued notifications one at a time, forever. Never dies on an error."""
+  while True:
+    job = _GOTIFY_QUEUE.get()
+    try:
+      job()
+    except Exception:  # pylint: disable=broad-exception-caught
+      pass  # a failed notification must never take the worker down with it
+    finally:
+      _GOTIFY_QUEUE.task_done()
+
+
+def _ensure_gotify_worker() -> None:
+  """Start the delivery thread on first use. Daemon, so it never blocks process exit."""
+  global _gotify_worker  # pylint: disable=global-statement
+  if _gotify_worker is not None and _gotify_worker.is_alive():
+    return
+  with _gotify_worker_lock:
+    if _gotify_worker is None or not _gotify_worker.is_alive():
+      _gotify_worker = threading.Thread(
+        target=_gotify_worker_loop, name='gotify-delivery', daemon=True
+      )
+      _gotify_worker.start()
+
+
+def _enqueue_gotify(job, std_logger) -> bool:
+  """
+  Hand a delivery off to the worker, dropping it if the backlog is already full.
+
+  Dropping is deliberate: blocking here would reintroduce exactly the stall this
+  queue exists to prevent. Drops are reported through the standard logger — never
+  through CustomLogger, which would enqueue another notification.
+  """
+  global _gotify_dropped  # pylint: disable=global-statement
+  _ensure_gotify_worker()
+  try:
+    _GOTIFY_QUEUE.put_nowait(job)
+    return True
+  except queue.Full:
+    _gotify_dropped += 1
+    if _gotify_dropped == 1 or _gotify_dropped % 100 == 0:
+      std_logger.warning(
+        f"Gotify backlog is full — dropped {_gotify_dropped} notification(s) so far. "
+        "Events are being produced faster than the notification server accepts them."
+      )
+    return False
+
+
+def flush_gotify_queue(timeout: float = 5.0) -> bool:
+  """
+  Wait for queued notifications to drain, for use during shutdown.
+
+  The worker is a daemon thread, so without this the last few notifications would be
+  discarded when the process exits. Returns False if the backlog outlived the timeout.
+  """
+  # Queue.join() cannot take a timeout, so wait on it from a thread we can abandon
+  waiter = threading.Thread(target=_GOTIFY_QUEUE.join, daemon=True)
+  waiter.start()
+  waiter.join(timeout)
+  return not waiter.is_alive()
+
+
+def _deliver_gotify(url: str, token: str, payload: dict, std_logger) -> None:
+  """Perform the actual HTTP POST. Runs on the worker thread, never on the event loop."""
+  title = payload.get("title", "")
+  response = None
+  try:
+    response = requests.post(
+      f"{url}/message",
+      headers={"Content-Type": "application/json", "X-Gotify-Key": token},
+      data=json.dumps(payload),
+      timeout=10
+    )
+    response.raise_for_status()
+    std_logger.debug(f"✅ Gotify notification sent successfully: '{title}'")
+  except requests.exceptions.HTTPError as http_err:
+    body = response.text if response is not None else ''
+    std_logger.error(f"❌ Gotify HTTP error occurred: {http_err} - {body}")
+  except requests.exceptions.ConnectionError as conn_err:
+    std_logger.error(
+      f"❌ Gotify connection error occurred: {conn_err}. Is Gotify server running at {url}?"
+    )
+  except requests.exceptions.Timeout as timeout_err:
+    std_logger.error(f"❌ Gotify request timed out: {timeout_err}")
+  except requests.exceptions.RequestException as req_err:
+    std_logger.error(f"❌ An unexpected Gotify request error occurred: {req_err}")
+  except Exception as exc:  # pylint: disable=broad-exception-caught
+    std_logger.error(f"❌ An unexpected error occurred: {exc}")
 
 
 # Define a custom SUCCESS log level
@@ -215,14 +322,14 @@ class CustomLogger:
       priority (int): The priority level (1-10, 1=lowest, 5=default, 10=highest).
       extras (dict, optional): A dictionary of extra key-value pairs for advanced Gotify clients.
                                  Defaults to None.
-    Returns:
-      bool: True if the notification was sent successfully, False otherwise.
-    """
-    headers = {
-      "Content-Type": "application/json",
-      "X-Gotify-Key": self.gotify_token
-    }
+    Returns immediately without waiting for the network: the notification is queued
+    for the background delivery thread. Callers include async request handlers, where
+    a blocking HTTP call would stall the whole event loop.
 
+    Returns:
+      bool: True if the notification was queued, False if the backlog was full and it
+            was dropped. Not an indication that delivery succeeded.
+    """
     payload = {
       "title": title,
       "message": message,
@@ -232,27 +339,10 @@ class CustomLogger:
     if extras:
       payload["extras"] = extras
 
-    try:
-      response = requests.post(
-        f"{self.gotify_url}/message",
-        headers=headers,
-        data=json.dumps(payload),
-        timeout=10
-      )
-      response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-      self.logger.info(f"✅ Gotify notification sent successfully: '{title}'")
-      return True
-    except requests.exceptions.HTTPError as http_err:
-      self.logger.error(f"❌ Gotify HTTP error occurred: {http_err} - {response.text}")
-    except requests.exceptions.ConnectionError as conn_err:
-      self.logger.error(f"❌ Gotify connection error occurred: {conn_err}. Is Gotify server running at {self.gotify_url}?")
-    except requests.exceptions.Timeout as timeout_err:
-      self.logger.error(f"❌ Gotify request timed out: {timeout_err}")
-    except requests.exceptions.RequestException as req_err:
-      self.logger.error(f"❌ An unexpected Gotify request error occurred: {req_err}")
-    except Exception as e:
-      self.logger.error(f"❌ An unexpected error occurred: {e}")
-    return False
+    url, token, std_logger = self.gotify_url, self.gotify_token, self.logger
+    return _enqueue_gotify(
+      lambda: _deliver_gotify(url, token, payload, std_logger), std_logger
+    )
 # Example usage
 if __name__ == "__main__":
   logger1 = CustomLogger('MyClass')
