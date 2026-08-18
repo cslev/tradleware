@@ -3,9 +3,44 @@
 > Last updated: 16 May 2026 (session 14)
 > Last updated: 23 May 2026 (session 15)
 > Last updated: 02 Jun 2026 (session 16)
+> Last updated: 18 Aug 2026 (session 17)
 
 
 ## Current State
+**Unreleased — security hardening pass on top of v3.3.2b** (version not yet bumped;
+`TRADLEWARE_VERSION` in `app.py` and the tag comment in `docker-compose.yml` still read
+v3.3.2b, and CHANGELOG.md has no entry for this work yet)
+
+⚠️ **Three breaking changes are pending release.** They must lead the release notes:
+1. `TRUSTED_PROXIES` must be set when running behind a reverse proxy or tunnel, or
+   forwarded headers are ignored and trusted-IP access stops working.
+2. TradingView alerts must send `{{timenow}}` instead of `{{time}}`, or every signal is
+   rejected as stale on timeframes above ~5 minutes.
+3. Dashboard logins now require HTTPS. Trusted-IP access over plain HTTP is unaffected.
+
+- **Auth bypass fixed**: `X-Forwarded-For` was honoured unconditionally, so any client
+  could pass as a `TRUSTED_IPS` entry with one header. Forwarded headers are now trusted
+  only from `TRUSTED_PROXIES`, taking the rightmost non-proxy hop.
+- **Secrets out of logs**: dashboard password, Gotify token, submitted webhook API keys,
+  and the full webhook payload were all being written to `tradleware.log`.
+- **Dashboard credentials masked**: exchange and Tradleware API keys were rendered as
+  first-8 + last-8; now a fixed mask plus a 4-character suffix via a `mask_secret` filter.
+- **Webhook replay protection**: freshness window (`WEBHOOK_MAX_AGE_S`, default 300s,
+  never disableable) plus single-use signal fingerprints persisted across restarts in
+  `src/logs/webhook_replay.json`. New module `src/misc/replay_guard.py`.
+- **Webhook requires HTTPS** (`WEBHOOK_REQUIRE_HTTPS`): the API key rides in the body, so
+  a cleartext delivery leaks a working trading credential.
+- **Per-bot execution lock**: concurrent signals (or a signal racing a dashboard fiat
+  conversion) both read the same balance and both ordered — 1000 USDT spent where 750 was
+  intended. Serialised via `trader_execution_lock()`; different bots stay parallel.
+- **Session cookie hardened**: `Secure` flag, 12h lifetime instead of Starlette's 14 days.
+- **Gotify sending no longer blocks the event loop**: one unauthenticated request used to
+  freeze the whole app for the length of the notification round-trip (measured 1.5s).
+  Delivery now runs on a background thread with a bounded queue.
+- **Log rotation**: `RotatingFileHandler` with gzip, ~16 MB ceiling. One handler shared by
+  all loggers — independent rotators on the same file would corrupt each other.
+- pylint: **10.00/10** across all of `src/`
+
 **v3.3.2b released**
 
 **v3.3.1b released**
@@ -37,6 +72,37 @@
 
 ## Future Goals
 
+### Security — deferred items from the session 17 hardening pass
+- [ ] **Timing-safe webhook API key comparison** — `app.py` uses `api_key != expected_api_key`.
+      Plain `!=` short-circuits on the first differing byte, leaking key content through
+      response timing. `/login` already uses `secrets.compare_digest`; `secrets` is imported.
+      One-line fix, guard against a non-str `api_key` first.
+- [ ] **Webhook rate limiting** — no throttle on failed authentication. The DoS teeth were
+      removed by making Gotify non-blocking, and log growth is now capped by rotation, so
+      what remains is alert fatigue (one Gotify push per failed attempt, unbounded) and
+      brute-forcing a weak `tradleware_api_key`. Best fixed by coalescing failure
+      notifications ("47 failed attempts in the last hour") rather than a blanket limiter.
+- [ ] **Pre-auth logging of attacker-controlled fields** — the "📥 Webhook received" line
+      logs `trader_id`, `action` and `ticker` before authentication, letting anyone who
+      knows the path write chosen strings into the log. Deferring it past the API key check
+      halves the volume and removes the injection vector.
+- [ ] **`WEBHOOK_PATH` defaults to `webhook`** — randomisation is documented and recommended
+      but not the default, and `.env.example` ships the plain value that new users copy.
+      Consider generating a random suffix on first run.
+- [ ] **No minimum strength for `tradleware_api_key`** — free-form in the bot YAML. A short
+      key plus no rate limiting is worse than either alone.
+
+### Config hot-reload — prerequisites now in place
+`get_trader_lock(trader_id)` is exposed so a reload can take a bot's lock before swapping
+its trader instance, guaranteeing no request is mid-trade against the old one. Three things
+to handle when building it:
+- Re-resolve `traders[trader_id]` **inside** the lock — the handler currently binds `trader`
+  well before acquiring it, so a request could execute against a swapped-out, closed instance.
+- Replacing a dict value during iteration is safe, but adding or removing bots is not:
+  `read_root` and the IBKR health loop both iterate `traders.items()` across await points.
+  Build a new dict and rebind instead of mutating in place.
+- `_TRADER_LOCKS` is never pruned; a reload that removes bots should drop their entries.
+
 ### IBKR — unimplemented methods (none block current production use)
  **Version bumped to v3.3.1b**
 - [ ] `cancel_order()` — raises `NotImplementedError`. All orders are market orders that fill immediately; nothing to cancel. Only becomes relevant if limit orders are ever added.
@@ -64,6 +130,54 @@
 ---
 
 ## Session History
+
+### 18 Aug 2026 (session 17) — security hardening pass
+Thirteen commits, each verified with a purpose-built harness driving the real ASGI app
+(152 checks total; no exchange APIs touched). pylint 10.00/10 maintained throughout.
+
+- **Auth bypass via `X-Forwarded-For`** (`c23554e`): `get_client_ip()` returned the header
+  verbatim, so `curl -H 'X-Forwarded-For: <trusted ip>'` granted full dashboard access with
+  no proxy deployed. Added `TRUSTED_PROXIES` (IPs or CIDRs); forwarded headers are honoured
+  only from those peers, walking `X-Forwarded-For` right-to-left for the rightmost non-proxy
+  hop. `X-Forwarded-Proto` gated the same way. Dockerfile gained `--no-proxy-headers` so
+  uvicorn cannot rewrite the client address from the header itself.
+- **Secrets in logs** (`c3ab69b`): `DASHBOARD_PASSWORD` logged at INFO, `GOTIFY_APP_TOKEN`
+  printed by every logger construction, and the submitted webhook API key logged at ERROR
+  (which pushes to Gotify). Also the full payload via `json.dumps(data)`, found later and
+  fixed in the replay commit. Added `USING_DEFAULT_CREDENTIALS`, reused for the login banner.
+- **Dashboard credential exposure** (`5465102`): four render sites showed first-8 + last-8 of
+  live keys, including the Tradleware webhook key on both card types. New `mask_secret` Jinja
+  filter: fixed-width mask (does not leak length) plus a 4-char suffix, short keys fully hidden.
+- **Webhook replay protection** (`7bd9a6d`, `8076480`): new `src/misc/replay_guard.py`.
+  Freshness window plus SHA-256 fingerprints of the exact request bytes, checked and inserted
+  under one lock, persisted atomically. Fingerprint TTL is **twice** the window: a signal dated
+  in the future stays fresh until `timestamp + window`, which can be `2 x window` after it was
+  accepted — a shorter TTL left it replayable in the gap. Timestamp parsing rewritten to return
+  tz-aware UTC; the old parser mixed naive-local and aware values and would have raised
+  `TypeError` on unix timestamps. Verified identical across five host timezones.
+- **NTP requirement documented** (`dd11448`): freshness is measured against the host clock, and
+  a Pi has no battery-backed RTC.
+- **Webhook requires HTTPS** (`c2b2db9`): checked before the body is read. Rejection log names
+  which of three misconfigurations applies, since a mistake here silently stops all trading.
+- **Loopback checks** (`3d790ee`): `client_ip != "127.0.0.1"` appeared three times and missed
+  `::1` — which the healthcheck can use, since `localhost` resolves to both in the image.
+  Replaced with `is_loopback()`; it is a logging filter only and grants nothing.
+- **Per-bot execution lock** (`57f5044`): reproduced two concurrent "buy 50%" signals spending
+  1000 USDT where 750 was intended, both returning 200. `trader_execution_lock(trader_id)` is
+  held across read-balance → place-order in the webhook handler and around `/convert`.
+  Contended requests queue, bounded by `TRADER_LOCK_TIMEOUT_S` then 503.
+- **Session cookie** (`e928752`): added `Secure` and a 12h lifetime (Starlette defaults to 14
+  days; `httponly` was already set). Login over plain HTTP now fails with an explanation
+  instead of an invisible redirect loop, since browsers discard a `Secure` cookie there.
+- **Docker gateway documented** (`6f9d4ef`): host-local traffic arrives from the network
+  gateway, not the container IP. Commented `ipam` block in `docker-compose.yml` for pinning it.
+- **Gotify unblocked** (`fa0fa58`): `requests.post` ran inline inside async handlers, so one
+  unauthenticated request froze the event loop for the whole round-trip — measured 1504ms,
+  now 3ms. Background worker thread, bounded queue that drops rather than blocks, flushed at
+  shutdown. Fixes the stall for every log path, including inside order placement.
+- **Log rotation** (`c94466e`): 10 MB x 5 with gzip, ~16 MB ceiling. The handler is shared
+  across all loggers — independent `RotatingFileHandler`s on one file rotate against each
+  other and lose writes. Handler left at NOTSET; file opened UTF-8 for the emoji.
 
 ### 02 Jun 2026 (session 16)
 - **Security: CVE-2026-48710 (BadHost) assessment**: confirmed Tradleware is not affected — no custom `BaseHTTPMiddleware` using `request.url.path` for access control; auth is route-level via `request.session`
