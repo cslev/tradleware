@@ -35,4 +35,24 @@ networks:
   tradleware-network:
     name: tradleware-network
     driver: bridge
+    # --- Pin the subnet if you rely on TRUSTED_IPS or TRUSTED_PROXIES ---------------
+    # Requests that reach Tradleware from the Docker host (a kiosk browser on the same
+    # machine, Home Assistant embedding the dashboard, a reverse proxy in another
+    # container) arrive from this network's *gateway* address, not from the container's
+    # own IP. That gateway is what belongs in TRUSTED_IPS / TRUSTED_PROXIES in .env.
+    #
+    # Docker allocates these subnets dynamically, so the gateway can change whenever the
+    # network is recreated or another Compose project claims the range first — and then
+    # the address in .env silently stops matching. The symptom is the dashboard showing
+    # the login page instead of auto-signing in, or webhooks being rejected as arriving
+    # over plain HTTP. The dashboard footer always shows the address Tradleware actually
+    # sees, which is the value to trust.
+    #
+    # Uncomment to fix it in place, then set TRUSTED_IPS=172.28.0.1 (the gateway) in
+    # .env. If `docker-compose up` reports a pool overlap, the range is already taken —
+    # pick another one inside 172.16.0.0/12 and update .env to match.
+    # ipam:
+    #   config:
+    #     - subnet: 172.28.0.0/16
+    #       gateway: 172.28.0.1
 

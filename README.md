@@ -201,6 +201,14 @@ Tradleware therefore ignores those headers unless the request comes from an addr
 TRUSTED_PROXIES=172.18.0.0/16
 ```
 
+> **Finding the right address.** Traffic reaching Tradleware from the Docker host — a kiosk
+> browser on the same machine, Home Assistant embedding the dashboard, a proxy in a sibling
+> container — arrives from the Docker network's **gateway**, not from the container's own IP.
+> The dashboard footer shows the address Tradleware actually resolved, which is the one to
+> put in `TRUSTED_IPS` / `TRUSTED_PROXIES`. Docker can reassign that gateway when networks are
+> recreated, silently breaking the match; `docker-compose.yml` carries a commented `ipam`
+> block for pinning the subnet if you depend on it.
+
 - **No proxy (default):** leave `TRUSTED_PROXIES` empty. Forwarded headers are ignored entirely
   and `TRUSTED_IPS` is matched against the real connection address.
 - **With a proxy:** list only the proxy's own address. Tradleware then takes the rightmost
