@@ -33,6 +33,31 @@
   </header>
 
   <main class="container mx-auto p-4 sm:p-8 md:p-12 flex-grow">  <!-- Reduced padding on mobile -->
+
+    <!-- Default Webhook Path Warning -->
+    {% if using_default_webhook_path %}
+    <div class="bg-yellow-600 bg-opacity-20 border-2 border-yellow-500 text-yellow-100 px-4 py-3 rounded-lg mb-6">
+      <div class="flex items-start">
+        <svg class="w-6 h-6 mr-3 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+        </svg>
+        <div>
+          <p class="font-bold text-yellow-50">Your webhook is on the default path <span class="font-mono">/webhook</span></p>
+          <p class="text-sm mt-1">
+            Automated scanners probe <span class="font-mono">/webhook</span> constantly, so your endpoint gets found
+            without anyone looking for it. They still cannot trade — every signal needs the bot's API key — but each
+            probe is logged and pushes a notification, which buries the alerts that matter.
+          </p>
+          <p class="text-sm mt-2">
+            Generate an unguessable one with <span class="font-mono bg-black bg-opacity-40 px-1 rounded">pwgen -n 14 1</span>
+            (or <span class="font-mono bg-black bg-opacity-40 px-1 rounded">openssl rand -hex 8</span>), set it as
+            <span class="font-mono bg-black bg-opacity-40 px-1 rounded">WEBHOOK_PATH</span> in <span class="font-mono">.env</span>,
+            restart, then update the URL in your TradingView alerts to match.
+          </p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
     
     <!-- Grid layout: fixed responsive columns, items won't collapse -->
   <div class="trader-grid flex flex-wrap justify-center gap-8 items-start">
@@ -423,6 +448,15 @@
       <p class="text-white">
         Webhooks should be sent to <span class="font-mono text-cyan-100 footer-webhook-url"></span>
       </p>
+      {% if using_default_webhook_path %}
+      <p class="text-yellow-400 text-sm mt-1">
+        <svg class="w-4 h-4 inline-block mr-1" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+        </svg>
+        This is the default path — scanners find it on their own<sup class="ml-1 cursor-help"
+          title="Pick something unguessable:&#10;&#10;  pwgen -n 14 1&#10;  openssl rand -hex 8&#10;&#10;Then in .env:&#10;  WEBHOOK_PATH=<the generated value>&#10;&#10;Restart Tradleware and update the URL in your TradingView alerts to match. The API key still protects the endpoint either way — a random path just keeps scanner noise out of your logs and notifications.">ⓘ</sup>
+      </p>
+      {% endif %}
     </div>
   </footer>
 

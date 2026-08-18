@@ -285,6 +285,10 @@ app.add_middleware(
 
 # Get webhook path from environment (default to 'webhook')
 WEBHOOK_PATH = get_env('WEBHOOK_PATH', 'webhook').strip('/')  # Strip leading/trailing slashes
+# A predictable path invites automated scanners. Not enforced — the API key is what
+# actually protects the endpoint — but surfaced on the dashboard so it is a choice
+# rather than an oversight.
+USING_DEFAULT_WEBHOOK_PATH = WEBHOOK_PATH == 'webhook'
 IBKR_HEALTH_CHECK_INTERVAL = int(get_env('IBKR_HEALTH_CHECK_INTERVAL_S', '1800'))
 
 # Webhook replay protection — how far the signal's own timestamp may be from now,
@@ -798,6 +802,7 @@ async def read_root(request: Request):
       "traders": traders,  # Add the traders dictionary we defined globally
       "log_refresh_interval": log_refresh_interval,  # Pass the refresh interval to template
       "webhook_path": WEBHOOK_PATH,  # Pass the configured webhook path to template
+      "using_default_webhook_path": USING_DEFAULT_WEBHOOK_PATH,  # Nudge to randomize it
       "is_secure": is_secure,  # Pass connection security status
       "is_trusted_ip": from_trusted_ip,  # Pass trusted IP status
       "client_ip": client_ip,  # Pass client IP for display
