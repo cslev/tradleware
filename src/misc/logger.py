@@ -1,5 +1,9 @@
+import gzip
 import logging
+from logging.handlers import RotatingFileHandler
+import os
 import queue
+import shutil
 import sys
 import json
 import threading
@@ -133,6 +137,90 @@ log_level_colors = {
 
 }
 
+#################### ROTATING LOG FILE ####################
+# The log file has no external rotation in the Docker image, so it is capped here.
+# Without a cap it grows without bound — a webhook that gets probed writes a couple of
+# hundred bytes per rejected request, which fills a Raspberry Pi SD card in time.
+
+_LOG_MAX_BYTES_DEFAULT = 10 * 1024 * 1024   # 10 MB per file
+_LOG_BACKUP_COUNT_DEFAULT = 5               # plus 5 older files: ~60 MB ceiling
+
+_file_handlers = {}
+_file_handler_lock = threading.Lock()
+
+
+def _int_env(key: str, default: int) -> int:
+  """Read an integer environment variable, falling back on anything unparseable."""
+  try:
+    return int(str(get_env(key, str(default))).strip())
+  except (TypeError, ValueError):
+    return default
+
+
+def _bool_env(key: str, default: bool) -> bool:
+  """Read a boolean environment variable, accepting true/false, 1/0, yes/no, on/off."""
+  raw = get_env(key, 'true' if default else 'false')
+  return str(raw).strip().lower() in ('true', '1', 'yes', 'on')
+
+
+def _gzip_namer(name: str) -> str:
+  """Give rotated files a .gz suffix, so tradleware.log.1 becomes tradleware.log.1.gz."""
+  return name + '.gz'
+
+
+def _gzip_rotator(source: str, dest: str) -> None:
+  """
+  Compress a rolled-over log file in place of a plain rename.
+
+  Log text compresses about 8x, turning the default ~60 MB ceiling into ~16 MB, which
+  matters on an SD card. Streamed rather than read whole so memory use stays flat on a
+  Raspberry Pi. Level 6 is the sweet spot: level 9 costs three times the CPU for a few
+  percent, and xz costs twenty-five times for a third less.
+  """
+  with open(source, 'rb') as raw, gzip.open(dest, 'wb', compresslevel=6) as compressed:
+    shutil.copyfileobj(raw, compressed)
+  os.remove(source)
+
+
+def _get_rotating_file_handler(logfile_name: str) -> RotatingFileHandler:
+  """
+  Return the one rotating handler for this log file, shared across every logger.
+
+  Sharing is required, not just tidy: every CustomLogger writes to the same file, and
+  independent RotatingFileHandlers would each track the size on their own and roll
+  over whenever they individually hit the limit — renaming the file out from under the
+  others, which carry on writing to the orphaned inode. A single handler serialises
+  both writes and rollover through its own lock.
+  """
+  handler = _file_handlers.get(logfile_name)
+  if handler is not None:
+    return handler
+  with _file_handler_lock:
+    if logfile_name not in _file_handlers:
+      logs_dir = Path(__file__).resolve().parent.parent / "logs"
+      logs_dir.mkdir(parents=True, exist_ok=True)
+      handler = RotatingFileHandler(
+        logs_dir / logfile_name,
+        maxBytes=_int_env('LOG_MAX_BYTES', _LOG_MAX_BYTES_DEFAULT),
+        backupCount=_int_env('LOG_BACKUP_COUNT', _LOG_BACKUP_COUNT_DEFAULT),
+        encoding='utf-8'  # log messages carry emoji; never depend on the host locale
+      )
+      handler.setFormatter(logging.Formatter(
+        '%(asctime)s - [%(name)s] - %(funcName)s-(line %(lineno)d) - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+      ))
+      if _bool_env('LOG_COMPRESS_ROTATED', True):
+        # Compression runs during rollover, on whichever thread emits the record that
+        # trips the size limit. That is roughly 0.1s per 10 MB here and under a second
+        # on a Pi, once per full log file, so it is left inline rather than deferred.
+        handler.namer = _gzip_namer
+        handler.rotator = _gzip_rotator
+      # Left at NOTSET on purpose: each logger already filters by its own level, so the
+      # shared handler must not impose whichever level happened to be set up first.
+      _file_handlers[logfile_name] = handler
+  return _file_handlers[logfile_name]
+
+
 _excepthook_installed = False
 
 def _install_global_excepthook(logger_instance):
@@ -244,16 +332,8 @@ class CustomLogger:
                                    datefmt='%Y-%m-%d %H:%M:%S')
       ch.setFormatter(formatter)
 
-      # File handler
-      # --- Determine logs directory one level above this file ---
-      base_dir = Path(__file__).resolve().parent.parent
-      logs_dir = base_dir / "logs"
-      logs_dir.mkdir(parents=True, exist_ok=True)
-      logfile = logs_dir / logfile_name
-      fh = logging.FileHandler(logfile, mode='a') #rewrite the logfile always
-      fh.setLevel(self.general_log_level)
-      fh.setFormatter(logging.Formatter('%(asctime)s - [%(name)s] - %(funcName)s-(line %(lineno)d) - %(levelname)s - %(message)s',
-                                        datefmt='%Y-%m-%d %H:%M:%S'))
+      # File handler — one rotating handler shared by every logger in the process
+      fh = _get_rotating_file_handler(logfile_name)
 
       # Add the handlers to the logger
       self.logger.addHandler(ch)

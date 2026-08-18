@@ -182,6 +182,9 @@ WEBHOOK_PATH="ka8Moh4aiNgai4"
 | `TRUSTED_PROXIES` | No | — | Comma-separated IPs/CIDRs of reverse proxies allowed to report the client IP — see below |
 | `LOG_REFRESH_INTERVAL_MS` | No | `5000` | Dashboard log refresh interval (ms) |
 | `LOG_LEVEL` | No | `10` | Min log level: 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR |
+| `LOG_MAX_BYTES` | No | `10485760` | Rotate the log file once it reaches this size (10 MB) |
+| `LOG_BACKUP_COUNT` | No | `5` | Rotated files to keep — with the default size, a ~60 MB ceiling |
+| `LOG_COMPRESS_ROTATED` | No | `true` | Gzip rotated files (~8x), bringing that ceiling to ~16 MB. Read them with `zcat`/`zgrep` |
 | `GOTIFY_SERVER_URL` | No | — | Gotify server URL for push notifications |
 | `GOTIFY_APP_TOKEN` | No | — | Gotify application token |
 | `GOTIFY_LOG_LEVEL` | No | `30` | Min log level for Gotify notifications |
