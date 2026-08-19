@@ -31,6 +31,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.misc.logger import CustomLogger, flush_gotify_queue
 from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs
+from src.misc.key_strength import assess_key, find_shared_keys
 from src.misc.replay_guard import ReplayGuard, parse_signal_timestamp, signal_fingerprint
 from src.traders.crypto.binance_trader import BinanceTrader
 from src.traders.crypto.coinbase_trader import CoinbaseTrader
@@ -170,6 +171,51 @@ async def _ibkr_health_loop():
     await asyncio.sleep(IBKR_HEALTH_CHECK_INTERVAL)
 
 
+def api_key_findings() -> dict:
+  """
+  Assess every loaded bot's webhook key, keyed by bot id.
+
+  Shared keys are reported as a separate line on top of the individual assessment,
+  because reusing one key across bots removes the isolation that per-bot keys exist to
+  provide, however strong the key itself is.
+  """
+  findings = {}
+  keys_by_bot = {bot_id: getattr(trader, 'tradleware_api_key', None)
+                 for bot_id, trader in traders.items()}
+  shared = find_shared_keys(keys_by_bot)
+
+  for bot_id, key in keys_by_bot.items():
+    assessment = assess_key(key)
+    others = shared.get(bot_id)
+    if others:
+      reused = f"Shared with {', '.join(sorted(others))} — one leak exposes them all."
+      level = 'critical' if assessment.level == 'critical' else 'weak'
+      reason = f"{assessment.reason} {reused}" if assessment.level != 'ok' else reused
+      assessment = assessment._replace(level=level, reason=reason)
+    if assessment.level != 'ok':
+      findings[bot_id] = assessment
+  return findings
+
+
+def _report_weak_api_keys() -> None:
+  """Log the webhook key findings once at startup. Never refuses to start."""
+  findings = api_key_findings()
+  if not findings:
+    if traders:
+      logger.info(f"Webhook API keys look sound for all {len(traders)} bot(s).")
+    return
+  for bot_id, assessment in findings.items():
+    message = f"Webhook API key for bot '{bot_id}' is {assessment.level}: {assessment.reason}"
+    if assessment.level == 'critical':
+      logger.error(message)
+    else:
+      logger.warning(message)
+  logger.warning(
+    "Generate a strong webhook key with: openssl rand -hex 32 — then set it as "
+    "tradleware_api_key in the bot's YAML and update the alert that sends to it."
+  )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
   """Lifespan context manager for startup/shutdown events"""
@@ -220,6 +266,8 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
         logger.warning(f"Unknown bot_type '{config['bot_type']}' for bot '{bot_id}'. Skipping.")
   else:
     logger.error("No bot configurations found. Check the bot_configs/ directory.")
+
+  _report_weak_api_keys()
 
   # Start IBKR health-check background task
   health_task = asyncio.create_task(_ibkr_health_loop())
@@ -808,6 +856,7 @@ async def read_root(request: Request):
       "log_refresh_interval": log_refresh_interval,  # Pass the refresh interval to template
       "webhook_path": WEBHOOK_PATH,  # Pass the configured webhook path to template
       "using_default_webhook_path": USING_DEFAULT_WEBHOOK_PATH,  # Nudge to randomize it
+      "api_key_findings": api_key_findings(),  # Weak or placeholder webhook keys, per bot
       "is_secure": is_secure,  # Pass connection security status
       "is_trusted_ip": from_trusted_ip,  # Pass trusted IP status
       "client_ip": client_ip,  # Pass client IP for display

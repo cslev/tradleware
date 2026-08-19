@@ -82,10 +82,6 @@ v3.3.2b, and CHANGELOG.md has no entry for this work yet)
       logs `trader_id`, `action` and `ticker` before authentication, letting anyone who
       knows the path write chosen strings into the log. Deferring it past the API key check
       halves the volume and removes the injection vector.
-- [ ] **No minimum strength for `tradleware_api_key`** — free-form in the bot YAML. A short
-      key plus no rate limiting is worse than either alone. Note the bind: rejecting weak
-      keys at startup stops existing users' bots from loading, so any check here should
-      warn rather than refuse, which makes it weaker than rate limiting for the same threat.
 
 ### Config hot-reload — prerequisites now in place
 `get_trader_lock(trader_id)` is exposed so a reload can take a bot's lock before swapping
@@ -179,6 +175,15 @@ Thirteen commits, each verified with a purpose-built harness driving the real AS
   protects the endpoint, so a predictable path costs scanner noise, not trade safety.
   Startup-time randomisation was rejected: it would change on every restart and break
   every TradingView alert.
+- **Webhook API key strength surfaced** (`0846b74`): new `src/misc/key_strength.py`
+  grades each bot's `tradleware_api_key` by estimated search space, distinct characters,
+  reuse across bots, and — the worst case — whether it is still one of the placeholders
+  from the `.yaml.example` files, which are public in the repository. Reported at startup
+  and on the dashboard (banner plus a per-card marker with the fix in a tooltip). Advisory
+  only: refusing to load a bot over a weak key would stop a live deployment trading, which
+  is worse than the risk. Entropy estimation measures size, not predictability, so
+  `Password2026` scores like twelve random characters — the placeholder list covers the
+  common case that slips through.
 - **Constant-time credential comparison** (`69e3f52`): the webhook key used a plain `!=`,
   which returns on the first differing byte and leaks the key through response timing.
   Now `secrets.compare_digest`. Fixing it surfaced a live bug on the **login form**, which

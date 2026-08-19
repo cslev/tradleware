@@ -353,6 +353,13 @@ The webhook path is displayed in:
 
 **Note:** The webhook still requires API key authentication, so even if someone discovers the URL, they cannot execute trades without the correct `tradleware_api_key` configured in the bot's YAML file. Moreover, each bot has different keys, thereby limiting further the impact of any small information being compromised.
 
+> **Generate the key, don't invent it:** `openssl rand -hex 32`. The webhook does not throttle
+> failed attempts, so a short or memorable key can be guessed. Tradleware checks each bot's key
+> at startup and flags it on the dashboard when it is too small, too repetitive, reused across
+> bots, or still one of the placeholders from the `.yaml.example` files — those are published in
+> this repository, so they are not secret at all. Nothing is ever refused over a weak key; a bot
+> that trades keeps trading, and the choice stays yours.
+
 ### Webhook Payload
 
 Every webhook request must be a `POST` with a JSON body. Here's a full example:
