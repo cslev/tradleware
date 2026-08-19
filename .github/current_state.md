@@ -175,7 +175,7 @@ Thirteen commits, each verified with a purpose-built harness driving the real AS
   protects the endpoint, so a predictable path costs scanner noise, not trade safety.
   Startup-time randomisation was rejected: it would change on every restart and break
   every TradingView alert.
-- **Webhook API key strength surfaced** (`0846b74`): new `src/misc/key_strength.py`
+- **Webhook API key strength surfaced** (`740fbc9`): new `src/misc/key_strength.py`
   grades each bot's `tradleware_api_key` by estimated search space, distinct characters,
   reuse across bots, and — the worst case — whether it is still one of the placeholders
   from the `.yaml.example` files, which are public in the repository. Reported at startup
