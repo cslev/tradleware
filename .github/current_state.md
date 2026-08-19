@@ -73,10 +73,6 @@ v3.3.2b, and CHANGELOG.md has no entry for this work yet)
 ## Future Goals
 
 ### Security — deferred items from the session 17 hardening pass
-- [ ] **Timing-safe webhook API key comparison** — `app.py` uses `api_key != expected_api_key`.
-      Plain `!=` short-circuits on the first differing byte, leaking key content through
-      response timing. `/login` already uses `secrets.compare_digest`; `secrets` is imported.
-      One-line fix, guard against a non-str `api_key` first.
 - [ ] **Webhook rate limiting** — no throttle on failed authentication. The DoS teeth were
       removed by making Gotify non-blocking, and log growth is now capped by rotation, so
       what remains is alert fatigue (one Gotify push per failed attempt, unbounded) and
@@ -86,11 +82,10 @@ v3.3.2b, and CHANGELOG.md has no entry for this work yet)
       logs `trader_id`, `action` and `ticker` before authentication, letting anyone who
       knows the path write chosen strings into the log. Deferring it past the API key check
       halves the volume and removes the injection vector.
-- [ ] **`WEBHOOK_PATH` defaults to `webhook`** — randomisation is documented and recommended
-      but not the default, and `.env.example` ships the plain value that new users copy.
-      Consider generating a random suffix on first run.
 - [ ] **No minimum strength for `tradleware_api_key`** — free-form in the bot YAML. A short
-      key plus no rate limiting is worse than either alone.
+      key plus no rate limiting is worse than either alone. Note the bind: rejecting weak
+      keys at startup stops existing users' bots from loading, so any check here should
+      warn rather than refuse, which makes it weaker than rate limiting for the same threat.
 
 ### Config hot-reload — prerequisites now in place
 `get_trader_lock(trader_id)` is exposed so a reload can take a bot's lock before swapping
@@ -178,6 +173,19 @@ Thirteen commits, each verified with a purpose-built harness driving the real AS
 - **Log rotation** (`c94466e`): 10 MB x 5 with gzip, ~16 MB ceiling. The handler is shared
   across all loggers — independent `RotatingFileHandler`s on one file rotate against each
   other and lose writes. Handler left at NOTSET; file opened UTF-8 for the emoji.
+- **Default webhook path surfaced, not enforced** (`b827d0c`): a banner after login plus a
+  footer line with a `ⓘ` tooltip carrying the generation recipe, shown only when
+  `WEBHOOK_PATH` is literally `webhook`. Deliberately advisory — the API key is what
+  protects the endpoint, so a predictable path costs scanner noise, not trade safety.
+  Startup-time randomisation was rejected: it would change on every restart and break
+  every TradingView alert.
+- **Constant-time credential comparison** (`69e3f52`): the webhook key used a plain `!=`,
+  which returns on the first differing byte and leaks the key through response timing.
+  Now `secrets.compare_digest`. Fixing it surfaced a live bug on the **login form**, which
+  already used `compare_digest` but on `str` arguments — that raises `TypeError` on
+  non-ASCII, so any `DASHBOARD_PASSWORD` containing an accent made signing in impossible
+  (correct password → unhandled 500), and any client could raise a 500 on the
+  unauthenticated login endpoint with a non-ASCII username. Both now compare as bytes.
 
 ### 02 Jun 2026 (session 16)
 - **Security: CVE-2026-48710 (BadHost) assessment**: confirmed Tradleware is not affected — no custom `BaseHTTPMiddleware` using `request.url.path` for access control; auth is route-level via `request.session`

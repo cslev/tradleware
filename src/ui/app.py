@@ -731,9 +731,14 @@ async def login(request: Request, username: str = Form(...), password: str = For
   # Log login attempt
   logger.info(f"Login attempt from IP: {client_ip}, Username: '{username}'")
 
-  # Verify credentials using constant-time comparison to prevent timing attacks
-  username_match = secrets.compare_digest(username, DASHBOARD_USERNAME)
-  password_match = secrets.compare_digest(password, DASHBOARD_PASSWORD)
+  # Verify credentials using constant-time comparison to prevent timing attacks.
+  # Compared as bytes, not str: compare_digest rejects non-ASCII strings with a
+  # TypeError, so a password containing an accent would crash the request instead of
+  # signing the user in — and any client could raise a 500 here with a non-ASCII name.
+  username_match = secrets.compare_digest(username.encode('utf-8'),
+                                          str(DASHBOARD_USERNAME).encode('utf-8'))
+  password_match = secrets.compare_digest(password.encode('utf-8'),
+                                          str(DASHBOARD_PASSWORD).encode('utf-8'))
 
   if username_match and password_match:
     # A Secure cookie is discarded by the browser on a plain HTTP page, so the login
@@ -1076,7 +1081,12 @@ async def handle_webhook(request: Request):
   if not expected_api_key:
     trader.logger.error(f"No Tradleware API key configured for trader {trader_id}")
     raise HTTPException(status_code=500, detail="Trader is not configured with a Tradleware API key")
-  if not api_key or api_key != expected_api_key:
+  # Constant-time comparison: a plain `!=` returns as soon as two bytes differ, so the
+  # response time reveals how much of a guess was correct and the key can be recovered
+  # one character at a time. Compared as bytes so a non-ASCII or non-string value is
+  # rejected rather than raising, the same way the login form does it.
+  provided_key = str(api_key).encode('utf-8') if api_key else b''
+  if not secrets.compare_digest(provided_key, str(expected_api_key).encode('utf-8')):
     # The submitted key is never logged: it is attacker-controlled (log injection),
     # a near-miss value is likely a real secret, and ERROR is pushed to Gotify.
     trader.logger.error(f"Unauthorized webhook attempt for trader {trader_id} - invalid API key.")
