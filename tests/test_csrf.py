@@ -110,6 +110,39 @@ class TestReadOnlyEndpointsAreUnaffected:
     assert response.status_code == 200
 
 
+class TestNoPermissiveCORS:
+  """
+  The header check is only half the defence. The half that actually stops a browser is
+  the CORS preflight failing, which happens because Tradleware answers no preflight at
+  all. Add a permissive CORS middleware — an easy thing to reach for when wiring up an
+  integration — and the browser starts allowing the cross-site request, with nothing in
+  the CSRF code changing to warn you. These fail loudly if that ever happens.
+  """
+
+  async def test_a_preflight_is_not_approved(self, client_factory, signed_in,
+                                             crypto_trader):
+    async with client_factory(peer=TRUSTED) as client:
+      response = await client.request("OPTIONS", "/convert/fakebot", headers={
+        "Origin": "https://evil.example",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "x-tradleware-request",
+      })
+    assert "access-control-allow-origin" not in response.headers
+    assert "access-control-allow-headers" not in response.headers
+    assert "access-control-allow-credentials" not in response.headers
+
+  async def test_no_cors_headers_on_an_ordinary_response(self, client_factory,
+                                                         signed_in, crypto_trader):
+    async with client_factory(peer=TRUSTED) as client:
+      response = await client.get("/")
+    assert not [h for h in response.headers if h.lower().startswith("access-control")]
+
+  def test_no_cors_middleware_is_installed(self, app):
+    installed = [str(middleware.cls) for middleware in app.app.user_middleware]
+    assert not any("CORS" in name for name in installed), \
+      f"a CORS middleware would undo the CSRF protection: {installed}"
+
+
 class TestTheDashboardSendsIt:
   def test_the_convert_button_sets_the_header(self):
     """The server guard is useless if the dashboard's own request lacks it."""

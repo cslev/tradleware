@@ -764,6 +764,11 @@ def require_auth(request: Request):
 # already covered by SameSite=lax, but the TRUSTED_IPS path has no cookie for SameSite
 # to govern: without this, any page loaded in a browser on a trusted address could fire
 # an authenticated POST at Tradleware and spend the balance.
+#
+# Do not add a permissive CORS middleware. Answering preflights with
+# Access-Control-Allow-Origin: * (or echoing the caller's origin) tells the browser the
+# custom header is allowed cross-site, and this protection disappears without any code
+# here changing. tests/test_csrf.py fails if that happens.
 CSRF_HEADER = 'X-Tradleware-Request'
 
 
