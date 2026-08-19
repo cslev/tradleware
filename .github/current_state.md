@@ -191,7 +191,7 @@ Thirteen commits, each verified with a purpose-built harness driving the real AS
   `X-Tradleware-Request` header; a custom header forces a CORS preflight that Tradleware
   never answers, so a browser will not send the real request. Read-only endpoints are
   deliberately unguarded: same-origin policy already stops a cross-site page reading them.
-- **Webhook guessing throttle** (`__HASH__`): new `src/misc/failure_limiter.py`. After
+- **Webhook guessing throttle** (`d32a5a5`): new `src/misc/failure_limiter.py`. After
   20 failed authentications from one address in 60s that address gets 429 with a
   Retry-After, turning a million-word list from ~3 hours into ~35 days. Counted per
   source, so an attacker can only throttle themselves, never a bot; a success clears the
