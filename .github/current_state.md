@@ -193,7 +193,7 @@ Thirteen commits, each verified with a purpose-built harness driving the real AS
   The "webhook received" line also moved after authentication — it fired for every
   request with three attacker-chosen fields in it, so coalescing the error alone would
   have left the flood half intact. Closes the pre-auth logging item too.
-- **CSRF on /convert** (`__HASH__`): the endpoint spends a bot's whole fiat balance and
+- **CSRF on /convert** (`9650c85`): the endpoint spends a bot's whole fiat balance and
   a bare cross-site POST succeeded when the browser sat on a trusted IP. SameSite=lax
   covers the session cookie, but the TRUSTED_IPS path has no cookie for SameSite to
   govern — which is exactly the Raspberry Pi kiosk setup. Now requires an
