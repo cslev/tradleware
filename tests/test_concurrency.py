@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from conftest import FakeCryptoTrader, signal_payload
+from conftest import DASHBOARD_HEADERS, FakeCryptoTrader, signal_payload
 
 LATENCY = 0.05   # simulated exchange round trip, long enough for requests to overlap
 
@@ -71,7 +71,7 @@ class TestCrossPathSerialisation:
     async with client_factory(peer="192.168.1.50") as dashboard, \
                client_factory() as webhook:
       results = await asyncio.gather(
-        dashboard.post("/convert/fakebot"),
+        dashboard.post("/convert/fakebot", headers=DASHBOARD_HEADERS),
         webhook.post(webhook_url, json=signal_payload(order_size=50, dry_run=False)),
       )
     assert [r.status_code for r in results] == [200, 200]
@@ -83,7 +83,7 @@ class TestCrossPathSerialisation:
     async with client_factory(peer="192.168.1.50") as dashboard, \
                client_factory() as webhook:
       await asyncio.gather(
-        dashboard.post("/convert/fakebot"),
+        dashboard.post("/convert/fakebot", headers=DASHBOARD_HEADERS),
         webhook.post(webhook_url, json=signal_payload(order_size=50, dry_run=False)),
       )
     assert slow_trader.events[0].startswith("convert")

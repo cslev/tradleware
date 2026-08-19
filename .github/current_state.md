@@ -184,6 +184,22 @@ Thirteen commits, each verified with a purpose-built harness driving the real AS
   is worse than the risk. Entropy estimation measures size, not predictability, so
   `Password2026` scores like twelve random characters — the placeholder list covers the
   common case that slips through.
+- **Webhook rejection flooding** (`17634ac`): every rejection wrote a log line and
+  pushed a notification, both unbounded and drivable by anyone who knew the path. Because
+  the log rotates on size, a flood also *evicted* real history — the whole 63 MB in about
+  an hour at 100 req/s, taking the evidence with it. New `src/misc/rejection_reporter.py`
+  reports the first of each distinct problem immediately and collapses repeats into one
+  summary per window. Measured: 144 bytes/rejection to 0, and 360,000 pushes/hour to 12.
+  The "webhook received" line also moved after authentication — it fired for every
+  request with three attacker-chosen fields in it, so coalescing the error alone would
+  have left the flood half intact. Closes the pre-auth logging item too.
+- **CSRF on /convert** (`__HASH__`): the endpoint spends a bot's whole fiat balance and
+  a bare cross-site POST succeeded when the browser sat on a trusted IP. SameSite=lax
+  covers the session cookie, but the TRUSTED_IPS path has no cookie for SameSite to
+  govern — which is exactly the Raspberry Pi kiosk setup. Now requires an
+  `X-Tradleware-Request` header; a custom header forces a CORS preflight that Tradleware
+  never answers, so a browser will not send the real request. Read-only endpoints are
+  deliberately unguarded: same-origin policy already stops a cross-site page reading them.
 - **Constant-time credential comparison** (`69e3f52`): the webhook key used a plain `!=`,
   which returns on the first differing byte and leaks the key through response timing.
   Now `secrets.compare_digest`. Fixing it surfaced a live bug on the **login form**, which

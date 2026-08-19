@@ -303,7 +303,11 @@ async function convertFiatToStablecoin(traderId, event) {
     const response = await fetch(`/convert/${traderId}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        // Marks this as a request from the dashboard. A page on another site cannot
+        // set a custom header without a CORS preflight that Tradleware never answers,
+        // so it cannot trigger a conversion in your authenticated browser.
+        'X-Tradleware-Request': '1'
       }
     });
     

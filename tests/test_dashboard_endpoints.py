@@ -11,7 +11,8 @@ import types
 
 import pytest
 
-from conftest import FakeCryptoTrader, FakeStockTrader, signal_payload
+from conftest import (DASHBOARD_HEADERS, FakeCryptoTrader, FakeStockTrader,
+                      signal_payload)
 
 TRUSTED = "192.168.1.50"
 
@@ -82,7 +83,7 @@ class TestAuthenticationIsRequired:
                                                  crypto_trader):
     app.TRUSTED_IPS = []
     async with client_factory(peer="203.0.113.9") as client:
-      response = await client.post("/convert/fakebot")
+      response = await client.post("/convert/fakebot", headers=DASHBOARD_HEADERS)
     assert response.status_code == 401
 
 
@@ -323,11 +324,11 @@ class TestTradingPathsStillWork:
 class TestConvertEndpoint:
   async def test_a_conversion_runs(self, client_factory, signed_in, crypto_trader):
     async with client_factory(peer=TRUSTED) as client:
-      response = await client.post("/convert/fakebot")
+      response = await client.post("/convert/fakebot", headers=DASHBOARD_HEADERS)
     assert response.status_code == 200
     assert crypto_trader.converted
 
   async def test_unknown_bot_is_404(self, client_factory, signed_in, crypto_trader):
     async with client_factory(peer=TRUSTED) as client:
-      response = await client.post("/convert/nope")
+      response = await client.post("/convert/nope", headers=DASHBOARD_HEADERS)
     assert response.status_code == 404

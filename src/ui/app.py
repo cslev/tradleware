@@ -758,6 +758,37 @@ def require_auth(request: Request):
     logger.warning(f"Unauthorized access attempt from IP: {client_ip}")
     raise HTTPException(status_code=401, detail="Authentication required")
 
+# Header the dashboard sets on requests that change something. A page on another site
+# cannot set a custom header without the browser first sending a CORS preflight, which
+# Tradleware does not answer, so the real request is never sent. The session cookie is
+# already covered by SameSite=lax, but the TRUSTED_IPS path has no cookie for SameSite
+# to govern: without this, any page loaded in a browser on a trusted address could fire
+# an authenticated POST at Tradleware and spend the balance.
+CSRF_HEADER = 'X-Tradleware-Request'
+
+
+def require_dashboard_request(request: Request) -> None:
+  """
+  Require that a state-changing request came from the Tradleware dashboard itself.
+
+  Only guards actions with side effects. Read-only endpoints need no equivalent: a
+  cross-site page can send the request but the same-origin policy stops it reading the
+  reply, so nothing leaks.
+  """
+  if request.headers.get(CSRF_HEADER) != '1':
+    client_ip = get_client_ip(request)
+    origin = request.headers.get('Origin') or request.headers.get('Referer') or 'none'
+    logger.warning(
+      f"Refused a state-changing request from {client_ip} that did not come from the "
+      f"dashboard (origin: {origin[:60]}). This is what a cross-site request forgery "
+      "attempt looks like; it is also what an outdated cached copy of the dashboard "
+      "JavaScript looks like, so try a hard refresh if you triggered it yourself."
+    )
+    raise HTTPException(
+      status_code=403,
+      detail="This action must be triggered from the Tradleware dashboard."
+    )
+
 def is_request_secure(request: Request) -> bool:
   """Check if the client reached Tradleware over HTTPS"""
   # Check X-Forwarded-Proto header (used by most proxies/tunnels), but only when it
@@ -1612,6 +1643,10 @@ async def convert_fiat_to_stablecoin(request: Request, trader_id: str):
   # Check authentication
   if not is_authenticated(request):
     return JSONResponse(status_code=401, content={"error": "Authentication required"})
+
+  # Spends the whole fiat balance, so it must have come from the dashboard rather than
+  # from a page on another site that happens to be open in an authenticated browser
+  require_dashboard_request(request)
 
   if trader_id not in traders:
     return JSONResponse(

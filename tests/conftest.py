@@ -325,6 +325,11 @@ def stock_trader():
   return trader
 
 
+# What the dashboard's own JavaScript sends on state-changing requests. A cross-site
+# page cannot set a custom header without a CORS preflight, which is what actually
+# blocks the forgery; tests simulating the dashboard have to include it.
+DASHBOARD_HEADERS = {"X-Tradleware-Request": "1"}
+
 UNSET = object()   # lets a test pass timestamp=None and mean it
 
 
