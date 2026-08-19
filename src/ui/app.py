@@ -31,6 +31,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.misc.logger import CustomLogger, flush_gotify_queue
 from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs
+from src.misc.failure_limiter import FailureLimiter
 from src.misc.key_strength import assess_key, find_shared_keys
 from src.misc.rejection_reporter import RejectionReporter
 from src.misc.replay_guard import ReplayGuard, parse_signal_timestamp, signal_fingerprint
@@ -411,6 +412,12 @@ WEBHOOK_REQUIRE_HTTPS = _env_flag('WEBHOOK_REQUIRE_HTTPS', True)
 # often the repeats behind it are totalled up.
 WEBHOOK_REJECTION_SUMMARY_S = int(get_env('WEBHOOK_REJECTION_SUMMARY_S', '300'))
 
+# Failed webhook authentications tolerated from one address per window before it stops
+# being answered. Far above anything a misconfigured alert produces, far below a useful
+# guessing rate: 20 per minute turns a million-word list from hours into weeks.
+WEBHOOK_FAILURE_LIMIT = int(get_env('WEBHOOK_FAILURE_LIMIT', '20'))
+WEBHOOK_FAILURE_WINDOW_S = int(get_env('WEBHOOK_FAILURE_WINDOW_S', '60'))
+
 # How long a request will wait for another operation on the same bot to finish before
 # giving up with 503. Needs to comfortably exceed a normal order round-trip — IBKR
 # polls for fills, so it is the slow case — without letting a stuck call queue requests
@@ -542,6 +549,9 @@ replay_guard = ReplayGuard(WEBHOOK_REPLAY_DB, WEBHOOK_MAX_AGE_S * 2, logger)
 # Collapses repeated webhook rejections so a flood cannot bury real alerts or push the
 # useful history out of the rotating log file
 rejection_reporter = RejectionReporter(logger, WEBHOOK_REJECTION_SUMMARY_S)
+# Stops one address guessing keys at full speed. Never applied to loopback or to
+# TRUSTED_IPS, so a local script or the kiosk cannot lock itself out.
+failure_limiter = FailureLimiter(WEBHOOK_FAILURE_LIMIT, WEBHOOK_FAILURE_WINDOW_S)
 
 # Session cookie configuration
 logger.info(
@@ -1149,6 +1159,25 @@ async def handle_webhook(request: Request):
 
   client_ip = get_client_ip(request)
 
+  ########################################################################
+  ## GUESSING THROTTLE
+  ## Checked before the body is read, so a source that is already guessing costs
+  ## nothing to turn away. Loopback and trusted addresses are never throttled: a local
+  ## script or the kiosk must not be able to lock itself out. A genuine signal source
+  ## never lands here, because it does not send wrong keys — and one success clears the
+  ## count, so a briefly misconfigured source recovers as soon as it is fixed.
+  ########################################################################
+  throttled = (not is_loopback(client_ip) and not is_trusted_ip(client_ip)
+               and failure_limiter.is_blocked(client_ip))
+  if throttled:
+    retry_after = failure_limiter.seconds_until_clear(client_ip)
+    rejection_reporter.record(
+      f"too many failed attempts, not answering for {retry_after}s", client_ip)
+    raise HTTPException(
+      status_code=429,
+      detail="Too many failed webhook attempts. Try again shortly.",
+      headers={"Retry-After": str(retry_after)})
+
   ## reading JSON body with error handling
   try:
     body = await request.body()
@@ -1202,9 +1231,14 @@ async def handle_webhook(request: Request):
   if not secrets.compare_digest(provided_key, str(expected_api_key).encode('utf-8')):
     # The submitted key is never logged: it is attacker-controlled (log injection),
     # a near-miss value is likely a real secret, and ERROR is pushed to Gotify.
+    failure_limiter.record_failure(client_ip)
     rejection_reporter.record(f"invalid API key for bot '{trader_id}'", client_ip,
                               logger=trader.logger)
     raise HTTPException(status_code=401, detail="Invalid API key.")
+
+  # Authenticated: forget any earlier failures from this address, so a source that was
+  # misconfigured and is now correct is never left waiting out a window
+  failure_limiter.clear(client_ip)
 
   ########################################################################
   ## Log the incoming webhook for visibility.

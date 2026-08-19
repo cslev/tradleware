@@ -73,15 +73,6 @@ v3.3.2b, and CHANGELOG.md has no entry for this work yet)
 ## Future Goals
 
 ### Security — deferred items from the session 17 hardening pass
-- [ ] **Webhook rate limiting** — no throttle on failed authentication. The DoS teeth were
-      removed by making Gotify non-blocking, and log growth is now capped by rotation, so
-      what remains is alert fatigue (one Gotify push per failed attempt, unbounded) and
-      brute-forcing a weak `tradleware_api_key`. Best fixed by coalescing failure
-      notifications ("47 failed attempts in the last hour") rather than a blanket limiter.
-- [ ] **Pre-auth logging of attacker-controlled fields** — the "📥 Webhook received" line
-      logs `trader_id`, `action` and `ticker` before authentication, letting anyone who
-      knows the path write chosen strings into the log. Deferring it past the API key check
-      halves the volume and removes the injection vector.
 
 ### Config hot-reload — prerequisites now in place
 `get_trader_lock(trader_id)` is exposed so a reload can take a bot's lock before swapping
@@ -200,6 +191,14 @@ Thirteen commits, each verified with a purpose-built harness driving the real AS
   `X-Tradleware-Request` header; a custom header forces a CORS preflight that Tradleware
   never answers, so a browser will not send the real request. Read-only endpoints are
   deliberately unguarded: same-origin policy already stops a cross-site page reading them.
+- **Webhook guessing throttle** (`__HASH__`): new `src/misc/failure_limiter.py`. After
+  20 failed authentications from one address in 60s that address gets 429 with a
+  Retry-After, turning a million-word list from ~3 hours into ~35 days. Counted per
+  source, so an attacker can only throttle themselves, never a bot; a success clears the
+  address immediately; loopback and TRUSTED_IPS are exempt so a local script or the kiosk
+  cannot lock itself out. Accepted trade-off, documented in the module: once over the
+  limit an address is refused before its key is checked, so its valid signals also wait
+  out the window — checking first would remove the protection entirely.
 - **Constant-time credential comparison** (`69e3f52`): the webhook key used a plain `!=`,
   which returns on the first differing byte and leaks the key through response timing.
   Now `secrets.compare_digest`. Fixing it surfaced a live bug on the **login form**, which

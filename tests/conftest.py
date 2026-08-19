@@ -99,6 +99,7 @@ for _logger_name in list(logging.root.manager.loggerDict):
       _handler.setStream(sys.__stdout__)
 
 from src.misc import logger as tradleware_logger  # noqa: E402  pylint: disable=wrong-import-position
+from src.misc.failure_limiter import FailureLimiter  # noqa: E402  pylint: disable=wrong-import-position
 from src.misc.rejection_reporter import RejectionReporter  # noqa: E402  pylint: disable=wrong-import-position
 from src.misc.replay_guard import ReplayGuard  # noqa: E402  pylint: disable=wrong-import-position
 
@@ -108,7 +109,7 @@ _MUTABLE_SETTINGS = (
   "WEBHOOK_PATH", "USING_DEFAULT_WEBHOOK_PATH", "SESSION_HTTPS_ONLY",
   "SESSION_MAX_AGE_S", "DASHBOARD_USERNAME", "DASHBOARD_PASSWORD",
   "USING_DEFAULT_CREDENTIALS", "TRADER_LOCK_TIMEOUT_S", "replay_guard",
-  "rejection_reporter",
+  "rejection_reporter", "failure_limiter",
 )
 
 
@@ -140,6 +141,12 @@ def isolate_app_state(tmp_path):
   # one would silence log assertions in whichever tests happened to run later.
   tradleware.rejection_reporter = RejectionReporter(
     tradleware.logger, saved["rejection_reporter"].summary_interval_s
+  )
+  # Likewise: failures accumulate per source address, and most tests share a default
+  # peer, so a shared limiter would start returning 429 partway through the suite.
+  # Sized from the app's own configuration, never from a literal repeated here.
+  tradleware.failure_limiter = FailureLimiter(
+    saved["failure_limiter"].max_failures, saved["failure_limiter"].window_s
   )
 
   yield

@@ -153,6 +153,16 @@ class TestWindowTiming:
 class TestWebhookFloodEndToEnd:
   """The behaviour that actually protects the log file and the notifications."""
 
+  @pytest.fixture(autouse=True)
+  def _without_throttling(self, app):
+    """
+    Isolate coalescing from the guessing throttle, which would otherwise cut these
+    floods off at twenty attempts and stop them exercising what is under test here.
+    Throttling has its own module.
+    """
+    from src.misc.failure_limiter import FailureLimiter
+    app.failure_limiter = FailureLimiter(max_failures=10_000, window_s=60)
+
   async def test_a_flood_of_bad_keys_produces_one_log_line(self, client_factory,
                                                            webhook_url, crypto_trader,
                                                            caplog):
