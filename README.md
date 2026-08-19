@@ -177,6 +177,7 @@ WEBHOOK_PATH="ka8Moh4aiNgai4"
 | `WEBHOOK_PATH` | No | `webhook` | Webhook URL path — randomize for security (`pwgen -n 14`) |
 | `WEBHOOK_REQUIRE_HTTPS` | No | `true` | Refuse webhooks not delivered over TLS — requires `TRUSTED_PROXIES`, see [Webhooks must use HTTPS](#webhooks-must-use-https) |
 | `TRADER_LOCK_TIMEOUT_S` | No | `60` | How long a request waits for a bot that is already executing before returning `503` |
+| `WEBHOOK_REJECTION_SUMMARY_S` | No | `300` | How often repeated webhook rejections are collapsed into one summary line |
 | `WEBHOOK_MAX_AGE_S` | No | `300` | How stale a signal's timestamp may be before it is rejected (minimum `30`) — see [Replay protection](#replay-protection) |
 | `TRUSTED_IPS` | No | — | Comma-separated IPs that bypass authentication |
 | `TRUSTED_PROXIES` | No | — | Comma-separated IPs/CIDRs of reverse proxies allowed to report the client IP — see below |

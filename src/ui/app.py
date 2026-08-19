@@ -32,6 +32,7 @@ from src.misc.logger import CustomLogger, flush_gotify_queue
 from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs
 from src.misc.key_strength import assess_key, find_shared_keys
+from src.misc.rejection_reporter import RejectionReporter
 from src.misc.replay_guard import ReplayGuard, parse_signal_timestamp, signal_fingerprint
 from src.traders.crypto.binance_trader import BinanceTrader
 from src.traders.crypto.coinbase_trader import CoinbaseTrader
@@ -123,6 +124,19 @@ async def _update_check_loop() -> None:
   while True:
     await asyncio.sleep(UPDATE_CHECK_INTERVAL)
     _check_for_updates()
+
+
+async def _rejection_summary_loop() -> None:
+  """
+  Background task: totals up collapsed webhook rejections once per window.
+
+  A timer rather than a check on the next request, because the tail of a flood matters
+  most: if the attempts stop, nothing would trigger the final summary and the count
+  would sit unreported.
+  """
+  while True:
+    await asyncio.sleep(WEBHOOK_REJECTION_SUMMARY_S)
+    rejection_reporter.flush()
 async def _ibkr_health_loop():
   """
   Background task: periodically probe all IBKR trader connections.
@@ -277,11 +291,21 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
   update_task = asyncio.create_task(_update_check_loop())
   logger.info(f"Update-check loop started (interval: {UPDATE_CHECK_INTERVAL}s)")
 
+  # Start the webhook rejection summariser
+  summary_task = asyncio.create_task(_rejection_summary_loop())
+  logger.info(
+    f"Webhook rejection summaries every {WEBHOOK_REJECTION_SUMMARY_S}s "
+    "(the first of each distinct problem is always reported immediately)"
+  )
+
   yield  # Server is running here
 
   # Shutdown
   health_task.cancel()
   update_task.cancel()
+  summary_task.cancel()
+  # Report anything collapsed since the last window rather than losing the count
+  rejection_reporter.flush()
   logger.info("Shutting down traders...")
   for trader in traders.values():
     await trader.close()
@@ -381,6 +405,11 @@ WEBHOOK_MAX_AGE_S, _WEBHOOK_MAX_AGE_NOTE = _read_freshness_window()
 # that, because they can mint a brand new signal. Tradleware does not terminate TLS
 # itself, so in practice this requires a TLS-terminating proxy plus TRUSTED_PROXIES.
 WEBHOOK_REQUIRE_HTTPS = _env_flag('WEBHOOK_REQUIRE_HTTPS', True)
+
+# How often repeated webhook rejections are collapsed into a single summary line. The
+# first of each distinct problem is always reported immediately; this only governs how
+# often the repeats behind it are totalled up.
+WEBHOOK_REJECTION_SUMMARY_S = int(get_env('WEBHOOK_REJECTION_SUMMARY_S', '300'))
 
 # How long a request will wait for another operation on the same bot to finish before
 # giving up with 503. Needs to comfortably exceed a normal order round-trip — IBKR
@@ -510,6 +539,9 @@ if WEBHOOK_MAX_AGE_S > 3600:
 # WEBHOOK_MAX_AGE_S past that timestamp — so in the worst case it must be remembered
 # for twice the window, counted from when it was first accepted.
 replay_guard = ReplayGuard(WEBHOOK_REPLAY_DB, WEBHOOK_MAX_AGE_S * 2, logger)
+# Collapses repeated webhook rejections so a flood cannot bury real alerts or push the
+# useful history out of the rotating log file
+rejection_reporter = RejectionReporter(logger, WEBHOOK_REJECTION_SUMMARY_S)
 
 # Session cookie configuration
 logger.info(
@@ -1073,52 +1105,48 @@ async def handle_webhook(request: Request):
         "it arrived over plain HTTP. Tradleware does not serve HTTPS itself: put it "
         "behind a TLS-terminating proxy and set TRUSTED_PROXIES"
       )
-    logger.error(f"Rejected webhook from {peer}: {reason}.")
+    rejection_reporter.record("delivered without TLS", peer, reason)
     raise HTTPException(
       status_code=403,
       detail="Webhooks must be delivered over HTTPS."
     )
+
+  client_ip = get_client_ip(request)
 
   ## reading JSON body with error handling
   try:
     body = await request.body()
     data = json.loads(body.decode('utf-8'))
   except json.JSONDecodeError as exc:
-    # Log the raw body for debugging (limit to 500 chars to avoid log spam)
-    body_preview = body.decode('utf-8', errors='replace')[:500] if body else "Empty body"
-    error_msg = f"Malformed JSON in webhook request: {str(exc)} | Request body: {body_preview}"
-    logger.error(error_msg)
-    raise HTTPException(status_code=400, detail=error_msg) from exc
+    # Only the parser's own complaint is logged. The body itself is attacker-supplied,
+    # and echoing hundreds of its characters into a size-rotated log lets anyone choose
+    # what fills it — and how fast the real history is pushed out.
+    rejection_reporter.record("malformed JSON body", client_ip, str(exc)[:100])
+    raise HTTPException(
+      status_code=400,
+      detail=f"Malformed JSON in webhook request: {str(exc)[:200]}") from exc
   except Exception as exc:
-    error_msg = f"Error reading webhook request body: {str(exc)}"
-    logger.error(error_msg)
-    raise HTTPException(status_code=400, detail=error_msg) from exc
+    rejection_reporter.record("unreadable request body", client_ip, str(exc)[:100])
+    raise HTTPException(
+      status_code=400,
+      detail=f"Error reading webhook request body: {str(exc)[:200]}") from exc
 
   # Valid JSON is not necessarily an object — every field lookup below assumes one
   if not isinstance(data, dict):
-    logger.error(f"Webhook body is a JSON {type(data).__name__}, expected an object")
+    rejection_reporter.record(f"body was a JSON {type(data).__name__}, not an object",
+                              client_ip)
     raise HTTPException(status_code=400, detail="Webhook body must be a JSON object.")
-
-  ########################################################################
-  ## Log the incoming webhook for visibility before any validation
-  ########################################################################
-  incoming_trader_id = data.get("trader_id", "<not set>")
-  incoming_action = data.get("action", "<not set>")
-  incoming_ticker = data.get("ticker", "<not set>")
-  logger.info(
-    f"📥 Webhook received — trader_id: '{incoming_trader_id}', "
-    f"action: '{incoming_action}', ticker: '{incoming_ticker}'"
-  )
 
   ########################################################################
   ## Check if the trader_id is set properly and we indeed have such a BOT
   ########################################################################
   trader_id = data.get("trader_id")
   if not trader_id:
-    logger.error("trader_id not sent")
+    rejection_reporter.record("no trader_id in the payload", client_ip)
     raise HTTPException(status_code=400, detail="Missing field: trader_id")
   if trader_id not in traders:
-    logger.error("Trader ID not found in traders")
+    # The submitted id is not echoed: it is attacker-chosen text going into the log
+    rejection_reporter.record("unknown trader_id", client_ip)
     raise HTTPException(status_code=404, detail=f"Trader ID '{trader_id}' not found")
 
   ############################
@@ -1138,8 +1166,21 @@ async def handle_webhook(request: Request):
   if not secrets.compare_digest(provided_key, str(expected_api_key).encode('utf-8')):
     # The submitted key is never logged: it is attacker-controlled (log injection),
     # a near-miss value is likely a real secret, and ERROR is pushed to Gotify.
-    trader.logger.error(f"Unauthorized webhook attempt for trader {trader_id} - invalid API key.")
+    rejection_reporter.record(f"invalid API key for bot '{trader_id}'", client_ip,
+                              logger=trader.logger)
     raise HTTPException(status_code=401, detail="Invalid API key.")
+
+  ########################################################################
+  ## Log the incoming webhook for visibility.
+  ## Deliberately after authentication: before it, this line was written for every
+  ## request from anyone who knew the path, with three attacker-chosen fields in it —
+  ## the bulk of what a flood wrote to a size-rotated log.
+  ########################################################################
+  logger.info(
+    f"📥 Webhook received — trader_id: '{trader_id}', "
+    f"action: '{data.get('action', '<not set>')}', "
+    f"ticker: '{data.get('ticker', '<not set>')}'"
+  )
 
   ## Ok bot exists and API key is valid, let's extract other fields
   # Extract and validate required fields
@@ -1177,22 +1218,24 @@ async def handle_webhook(request: Request):
     )
     raise HTTPException(status_code=400, detail="Invalid timestamp — send unix seconds/ms or ISO 8601.")
 
+  # Both checks below are reachable by replaying one captured request — the key is in
+  # the body — so they are floodable and go through the summariser.
   age_seconds = (datetime.now(timezone.utc) - timestamp_dt).total_seconds()
   if abs(age_seconds) > WEBHOOK_MAX_AGE_S:
     when = "old" if age_seconds > 0 else "in the future"
-    trader.logger.error(
-      f"Rejected signal for {trader_id}: timestamp is {abs(age_seconds):.0f}s {when}, "
-      f"limit is {WEBHOOK_MAX_AGE_S}s. Cause is a replayed request, a clock that is "
-      "out of sync, or a bar timestamp — TradingView alerts must send "
-      "{{timenow}}, not {{time}}."
-    )
+    rejection_reporter.record(
+      f"stale timestamp for bot '{trader_id}'", client_ip,
+      f"{abs(age_seconds):.0f}s {when}, limit is {WEBHOOK_MAX_AGE_S}s. Cause is a "
+      "replayed request, a clock that is out of sync, or a bar timestamp — "
+      "TradingView alerts must send " "{{timenow}}, not {{time}}.",
+      logger=trader.logger)
     raise HTTPException(status_code=400, detail="Signal timestamp is outside the freshness window.")
 
   if not await replay_guard.register(signal_fingerprint(trader_id, body)):
-    trader.logger.error(
-      f"Rejected signal for {trader_id}: identical request already processed. "
-      "This is a replay, or the signal source sent the same alert twice."
-    )
+    rejection_reporter.record(
+      f"duplicate signal for bot '{trader_id}'", client_ip,
+      "Identical request already processed — a replay, or the signal source sent the "
+      "same alert twice.", logger=trader.logger)
     raise HTTPException(status_code=409, detail="Duplicate signal — this request was already processed.")
 
   # Format timestamp for logging

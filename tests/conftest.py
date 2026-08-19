@@ -99,6 +99,7 @@ for _logger_name in list(logging.root.manager.loggerDict):
       _handler.setStream(sys.__stdout__)
 
 from src.misc import logger as tradleware_logger  # noqa: E402  pylint: disable=wrong-import-position
+from src.misc.rejection_reporter import RejectionReporter  # noqa: E402  pylint: disable=wrong-import-position
 from src.misc.replay_guard import ReplayGuard  # noqa: E402  pylint: disable=wrong-import-position
 
 # Module attributes a test may reasonably change, restored after every test
@@ -107,6 +108,7 @@ _MUTABLE_SETTINGS = (
   "WEBHOOK_PATH", "USING_DEFAULT_WEBHOOK_PATH", "SESSION_HTTPS_ONLY",
   "SESSION_MAX_AGE_S", "DASHBOARD_USERNAME", "DASHBOARD_PASSWORD",
   "USING_DEFAULT_CREDENTIALS", "TRADER_LOCK_TIMEOUT_S", "replay_guard",
+  "rejection_reporter",
 )
 
 
@@ -133,6 +135,11 @@ def isolate_app_state(tmp_path):
   # arithmetic instead of the app's, and a regression in app.py would go unnoticed.
   tradleware.replay_guard = ReplayGuard(
     tmp_path / "replay.json", saved["replay_guard"].ttl_seconds, tradleware.logger
+  )
+  # The reporter starts suppressing after a handful of distinct rejections, so a shared
+  # one would silence log assertions in whichever tests happened to run later.
+  tradleware.rejection_reporter = RejectionReporter(
+    tradleware.logger, saved["rejection_reporter"].summary_interval_s
   )
 
   yield
