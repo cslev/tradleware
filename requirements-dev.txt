@@ -1,0 +1,7 @@
+# Test dependencies. Not installed into the Docker image — the runtime needs are in
+# src/requirement.txt. Install with:
+#     pip install -r requirements-dev.txt
+pytest>=9.1
+pytest-asyncio>=1.4      # async test functions and fixtures
+httpx>=0.28              # drives the ASGI app; ASGITransport(client=...) sets the peer IP
+pytest-randomly>=4.1     # shuffles test order to expose inter-test state leaks

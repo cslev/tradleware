@@ -222,3 +222,6 @@ serviceAccountKey*.json
 
 # Runtime state written by the app (webhook replay-protection cache)
 src/logs/webhook_replay.json*
+
+# Runtime log/state directory, created by the app and by the test suite
+src/logs/

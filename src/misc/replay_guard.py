@@ -32,8 +32,10 @@ def parse_signal_timestamp(raw):
 
   Accepts unix seconds, unix milliseconds, either of those as a numeric string, and
   ISO 8601 with or without a trailing 'Z'. ISO values without an offset are read as
-  UTC. Returns None when the value is missing or cannot be parsed — the caller
-  decides whether that is fatal.
+  UTC. Values carrying another offset are converted to UTC rather than kept in their
+  original zone, so callers can format the result as UTC without relabelling the wrong
+  wall-clock time. Returns None when the value is missing or cannot be parsed — the
+  caller decides whether that is fatal.
   """
   if raw is None or isinstance(raw, bool) or raw == '':
     return None
@@ -46,7 +48,9 @@ def parse_signal_timestamp(raw):
         return _from_epoch(float(text))
       except ValueError:
         parsed = datetime.fromisoformat(text.replace('Z', '+00:00'))
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        if parsed.tzinfo is None:
+          return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
   except (ValueError, OSError, OverflowError):
     return None
   return None

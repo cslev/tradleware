@@ -260,6 +260,23 @@ docker-compose down
 
 > Want to build from source or contribute? See [BUILD.md](BUILD.md).
 
+### Running the tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+The suite covers the security behaviour of the dashboard and webhook: client address
+resolution behind proxies, session cookie flags, credential comparison, webhook transport
+and replay protection, per-bot execution serialisation, and log rotation.
+
+It is self-contained — no exchange is contacted, no notification is sent anywhere real, and
+your `.env` is deliberately **not** read, so results do not depend on how your own instance
+happens to be configured. Test order is shuffled on every run to expose state leaking
+between tests; the seed is printed in the header and can be replayed with
+`pytest -p no:randomly` (fixed order) or `pytest --randomly-seed=<seed>`.
+
 ## Gotify Integration
 
 Tradleware supports real-time push notifications via Gotify for important trading events and critical errors — so you never miss a trade execution, a failed order, or anything that needs your attention, even when you're away from the dashboard.

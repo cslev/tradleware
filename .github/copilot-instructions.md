@@ -60,10 +60,38 @@ src/
     crypto/   # OKX, Independent Reserve, Crypto.com, Coinbase traders
     stock/    # IBKR trader
   ui/         # FastAPI app, templates, static assets
-  misc/       # Logger, env helpers, config_loader
-tests/
+  misc/       # Logger, env helpers, config_loader, replay_guard
+tests/        # pytest suite (see "Testing" below)
 tradleware_data/
 ```
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt   # pytest, pytest-asyncio, httpx, pytest-randomly
+pytest
+```
+
+`tests/conftest.py` does the setup that makes the app testable, and the reasons matter:
+
+- **The real `.env` is not read.** `app.py` calls `load_dotenv(..., override=True)`, which
+  would overwrite the pinned test configuration with whatever is on the machine, so
+  `load_dotenv` is neutralised before the app is imported.
+- **Outbound HTTP is blocked.** `_fetch_public_ip()` runs at module scope; `requests.get`
+  is stubbed so the suite is offline. `requests.post` is left alone — the logging tests
+  exercise Gotify delivery against a local stand-in server.
+- **Module globals are restored after every test.** Configuration lives in module-level
+  constants and traders in a module dict, so `isolate_app_state` snapshots and restores
+  them. Anything derived from app configuration must be read from the app, never
+  recomputed in a fixture, or the assertion checks the fixture instead of the code.
+- **Settings read at import cannot be changed per test.** `WEBHOOK_PATH` is baked into the
+  route decorator and the session middleware is constructed once; use the `webhook_url`
+  and `reconfigure_session` fixtures rather than reassigning the globals.
+
+When fixing a security issue, add a test that **fails when the fix is reverted** — verify
+that by actually reverting it. Several of these behaviours are invariants with no visible
+symptom when broken (the replay fingerprint TTL must be twice the freshness window; the
+rotating log handler must be shared across loggers; Gotify must never be sent inline).
 
 ---
 
