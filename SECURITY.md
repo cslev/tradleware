@@ -9,10 +9,13 @@ own instance, which is why reports are taken seriously and handled privately fir
 **Please do not open a public issue for a security problem.** A public report tells everyone
 running an unpatched instance exactly what to try before they have a fix.
 
-Report privately through
-**[GitHub Security Advisories](https://github.com/cslev/tradleware/security/advisories/new)**.
-That channel is private between you and the maintainer, and lets a fix and an advisory be
-prepared together.
+Two private channels, either is fine:
+
+- **[GitHub Security Advisories](https://github.com/cslev/tradleware/security/advisories/new)** —
+  preferred. Private between you and the maintainer, and lets a fix and an advisory be
+  prepared together.
+- **Email:** [cslev@cslev.vip](mailto:cslev@cslev.vip) — if you would rather not use GitHub,
+  or the advisory form is unavailable to you.
 
 Please include:
 
