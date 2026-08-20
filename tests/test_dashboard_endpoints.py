@@ -332,3 +332,44 @@ class TestConvertEndpoint:
     async with client_factory(peer=TRUSTED) as client:
       response = await client.post("/convert/nope", headers=DASHBOARD_HEADERS)
     assert response.status_code == 404
+
+
+class TestAssetsSurviveAnHTTPSProxy:
+  """
+  Tradleware runs on plain HTTP behind a TLS-terminating proxy, and uvicorn is started
+  with --no-proxy-headers so it cannot rewrite the client address. That also leaves
+  scope["scheme"] as "http", so any absolute URL the app generates comes out as http://
+  on a page the browser loaded over https:// — which the browser blocks as mixed
+  content, and the dashboard renders with no CSS, no logo and no JavaScript.
+
+  Static references must therefore be root-relative, never absolute.
+  """
+
+  @staticmethod
+  def _assets(html):
+    import re
+    return [a for a in re.findall(r'(?:href|src)="([^"]+)"', html) if "/static/" in a]
+
+  async def test_dashboard_assets_are_scheme_agnostic(self, client_factory, signed_in,
+                                                      rich_crypto_trader):
+    async with client_factory(peer=TRUSTED, scheme="http") as client:
+      response = await client.get("/", headers={"X-Forwarded-Proto": "https"})
+    assets = self._assets(response.text)
+    assert assets, "no static assets found — the check would be vacuous"
+    assert not [a for a in assets if a.startswith("http")], \
+      f"absolute asset URLs get blocked as mixed content: {assets}"
+
+  async def test_login_assets_are_scheme_agnostic(self, client_factory, app):
+    app.TRUSTED_IPS = []
+    async with client_factory(peer="203.0.113.9", scheme="http") as client:
+      response = await client.get("/login", headers={"X-Forwarded-Proto": "https"})
+    assets = self._assets(response.text)
+    assert assets
+    assert not [a for a in assets if a.startswith("http")]
+
+  async def test_templates_do_not_reintroduce_url_for(self):
+    """url_for() is absolute by design, so it reintroduces the bug wherever it is used."""
+    from pathlib import Path
+    for template in Path("src/ui/templates").glob("*.html"):
+      assert "url_for(" not in template.read_text(), \
+        f"{template.name} uses url_for, which bakes the scheme into the URL"

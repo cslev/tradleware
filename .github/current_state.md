@@ -8,6 +8,8 @@
 
 
 ## Current State
+**v3.4.1b released** — fixes mixed-content static assets behind an HTTPS proxy (v3.4.0b only)
+
 **v3.4.0b released — security hardening pass**
 
 ⚠️ **Three breaking changes in this release.** They lead the release notes:

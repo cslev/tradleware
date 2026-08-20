@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" type="image/x-icon" href="{{ url_for('static', path='images/favicon.ico') }}">
+  <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
   <title>{{ title }}</title>
-  <link href="{{ url_for('static', path='css/output.css') }}" rel="stylesheet">
+  <link href="/static/css/output.css" rel="stylesheet">
   <script src="https://unpkg.com/heroicons@2.0.18/24/solid/index.js"></script>
 </head>
 <body class="min-h-screen dashboard-page flex flex-col">  <!-- make body a column flex container so footer can sit at bottom -->
@@ -20,7 +20,7 @@
   <header class="sticky-navbar">
     <div class="navbar-content">
       <span class="navbar-brand">
-        <img src="{{ url_for('static', path='images/logos/logo_v5.png') }}" alt="Tradleware Logo" class="navbar-logo-img">
+        <img src="/static/images/logos/logo_v5.png" alt="Tradleware Logo" class="navbar-logo-img">
         <span class="navbar-brand-text"><span style="color: var(--neon-blue);">Trad</span><span style="color: var(--neon-pink); position: relative; top: -0.15em;">leware</span></span>
       </span>
       <a href="/logout" class="login-button text-white font-bold rounded-full flex items-center uppercase tracking-wider px-6 py-3 text-sm gap-2">
@@ -103,7 +103,7 @@
          <!-- CRYPTO BOT CARD -->
          <!-- Header with Exchange Logo -->
          <div class="relative h-40 bg-gray-900 flex flex-col justify-end p-4 rounded-t-lg overflow-hidden">
-           <img src="{{ url_for('static', path='images/crypto_exchanges/' + trader.exchange_id + '.png') }}" 
+           <img src="/static/images/crypto_exchanges/{{ trader.exchange_id + '.png' }}" 
                 alt="{{ trader.exchange_id }} logo"
                 class="absolute inset-0 w-full h-full object-cover">  <!-- Changed object-contain to object-cover and removed p-2 -->
            <!-- <div class="relative z-10">
@@ -268,7 +268,7 @@
         <!-- STOCK BOT CARD -->
         <!-- Header with Broker Logo -->
         <div class="relative h-40 bg-gray-900 flex flex-col justify-end p-4 rounded-t-lg overflow-hidden">
-          <img src="{{ url_for('static', path='images/stock_exchanges/' + trader.broker_id + '.png') }}" 
+          <img src="/static/images/stock_exchanges/{{ trader.broker_id + '.png' }}" 
                alt="{{ trader.broker_id }} logo"
                class="absolute inset-0 w-full h-full object-cover">
           <div class="relative z-10">
@@ -495,6 +495,6 @@
   </footer>
 
    <!-- Import the external JavaScript file -->
-   <script src="{{ url_for('static', path='js/main.js') }}"></script>
+   <script src="/static/js/main.js"></script>
  </body>
  </html>

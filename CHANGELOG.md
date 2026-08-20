@@ -5,6 +5,18 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.4.1b] - 2026-08-20
+
+### Fixed
+
+- **Dashboard CSS, images and JavaScript failed to load when accessed through an HTTPS
+  reverse proxy.** Static assets were referenced with absolute URLs built from the scheme
+  the application saw, which is plain HTTP behind a TLS-terminating proxy — so a browser
+  on an HTTPS page blocked every one of them as mixed content. They are now root-relative
+  and inherit the page's own scheme. Affects v3.4.0b only.
+
+---
+
 ## [v3.4.0b] - 2026-08-20
 
 Security hardening release. Upgrading is recommended for all users.
