@@ -73,10 +73,17 @@ npx tailwindcss -i ./static/css/input.css -o ./static/css/output.css --watch
 ### Run the FastAPI app (project root)
 
 ```bash
-uvicorn src.ui.app:app --host 0.0.0.0 --port 8080 --reload
+uvicorn src.ui.app:app --host 0.0.0.0 --port 8080 --reload --no-proxy-headers
 ```
 
 The app will be available at `http://localhost:8080`.
+
+> **`--no-proxy-headers` is not optional.** Uvicorn's proxy-header handling is on by
+> default and rewrites the client address from `X-Forwarded-For` for peers it trusts
+> (`127.0.0.1` unless told otherwise). Tradleware resolves the client address itself via
+> `TRUSTED_PROXIES`, and that check is meaningless if uvicorn already overwrote the value
+> it inspects — a request from loopback could then claim any address it liked. The
+> bundled `Dockerfile` passes this flag for the same reason.
 
 > When running outside Docker, set `host: "127.0.0.1"` in `bot_configs/stock/ibkr.yaml` instead of `ib_gateway`.
 
