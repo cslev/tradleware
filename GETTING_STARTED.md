@@ -109,6 +109,8 @@ WEBHOOK_PATH="ka8Moh4aiNgai4"
 
 #### Running behind a reverse proxy or tunnel
 
+> A working nginx example is in [`examples/nginx/tradleware.conf`](examples/nginx/tradleware.conf), including the two headers that cause silent 403s if omitted and the timeout that must exceed `TRADER_LOCK_TIMEOUT_S`.
+
 `TRUSTED_IPS` is matched against the address Tradleware sees the connection come from. When
 Tradleware sits behind nginx, Caddy, Traefik or a Cloudflare Tunnel, every request arrives from
 the proxy, so the real client address is only available in the `X-Forwarded-For` / `X-Real-IP`
