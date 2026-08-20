@@ -111,6 +111,8 @@ by anyone on the network path, who can then place orders of their own — replay
 does not help against that, since they can compose a brand-new signal rather than repeat
 an old one. Webhooks are therefore refused with `403` unless they arrived over TLS.
 
+> A working nginx config is in [`examples/nginx/tradleware.conf`](examples/nginx/tradleware.conf).
+
 **Tradleware does not terminate TLS itself.** There is no certificate configuration; uvicorn
 serves plain HTTP inside the container. So the supported setup is a TLS-terminating proxy in
 front, and `TRUSTED_PROXIES` set so its `X-Forwarded-Proto` header is believed:

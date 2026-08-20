@@ -61,7 +61,8 @@ Most real incidents come from configuration, not code. In rough order of importa
 - [ ] **Terminate TLS in front of Tradleware** and set `TRUSTED_PROXIES` to the address your
       proxy connects from. Tradleware does not serve HTTPS itself. Without this, webhooks
       are refused and forwarded headers are ignored — see
-      [Webhooks must use HTTPS](WEBHOOKS.md#webhooks-must-use-https).
+      [Webhooks must use HTTPS](WEBHOOKS.md#webhooks-must-use-https) and the worked
+      [nginx example](examples/nginx/tradleware.conf).
 - [ ] **Change `DASHBOARD_PASSWORD`** from `changeme`. The login page warns while it is
       still the default.
 - [ ] **Randomise `WEBHOOK_PATH`** — `pwgen -n 14 1`. The dashboard warns while it is not.
