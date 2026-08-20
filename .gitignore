@@ -225,3 +225,7 @@ src/logs/webhook_replay.json*
 
 # Runtime log/state directory, created by the app and by the test suite
 src/logs/
+
+# Node build tooling — Tailwind only. Restored by `npm install` in src/ui/,
+# reproducibly, from the tracked package-lock.json
+node_modules/

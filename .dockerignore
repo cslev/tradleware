@@ -55,3 +55,6 @@ logs/
 # Temporary files
 tmp/
 temp/
+# Node build tooling — Tailwind is a build-time dependency. The runtime image needs
+# only the compiled src/ui/static/css/output.css, which is tracked.
+node_modules
