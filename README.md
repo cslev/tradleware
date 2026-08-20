@@ -103,6 +103,7 @@ Financial sovereignty shouldn't have a middleman tax. If you find value in it, f
 | **[IBKR Setup](IBKR_SETUP.md)** | Interactive Brokers gateway configuration |
 | **[Building](BUILD.md)** | Building the Docker image and developing locally |
 | **[Changelog](CHANGELOG.md)** | Release history |
+| **[Security](SECURITY.md)** | Reporting a vulnerability, and the checklist before exposing an instance |
 
 > **Upgrading from v3.3.x?** [v3.4.0b](CHANGELOG.md) has three breaking changes — most
 > importantly, TradingView alerts must now send `{{timenow}}` instead of `{{time}}`.
