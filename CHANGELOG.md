@@ -5,6 +5,72 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.4.0b] - 2026-08-20
+
+Security hardening release. Upgrading is recommended for all users.
+
+### ⚠️ Breaking changes
+
+1. **`TRUSTED_PROXIES` must be set when running behind a reverse proxy or tunnel** (nginx,
+   Caddy, Traefik, Cloudflare Tunnel). Forwarded headers are only honoured from addresses
+   listed there. Leave it empty in a proxied setup and webhooks are rejected, and
+   trusted-IP dashboard access stops working. Use the address Tradleware sees the proxy
+   connect from — for Docker, the proxy container's IP or its bridge subnet.
+2. **TradingView alerts must send `{{timenow}}` instead of `{{time}}`.** Signals require a
+   current timestamp; `{{time}}` is the bar time and will be rejected on higher timeframes.
+   Each bot's Webhook Details pane shows the updated example.
+3. **Dashboard login requires HTTPS.** Trusted-IP access is unaffected, so a Raspberry Pi
+   kiosk on `TRUSTED_IPS` keeps working. Set `SESSION_HTTPS_ONLY=false` for LAN-only setups
+   with no TLS. Existing sessions are invalidated on upgrade.
+
+### Security
+
+- Forwarded headers (`X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Proto`) are honoured only
+  from addresses in `TRUSTED_PROXIES`, taking the rightmost non-proxy hop.
+- Webhooks require TLS (`WEBHOOK_REQUIRE_HTTPS`), and signals must carry a current timestamp
+  and are accepted only once — persisted across restarts.
+- Trade execution is serialised per bot, so concurrent signals cannot size orders from the
+  same pre-trade balance. Different bots continue to run in parallel.
+- Credentials are excluded from logs and notifications; dashboard API keys are masked to a
+  fixed-width mask plus a 4-character suffix.
+- Session cookie carries `Secure` with a 12-hour lifetime.
+- Credential comparison is constant-time.
+- State-changing dashboard requests require an `X-Tradleware-Request` header.
+- Repeated webhook rejections are collapsed into periodic summaries, and repeated failed
+  authentications from one address are throttled.
+- Notification delivery moved to a background thread, so a slow notification server no
+  longer delays request handling.
+
+### New Features
+
+- **Test suite** — 344 tests, offline and deterministic; no exchange is contacted.
+  `pip install -r requirements-dev.txt && pytest`
+- **Webhook API key strength check** — each bot's key is graded at startup and on the
+  dashboard by length, character variety, reuse across bots, and whether it is still a
+  placeholder from the `.yaml.example` files. Advisory only; never blocks a bot.
+- **Default webhook path warning** — a dashboard banner with the generation command when
+  `WEBHOOK_PATH` is left unchanged. Advisory only.
+- **Log rotation with gzip compression** — `LOG_MAX_BYTES`, `LOG_BACKUP_COUNT`,
+  `LOG_COMPRESS_ROTATED`. Roughly a 16 MB ceiling; the active log stays uncompressed.
+
+### Improvements
+
+- `.env.example` reorganised: settings you should change, optional settings, then a
+  security section whose defaults need no tuning as you add bots.
+- Signal timestamps are normalised to UTC on parse.
+- Documented the NTP requirement for timestamp checks, the Docker gateway address for
+  `TRUSTED_IPS`, and `--no-proxy-headers` for local runs.
+
+### New Configuration
+
+All optional with safe defaults: `TRUSTED_PROXIES`, `WEBHOOK_REQUIRE_HTTPS`,
+`WEBHOOK_MAX_AGE_S`, `WEBHOOK_REPLAY_DB`, `WEBHOOK_FAILURE_LIMIT`,
+`WEBHOOK_FAILURE_WINDOW_S`, `WEBHOOK_REJECTION_SUMMARY_S`, `TRADER_LOCK_TIMEOUT_S`,
+`SESSION_HTTPS_ONLY`, `SESSION_MAX_AGE_S`, `LOG_MAX_BYTES`, `LOG_BACKUP_COUNT`,
+`LOG_COMPRESS_ROTATED`, `UPDATE_CHECK_INTERVAL_S`.
+
+---
+
 ## [v3.3.2b] - 2026-06-02
 
 ### Security

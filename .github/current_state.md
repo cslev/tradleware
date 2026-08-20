@@ -4,14 +4,13 @@
 > Last updated: 23 May 2026 (session 15)
 > Last updated: 02 Jun 2026 (session 16)
 > Last updated: 18 Aug 2026 (session 17)
+> Last updated: 20 Aug 2026 (session 18)
 
 
 ## Current State
-**Unreleased — security hardening pass on top of v3.3.2b** (version not yet bumped;
-`TRADLEWARE_VERSION` in `app.py` and the tag comment in `docker-compose.yml` still read
-v3.3.2b, and CHANGELOG.md has no entry for this work yet)
+**v3.4.0b released — security hardening pass**
 
-⚠️ **Three breaking changes are pending release.** They must lead the release notes:
+⚠️ **Three breaking changes in this release.** They lead the release notes:
 1. `TRUSTED_PROXIES` must be set when running behind a reverse proxy or tunnel, or
    forwarded headers are ignored and trusted-IP access stops working.
 2. TradingView alerts must send `{{timenow}}` instead of `{{time}}`, or every signal is

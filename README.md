@@ -188,6 +188,8 @@ WEBHOOK_PATH="ka8Moh4aiNgai4"
 | `LOG_MAX_BYTES` | No | `10485760` | Rotate the log file once it reaches this size (10 MB) |
 | `LOG_BACKUP_COUNT` | No | `5` | Rotated files to keep — with the default size, a ~60 MB ceiling |
 | `LOG_COMPRESS_ROTATED` | No | `true` | Gzip rotated files (~8x), bringing that ceiling to ~16 MB. Read them with `zcat`/`zgrep` |
+| `WEBHOOK_REPLAY_DB` | No | `src/logs/webhook_replay.json` | Where accepted signals are remembered across restarts |
+| `UPDATE_CHECK_INTERVAL_S` | No | `21600` | Seconds between checks for a newer release (6h) |
 | `GOTIFY_SERVER_URL` | No | — | Gotify server URL for push notifications |
 | `GOTIFY_APP_TOKEN` | No | — | Gotify application token |
 | `GOTIFY_LOG_LEVEL` | No | `30` | Min log level for Gotify notifications |
