@@ -9,7 +9,8 @@
   <img src="https://img.shields.io/badge/License-GPL%20v3-blue.svg" alt="License: GPL v3">
   <img src="https://img.shields.io/badge/pylint-10.00/10-brightgreen" alt="Pylint Score">
   <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/platform-docker-blue.svg" alt="Docker">
+  <a href="https://hub.docker.com/r/cslev/tradleware"><img src="https://img.shields.io/docker/v/cslev/tradleware?sort=semver&logo=docker&logoColor=white&label=docker&color=blue" alt="Docker image version"></a>
+  <a href="https://hub.docker.com/r/cslev/tradleware"><img src="https://img.shields.io/docker/pulls/cslev/tradleware?logo=docker&logoColor=white&color=blue" alt="Docker pulls"></a>
   <img src="https://img.shields.io/badge/built%20for-the%20global%20community-blue.svg" alt="Built for the global community">
   <img src="https://img.shields.io/badge/privacy-by%20design-green.svg" alt="Privacy by Design">
   <img src="https://img.shields.io/badge/cost-FREE%20💰-brightgreen.svg" alt="Free">
@@ -239,7 +240,7 @@ docker-compose up -d
 
 Docker pulls `cslev/tradleware:latest` automatically on first run. The dashboard will be available at `http://localhost:8080`.
 
-> For different versions and architectures (including arm64 for Raspberry Pi), visit [Docker Hub](https://hub.docker.com/repository/docker/cslev/tradleware/tags).
+> For different versions and architectures (including arm64 for Raspberry Pi), visit [Docker Hub](https://hub.docker.com/r/cslev/tradleware/tags).
 
 ### Updating to a new version
 
