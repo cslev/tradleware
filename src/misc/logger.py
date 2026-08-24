@@ -245,6 +245,32 @@ def _install_global_excepthook(logger_instance):
   sys.excepthook = _handle_exception
 
 
+def format_log_buffer(buffer) -> list:
+  """
+  Render a trader's log buffer for the dashboard, dating each day once.
+
+  Entries are `(day, clock, level, message)` tuples. A `── YYYY-MM-DD ──` header is
+  emitted before the first entry and again whenever the day rolls over, so a card left
+  open across midnight — or showing a bot that has been quiet for days — says which day
+  its lines belong to without repeating the date on all fifty rows.
+
+  Plain strings are passed through untouched, so a buffer populated before this format
+  existed still renders.
+  """
+  lines = []
+  current_day = None
+  for entry in buffer:
+    if not isinstance(entry, tuple):
+      lines.append(entry)
+      continue
+    day, clock, level, message = entry
+    if day != current_day:
+      lines.append(f"── {day} ──")
+      current_day = day
+    lines.append(f"[{clock}] {level}: {message}")
+  return lines
+
+
 class ColoredFormatter(logging.Formatter):
   def format(self, record):
     # Store original levelname and message to restore after formatting

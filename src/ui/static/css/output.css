@@ -1211,6 +1211,11 @@
 .debug-log-container pre {
   color: #0891b2;
 }
+.debug-log-container pre .log-date {
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
 .debug-log-container pre .log-error {
   color: #dc2626;
   font-weight: 600;

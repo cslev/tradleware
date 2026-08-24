@@ -8,7 +8,7 @@ import inspect
 
 import ccxt
 
-from src.misc.logger import CustomLogger
+from src.misc.logger import CustomLogger, format_log_buffer
 from src.misc.get_env import get_env
 
 class BaseCryptoTrader(ABC):
@@ -155,13 +155,27 @@ class BaseCryptoTrader(ABC):
     self.logger.critical = critical_with_buffer
 
   def _add_to_buffer(self, level: str, message: str):
-    """Add a log message to this trader's buffer"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    self.log_buffer.append(f"[{timestamp}] {level}: {message}")
+    """
+    Add a log message to this trader's buffer.
+
+    The day is stored alongside the clock time rather than rendered into the line, so
+    `get_recent_logs()` can group entries under one date header instead of repeating
+    the date on every row.
+    """
+    now = datetime.now()
+    self.log_buffer.append(
+      (now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), level, message)
+    )
 
   def get_recent_logs(self) -> list:
-    """Get recent log messages for this trader"""
-    return list(self.log_buffer)
+    """
+    Render the buffer for the dashboard, inserting a header each time the day changes.
+
+    Headers are built here rather than stored, so the buffer holds 50 real entries
+    rather than spending slots on separators — and the oldest surviving line always
+    keeps a date above it even after older ones have been evicted.
+    """
+    return format_log_buffer(self.log_buffer)
 
 
   async def _safe_api_call(self, api_method, *args, **kwargs):
