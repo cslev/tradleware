@@ -114,6 +114,26 @@ to handle when building it:
 
 ## Session History
 
+### 23 Aug 2026 (session 18) — ticker spelling tolerance
+Signals for `BTCUSDC` were rejected against a bot configured for `BTC/USDC`. Root cause was
+the dashboard's own TradingView example: it printed the literal `{{ticker}}` placeholder,
+which TradingView expands to the venue-native spelling. The cURL block on the same tab
+already rendered the real symbol, and `WEBHOOKS.md` already told people to hardcode it — so
+the example contradicted both.
+
+- Dashboard example now renders `trader.crypto_stablecoin_pair` / `trader.symbol`, matching
+  what the `trader_id` line and the cURL block already did. A bot trades one instrument, so
+  the field can never usefully vary — it is an interlock, not a variable.
+- `canonical_ticker()` / `resolve_ticker()` added as a safety net for alerts already
+  deployed with the old placeholder: separator and case differences are accepted with a
+  warning, different instruments still rejected. Failing closed on punctuation costs a
+  trade, which is the worse error for a signal-driven system.
+- The accepted value is **rebound to the configured spelling** before use. Downstream code
+  runs `ticker.split('/')[1]` *after* `create_order`, so tolerating `BTCUSDC` without the
+  rebind would fill an order and then raise IndexError — a real trade reported as a 500.
+  Mutation-tested: removing the rebind fails 5 tests.
+- 20 tests in `tests/test_ticker_resolution.py`; suite 347 → 367, pylint 10.00/10.
+
 ### 18 Aug 2026 (session 17) — security hardening pass
 Thirteen commits, each verified with a purpose-built harness driving the real ASGI app
 (152 checks total; no exchange APIs touched). pylint 10.00/10 maintained throughout.

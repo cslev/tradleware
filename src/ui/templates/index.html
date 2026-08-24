@@ -244,7 +244,7 @@
   {
     "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
     "trader_id": "{% endraw %}{{ trader_id }}{% raw %}",
-    "ticker": "{{ticker}}",
+    "ticker": "{% endraw %}{{ trader.crypto_stablecoin_pair }}{% raw %}",
     "action": "{{strategy.order.action}}",
     "timestamp": "{{timenow}}",
     "alert_name": "{{strategy.order.comment}}",
@@ -392,7 +392,7 @@
 {
   "api_key": "YOUR_BOT_TRADLEWARE_API_KEY",
   "trader_id": "{% endraw %}{{ trader_id }}{% raw %}",
-  "ticker": "{{ticker}}",
+  "ticker": "{% endraw %}{{ trader.symbol }}{% raw %}",
   "action": "{{strategy.order.action}}",
   "timestamp": "{{timenow}}",
   "alert_name": "{{strategy.order.comment}}",

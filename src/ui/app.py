@@ -622,6 +622,53 @@ def mask_secret(value, visible: int = 4) -> str:
 templates.env.filters['mask_secret'] = mask_secret
 
 
+# Separators that carry no meaning in a trading pair. Venues spell the same pair
+# several ways — CCXT wants 'BTC/USDC', TradingView's {{ticker}} expands to the
+# venue-native 'BTCUSDC', Coinbase writes 'BTC-USDC'.
+#
+# ':' is deliberately NOT in this set. CCXT writes perpetuals as 'BTC/USDT:USDT',
+# where the suffix names the settlement currency and is part of the instrument's
+# identity, not punctuation. Keeping it significant also lets a venue-native perp
+# spelling ('BTCUSDT:USDT') still match its configured form.
+_TICKER_SEPARATORS = re.compile(r'[/\-_\s]+')
+
+
+def canonical_ticker(value) -> str:
+  """
+  Strip separators and case from a ticker so the same pair spelled different ways compares equal.
+
+  Used only to decide whether an incoming ticker refers to the bot's configured
+  pair — never to build the symbol sent to an exchange. The configured spelling
+  stays authoritative, because 'BTCUSDC' cannot be split back into base/quote
+  without a currency table.
+  """
+  if not value:
+    return ''
+  return _TICKER_SEPARATORS.sub('', str(value)).upper()
+
+
+def resolve_ticker(received, expected, bot_logger) -> bool:
+  """
+  Decide whether `received` names the bot's `expected` pair, tolerating spelling differences.
+
+  Returns True on an exact match, True with a warning when the two agree only after
+  normalisation, and False when they name different instruments. Callers must replace
+  the received value with `expected` on a True result — downstream code splits the
+  symbol on '/' and passes it to the exchange, so a separator-less form would raise
+  IndexError after the order had already been placed.
+  """
+  if received == expected:
+    return True
+  if canonical_ticker(received) == canonical_ticker(expected):
+    bot_logger.warning(
+      f"Ticker '{received}' does not exactly match the configured '{expected}'; "
+      f"accepted on a normalised match and treated as '{expected}'. Set the alert to "
+      f"send '{expected}' verbatim — normalisation is a fallback, not a contract."
+    )
+    return True
+  return False
+
+
 #################### AUTHENTICATION HELPERS ####################
 
 def _parse_ip(value: str):
@@ -1395,12 +1442,15 @@ async def handle_webhook(request: Request):
       ## CRYPTO TRADER: CHECK IF TICKER MATCHES PAIR
       ######################################################
       expected_ticker = trader.crypto_stablecoin_pair
-      if ticker != expected_ticker:
+      if not resolve_ticker(ticker, expected_ticker, trader.logger):
         trader.logger.error(f"Invalid ticker: {ticker}, expected: {expected_ticker}")
         raise HTTPException(
           status_code=400,
           detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
         )
+      # Adopt the configured spelling: everything below splits on '/' and hands the
+      # symbol to the exchange.
+      ticker = expected_ticker
       trader.logger.info(f"VALID ticker: {ticker}")
 
       ######################################################
@@ -1572,12 +1622,13 @@ async def handle_webhook(request: Request):
       ## STOCK TRADER: CHECK IF TICKER MATCHES SYMBOL
       ######################################################
       expected_ticker = trader.symbol
-      if ticker != expected_ticker:
+      if not resolve_ticker(ticker, expected_ticker, trader.logger):
         trader.logger.error(f"Invalid ticker: {ticker}, expected: {expected_ticker}")
         raise HTTPException(
           status_code=400,
           detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
         )
+      ticker = expected_ticker
       trader.logger.info(f"VALID ticker: {ticker}")
 
       ######################################################

@@ -93,8 +93,8 @@ Key fields:
 |-------|----------|-------------|
 | `api_key` | Yes | The `tradleware_api_key` from the bot's YAML config |
 | `trader_id` | Yes | The `id` field from the bot's YAML config (lowercase) |
-| `ticker` | Yes | Must match the bot's configured `crypto_stablecoin_pair` exactly |
-|  |  | ⚠️ **Important:** If you use TradingView or any system where you cannot control the exact ticker format, always hardcode the `crypto_stablecoin_pair` (e.g., `BTC/USDT`) in your webhook payload. TradingView may send `BTCUSD` or `BTC USD`, which will **not** match the required format. The `ticker` field **must** match your bot's YAML `crypto_stablecoin_pair` (e.g., `BTC/USDT`, `ETH/USDT`) exactly, or the signal will be rejected. |
+| `ticker` | Yes | The bot's configured `crypto_stablecoin_pair` (crypto) or `symbol` (stock), written out in full |
+|  |  | ⚠️ **Hardcode it — do not use `{{ticker}}`.** A bot trades exactly one instrument, so this field is an interlock confirming the alert is pointed at the right bot; it can never usefully vary. TradingView expands `{{ticker}}` to the venue-native spelling (`BTCUSDC` for `BINANCE:BTCUSDC`), not the `BTC/USDC` form Tradleware expects. Separator and case differences (`BTCUSDC`, `btc-usdc`) are accepted with a warning and rewritten to the configured pair, but a different instrument is always rejected. Perpetuals keep their `:` (`BTC/USDT:USDT` never matches spot `BTC/USDT`). |
 | `action` | Yes | `buy` or `sell` |
 | `timestamp` | Yes | Unix timestamp (seconds or ms) or ISO 8601 string — **must be the moment the signal fired**, see [Replay protection](#replay-protection) |
 | `order_size` | Yes | Amount to trade — percentage (0–100) or exact quantity depending on `order_size_type` |
