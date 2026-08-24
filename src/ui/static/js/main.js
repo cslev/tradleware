@@ -1,3 +1,17 @@
+// Escape text before it is interpolated into an innerHTML template.
+//
+// Log lines carry values Tradleware never chose: a rejected webhook echoes its own
+// order_size back into the bot's log, and ccxt error strings embed raw exchange
+// response bodies. Rendered unescaped, '<img src=x onerror=...>' in any of those runs
+// script in the operator's authenticated dashboard — which can then set the
+// X-Tradleware-Request header itself and drive /convert and friends. Escaping at the
+// sink covers every field rather than the ones we happen to have thought of.
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[ch]);
+}
+
 // Tab switching for card tabs
 window.showTab = function(traderId, tab) {
   const tabs = ['summary', 'webhook', 'logs'];
@@ -64,20 +78,22 @@ async function refreshLogs(traderId) {
             if (logs && logs.length > 0) {
                 // Process each log line to add color classes
                 const coloredLogs = logs.map(log => {
+                    // Classify on the raw line, render the escaped one.
+                    const safe = escapeHtml(log);
                     if (/^── \d{4}-\d{2}-\d{2} ──$/.test(log)) {
-                        return `<span class="log-date">${log}</span>`;
+                        return `<span class="log-date">${safe}</span>`;
                     } else if (log.includes('] CRITICAL:')) {
-                        return `<span class="log-critical">${log}</span>`;
+                        return `<span class="log-critical">${safe}</span>`;
                     } else if (log.includes('] ERROR:')) {
-                        return `<span class="log-error">${log}</span>`;
+                        return `<span class="log-error">${safe}</span>`;
                     } else if (log.includes('] WARNING:')) {
-                        return `<span class="log-warning">${log}</span>`;
+                        return `<span class="log-warning">${safe}</span>`;
                     } else if (log.includes('] SUCCESS:')) {
-                        return `<span class="log-success">${log}</span>`;
+                        return `<span class="log-success">${safe}</span>`;
                     } else if (log.includes('] INFO:')) {
-                        return `<span class="log-info">${log}</span>`;
+                        return `<span class="log-info">${safe}</span>`;
                     } else {
-                        return log; // Default color
+                        return safe; // Default color
                     }
                 }).join('\n');
                 
@@ -96,11 +112,11 @@ async function refreshLogs(traderId) {
             }
             
         } else {
-            debugLogElement.innerHTML = `<span class="log-error">Error fetching logs: ${data.error}</span>`;
+            debugLogElement.innerHTML = `<span class="log-error">Error fetching logs: ${escapeHtml(data.error)}</span>`;
             debugLogElement.className = 'whitespace-pre-wrap text-red-600 text-xs m-0';
         }
     } catch (error) {
-        debugLogElement.innerHTML = `<span class="log-error">Error: ${error.message}</span>`;
+        debugLogElement.innerHTML = `<span class="log-error">Error: ${escapeHtml(error.message)}</span>`;
         debugLogElement.className = 'whitespace-pre-wrap text-red-600 text-xs m-0';
     }
 }
@@ -131,7 +147,7 @@ async function refreshBalance(traderId) {
       // Update labels with dynamic units
   fiatLabelElement.textContent = `FIAT - ${balance.fiat_unit}:`;
   stablecoinLabelElement.textContent = `Stablecoin - ${balance.stablecoin_unit}:`;
-  cryptoLabelElement.innerHTML = `Crypto - <span class="font-bold">${balance.crypto_unit}</span>:`;
+  cryptoLabelElement.innerHTML = `Crypto - <span class="font-bold">${escapeHtml(balance.crypto_unit)}</span>:`;
       
       // Update individual balances
       fiatElement.textContent = formatNumber(balance.fiat);
