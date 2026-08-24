@@ -75,6 +75,118 @@
 
 ### Security — deferred items from the session 17 hardening pass
 
+### Cash-denominated order sizing (`order_size_type: "cash"`) — designed, not built
+Third sizing mode so a webhook can say "invest $300" instead of a percentage or a share
+count. Driven by monthly DCA into ETFs via IBKR.
+
+**Ship stocks and crypto together — this is a webhook-API-level field, not a broker
+feature.** Signals must stay transparent to the underlying broker: the same payload should
+work whether the bot is IBKR/VWCE or Binance/BTCUSDT. A partial rollout is actively worse
+than not shipping — `app.py` validating `"cash"` while crypto traders don't accept it sends
+`spend_percentage=None, quantity=None` into the crypto call sites, where
+`_validate_order_params` raises *"Must specify either spend_percentage or quantity"* and
+`create_order` swallows it into a `None` return. The API would accept a field and then
+report that the field doesn't exist. (It does at least fail safe — the both-`None` guard
+stops a zero-size order reaching the exchange.)
+
+Implementation order within the change: stocks first because they're ~1 line of real logic,
+then crypto, which is where the bulk of the mechanical edits live.
+
+**Name:** `cash`, not `amount`. CCXT — and `base_crypto_trader.py` — already use `amount`
+to mean *base-currency quantity* and `cost` to mean quote. `order_size_type: "amount"`
+would read as the exact opposite of what it does.
+
+Semantics: `order_size` is "the currency you pay with" — account currency for stocks, the
+pair's quote currency for crypto. **Buy only, uniformly across both broker families** —
+reject cash-mode sells with a 400. "Sell $500 of VWCE" changes meaning as price moves and can't reliably
+express "close the position"; the crash signal wants `percentage: 100` (percent of shares
+held), which already works.
+
+**Stocks** — the cheap case: `base_stock_trader._calculate_order_size()` already computes
+`amount_to_spend = cash * spend_percentage` then divides by price. Cash mode replaces that
+one line with `amount_to_spend = spend_amount` plus an `<= cash_available` guard. Order
+placement is unchanged — `ibkr_trader.py` builds `MarketOrder(side, quantity)` from a share
+count Tradleware calculates locally.
+
+- [ ] `app.py` — add `"cash"` to the `order_size_type` allow-list (~line 1333) and a
+      validation branch (`order_size > 0`).
+      **Trap:** the current branch is `if percentage: … else: # quantity mode`. That `else`
+      is a catch-all — adding `cash` to the allow-list *without* restructuring makes
+      `{"order_size_type":"cash","order_size":300}` execute as **300 shares**. Convert to
+      `elif order_size_type == "quantity"` and add a final `else: raise` so no unhandled
+      mode can ever reach a live order again.
+- [ ] `base_stock_trader._calculate_order_size()` — new `spend_amount` branch. **Floor** to
+      4dp in fractional mode, don't `round()`: `round(2.72727, 4) = 2.7273`, which at $110
+      is $300.003 — a hair over budget, enough to trip an insufficient-cash rejection when
+      spending the full balance.
+- [ ] `ibkr_trader.create_order()` — thread `spend_amount` through; mutually exclusive with
+      `spend_percentage` and `quantity` (exactly one non-`None`).
+
+**Crypto** — `cash` means the pair's **quote** currency (USDT for `BTC/USDT`, EUR for
+`BTC/EUR`). Same user-facing meaning as stocks: "the currency you pay with". The execution
+path already exists — `spend_percentage` market buys already compute a quote *cost* and send
+it via `createMarketBuyOrderWithCost`, implemented in all six traders. Cash mode reuses it
+with the cost pinned instead of derived.
+
+- [ ] `base_crypto_trader._calculate_order_size()` — `spend_amount` branch. Market buy:
+      `amount_to_trade = spend_amount` (already the quote-denominated path), checked against
+      `free[quote]` and the existing `cost_limits` min/max, which gives clean "below exchange
+      minimum notional" errors for free. `maker_limit`: `spend_amount / price` → base qty,
+      identical to what spend% already does.
+- [ ] `_validate_order_params()` — extend the mutual-exclusivity guard from two params to
+      three (exactly one non-`None`); update the both-`None` message to name all three.
+- [ ] Execution gate: `order_type == 'market' and side == 'buy' and spend_percentage is not
+      None` appears **15× across the 6 crypto traders** and must become "is this order
+      cost-denominated?". Don't hand-edit 15 conditions into a 3-way test — either have
+      `_calculate_order_size` return a 4th `is_cost` element, or add one base-class helper
+      and call it at each site. Do **not** stash the flag on `self`; bots share a trader
+      instance across concurrent signals.
+- [ ] `app.py` — pass `spend_amount` at the two crypto call sites (~1437, ~1518) alongside
+      the stock one (~1614).
+
+- [ ] Docs + dashboard cURL examples (`WEBHOOKS.md`, `index.html`), tests incl.
+      truncation-to-zero, the `else`-fall-through regression, and a crypto+stock parity test
+      asserting the same payload is accepted by both broker families.
+
+`ir_trader` needs nothing special: its fiat→stablecoin conversion is a separate helper with
+its own `spend_percentage`, not part of `create_order`'s sizing path.
+
+**Whole-share residue — decision: truncate and log loudly.** $300 into a $110 ETF buys 2
+shares ($220), stranding $80. Unlike percentage mode this does **not** self-correct: the
+order size is pinned, never reads the balance, so residue accumulates monotonically
+(~$960/yr). Rejected alternatives: erroring out (fails the monthly DCA nearly every month),
+and rounding up (overshoots the stated budget). Log `spent $220 of $300 requested, $80 not
+deployed` so an ill-fitting instrument is visible.
+
+**The real fix is `fractional_shares: true`** where IBKR supports it — $300/$110 = 2.7273
+shares, exactly $300, zero residue, no state. Note this is largely US-listed; European UCITS
+ETFs (VWCE, IWDA, SWDA) generally are not fractional-eligible at IBKR. Do **not** use
+`ib_async`'s `Order.cashQty` (present in 2.1.0) — it only works on fractional-eligible
+instruments, whereas computing shares locally works everywhere and degrades to whole shares.
+
+### Strategy-side note: re-entry percentages compound against a shrinking pool
+Not a Tradleware change — a Pine Script concern for the crash/re-entry strategy.
+
+`percentage` buy mode spends a percent of *currently available cash*, not of the original
+sale proceeds. Sending `30` three times deploys **30%, 21%, 14.7%** of the original pot, not
+90%. The strategy must pre-adjust each tranche.
+
+To deploy fraction `f_k` of the original at tranche `k`, send `p_k = f_k / (1 - Σ f_i)` for
+`i < k`. For `N` equal tranches this collapses to `p_k = 1 / (N - k + 1)`:
+
+| tranche | send | deploys (of original) |
+|---|---|---|
+| 1 | 33.3% | 1/3 |
+| 2 | 50%   | 1/3 |
+| 3 | 100%  | 1/3 |
+
+(The 30/50/100 sequence is the near-miss version — it deploys 30/35/35.)
+
+Two caveats: any cash deposited between tranches inflates the pool and skews the arithmetic,
+and stranded whole-share residue from cash-mode DCA lands in the same pool. **Using `cash`
+mode for the re-entry tranches too sidesteps all of it** — no signal then reads the balance,
+so residue and deposits are inert.
+
 ### Config hot-reload — prerequisites now in place
 `get_trader_lock(trader_id)` is exposed so a reload can take a bot's lock before swapping
 its trader instance, guaranteeing no request is mid-trade against the old one. Three things
