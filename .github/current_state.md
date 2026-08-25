@@ -5,9 +5,12 @@
 > Last updated: 02 Jun 2026 (session 16)
 > Last updated: 18 Aug 2026 (session 17)
 > Last updated: 20 Aug 2026 (session 18)
+> Last updated: 25 Aug 2026 (session 19)
 
 
 ## Current State
+**v3.4.2b released** — dated bot card logs, ticker spelling tolerance, dashboard log escaping
+
 **v3.4.1b released** — fixes mixed-content static assets behind an HTTPS proxy (v3.4.0b only)
 
 **v3.4.0b released — security hardening pass**

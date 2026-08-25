@@ -5,6 +5,31 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.4.2b] - 2026-08-25
+
+### Added
+
+- **Bot card logs are dated.** A `── YYYY-MM-DD ──` divider appears above the first entry
+  and again whenever the day changes, so a line is no longer ambiguous about which day it
+  belongs to. Times still appear on every row.
+
+### Changed
+
+- **Webhook examples show the bot's own trading pair.** Each bot's Webhook Details pane
+  now prints the configured pair (`BTC/USDC`, `VWCE`) in the `ticker` field instead of
+  TradingView's `{{ticker}}` placeholder, which expands to the venue-native spelling and
+  did not match. Copy the example as-is and it works.
+- **Ticker spelling is tolerated.** A `ticker` that differs from the configured pair only
+  by separators or case — `BTCUSDC`, `btc-usdc`, `BTC_USDC` — is accepted, logged as a
+  warning, and treated as the configured pair. A different instrument is still rejected,
+  and perpetuals never match their spot pair.
+
+### Security
+
+- Log text is HTML-escaped before it is rendered in the dashboard.
+
+---
+
 ## [v3.4.1b] - 2026-08-20
 
 ### Fixed
