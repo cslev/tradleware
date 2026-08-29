@@ -39,6 +39,21 @@ class IBKRTrader(BaseStockTrader):
     # Fractional share support (off by default — not all symbols support it)
     self.fractional_shares = config.get('fractional_shares', False)
 
+    # --- Contract routing -------------------------------------------------------
+    # What the instrument is, as opposed to what the account holds. SMART lets IB pick
+    # a venue, which is right for US-listed symbols and ambiguous for anything cross-
+    # listed: the same ticker exists on several European exchanges in different
+    # currencies, and qualifyContracts either picks one arbitrarily or fails.
+    #
+    # trading_currency defaults to account_currency because they match in the common
+    # case, but they are genuinely separate — a USD account can buy a EUR-denominated
+    # instrument, with IB converting or lending. Set it when they differ.
+    self.exchange = str(config.get('exchange', 'SMART')).upper()
+    self.primary_exchange = str(config.get('primary_exchange', '')).upper()
+    self.trading_currency = str(
+      config.get('trading_currency', self.account_currency)
+    ).upper()
+
     # IB client
     self.ib = IB()
     self.contract = None  # Will be created on connect
@@ -50,7 +65,8 @@ class IBKRTrader(BaseStockTrader):
     self._order_errors: dict = {}
 
     self.logger.info(
-        f"IBKRTrader initialized: {self.symbol} on port {self.gateway_port} "
+        f"IBKRTrader initialized: {self.symbol} on {self.exchange} "
+        f"in {self.trading_currency} via port {self.gateway_port} "
         f"(fractional_shares={'enabled' if self.fractional_shares else 'disabled'})"
     )
 
@@ -87,8 +103,18 @@ class IBKRTrader(BaseStockTrader):
         pass
       self.ib.errorEvent += self._on_error
 
-      # Create stock contract
-      self.contract = Stock(self.symbol, 'SMART', 'USD')
+      # Create stock contract. primaryExchange is omitted rather than sent empty —
+      # IB treats a blank string as a filter that matches nothing.
+      contract_kwargs = (
+        {'primaryExchange': self.primary_exchange} if self.primary_exchange else {}
+      )
+      self.contract = Stock(
+        self.symbol, self.exchange, self.trading_currency, **contract_kwargs
+      )
+      self.logger.debug(
+        f"Contract: {self.symbol} on {self.exchange} in {self.trading_currency}"
+        + (f" (primary: {self.primary_exchange})" if self.primary_exchange else "")
+      )
       await self.ib.qualifyContractsAsync(self.contract)
 
       self.is_connected = True
@@ -342,7 +368,12 @@ class IBKRTrader(BaseStockTrader):
       # Create contract if it's different from our main symbol
       if symbol and symbol != self.symbol:
         self.logger.info(f"Creating contract for symbol: {symbol}")
-        contract = Stock(symbol, 'SMART', 'USD')
+        # Same routing as the bot's own contract: an ad-hoc lookup on SMART/USD would
+        # price a different listing than the one this bot actually trades.
+        ad_hoc_kwargs = (
+          {'primaryExchange': self.primary_exchange} if self.primary_exchange else {}
+        )
+        contract = Stock(symbol, self.exchange, self.trading_currency, **ad_hoc_kwargs)
         await self.ib.qualifyContractsAsync(contract)
       else:
         self.logger.info(f"Using main contract for symbol: {self.symbol}")

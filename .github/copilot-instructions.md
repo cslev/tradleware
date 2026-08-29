@@ -284,6 +284,9 @@ bots:
     extended_hours: false
     fractional_shares: false  # not all symbols support this; IBKR rejects if unsupported
     account_currency: USD     # optional, default USD — which TotalCashValue row to size against
+    trading_currency: USD     # optional, defaults to account_currency — the instrument's currency
+    exchange: SMART           # optional, default SMART — routing venue
+    primary_exchange: ""      # optional — disambiguates a cross-listed ticker (e.g. AEB)
     tradleware_api_key: ...   # per-bot webhook auth key
     # Optional market hours (defaults to US Eastern / NYSE hours):
     # market_timezone: America/New_York

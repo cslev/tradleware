@@ -129,7 +129,10 @@ def _load_crypto_bots(exchange: str, path: Path) -> list:
       'secret_key':             str(bot['secret_key']),
       'passphrase':             str(bot.get('passphrase', '')),
       'subaccount_name':        str(bot.get('subaccount_name', '')),
-      'hostname':               str(bot['hostname']),
+      # Optional by design (see _CRYPTO_REQUIRED): each trader falls back to its
+      # exchange default. Reading it as bot['hostname'] raised KeyError on a
+      # config the validator had just accepted.
+      'hostname':               str(bot.get('hostname', '')),
       'stablecoin_fiat_pair':   str(bot['stablecoin_fiat_pair']),
       'crypto_stablecoin_pair': str(bot['crypto_stablecoin_pair']),
       'tradleware_api_key':     str(bot['tradleware_api_key']),
@@ -183,6 +186,23 @@ def _load_stock_bots(broker: str, path: Path) -> list:
       'fractional_shares':  bool(bot.get('fractional_shares', False)),
       'tradleware_api_key': str(bot['tradleware_api_key']),
       'gateway':            gateway,
+
+      # Account and contract settings. Defaults match what the traders applied when
+      # these were absent, so an existing US/USD bot is unaffected.
+      'account_currency':   str(bot.get('account_currency', 'USD')),
+      'trading_currency':   str(bot.get('trading_currency',
+                                        bot.get('account_currency', 'USD'))),
+      'exchange':           str(bot.get('exchange', 'SMART')),
+      'primary_exchange':   str(bot.get('primary_exchange', '')),
+
+      # Market hours. Documented in IBKR_SETUP.md and read by BaseStockTrader, but
+      # never emitted here — so a bot on a non-US venue silently got NYSE hours and
+      # refused to trade during its own session.
+      'market_timezone':    str(bot.get('market_timezone', 'America/New_York')),
+      'market_open':        str(bot.get('market_open', '09:30')),
+      'market_close':       str(bot.get('market_close', '16:00')),
+      'pre_market_open':    str(bot.get('pre_market_open', '04:00')),
+      'after_hours_close':  str(bot.get('after_hours_close', '20:00')),
     })
     _loader_logger.info(
       f"Loaded stock bot '{configs[-1]['id']}' ({broker.upper()} / {configs[-1]['symbol']})"

@@ -188,3 +188,149 @@ class TestSizingMessages:
 
     assert "EUR" in str(exc.value)
     assert "$" not in str(exc.value)
+
+
+class TestContractRouting:
+  """
+  What the instrument is, as opposed to what the account holds.
+
+  Both were hardcoded to SMART/USD, so a EUR-denominated ETF was priced and traded as
+  whatever US listing IB matched — or failed to qualify at all. `account_currency`
+  alone does not fix this: the cash lookup and the contract are separate concerns.
+  """
+
+  def _ibkr(self, **cfg):
+    """
+    A real IBKRTrader, not a stand-in.
+
+    Reimplementing the constructor's parsing here would make these tests pass even if
+    the shipped parsing were wrong. IB() does not connect on construction, so building
+    the genuine object costs nothing.
+    """
+    config = {
+      'id': 'etfbot', 'broker': 'ibkr', 'symbol': 'vwce',
+      'tradleware_api_key': 'tw_live_x', 'account_id': 'DU123456',
+      'gateway': {'host': 'ib_gateway', 'port': 8888},
+    }
+    config.update(cfg)
+    return IBKRTrader(config, logger=_Recorder())
+
+  def test_it_defaults_to_smart_and_the_account_currency(self):
+    trader = self._ibkr()
+    assert (trader.exchange, trader.trading_currency) == ('SMART', 'USD')
+
+  def test_trading_currency_follows_account_currency_by_default(self):
+    """They match in the common case, so one setting should cover it."""
+    trader = self._ibkr(account_currency='EUR')
+    assert trader.trading_currency == 'EUR'
+
+  def test_trading_currency_can_differ_from_the_account(self):
+    """A USD account buying a EUR instrument — IB converts or lends."""
+    trader = self._ibkr(account_currency='USD', trading_currency='EUR')
+    assert trader.account_currency == 'USD'
+    assert trader.trading_currency == 'EUR'
+
+  def test_routing_values_are_normalised_to_upper_case(self):
+    trader = self._ibkr(exchange='aeb', primary_exchange='aeb',
+                        trading_currency='eur')
+    assert (trader.exchange, trader.primary_exchange,
+            trader.trading_currency) == ('AEB', 'AEB', 'EUR')
+
+  def test_a_blank_primary_exchange_is_omitted_not_sent(self):
+    """IB treats primaryExchange='' as a filter matching nothing."""
+    from ib_async import Stock
+    trader = self._ibkr()
+    kwargs = {'primaryExchange': trader.primary_exchange} if trader.primary_exchange else {}
+    assert kwargs == {}
+    contract = Stock('AAPL', trader.exchange, trader.trading_currency, **kwargs)
+    assert not getattr(contract, 'primaryExchange', '')
+
+  def test_a_set_primary_exchange_reaches_the_contract(self):
+    from ib_async import Stock
+    trader = self._ibkr(exchange='SMART', primary_exchange='AEB',
+                        trading_currency='EUR')
+    kwargs = {'primaryExchange': trader.primary_exchange} if trader.primary_exchange else {}
+    contract = Stock('VWCE', trader.exchange, trader.trading_currency, **kwargs)
+    assert contract.primaryExchange == 'AEB'
+    assert contract.currency == 'EUR'
+    assert contract.exchange == 'SMART'
+
+
+class _FakeEvent:
+  """Stands in for ib_async's Event, which connect() does -= then += on."""
+
+  def __isub__(self, _handler):
+    return self
+
+  def __iadd__(self, _handler):
+    return self
+
+
+class _FakeIB:
+  """Enough of IB for connect() to reach contract creation without a gateway."""
+
+  def __init__(self):
+    self.errorEvent = _FakeEvent()
+    self.qualified = []
+
+  def isConnected(self):  # noqa: N802 — name fixed by ib_async
+    return False
+
+  async def connectAsync(self, **_kwargs):  # noqa: N802
+    return self
+
+  async def qualifyContractsAsync(self, *contracts):  # noqa: N802
+    self.qualified.extend(contracts)
+    return list(contracts)
+
+
+class TestConnectBuildsTheConfiguredContract:
+  """
+  The routing settings are only worth anything if connect() uses them.
+
+  Asserting the parsed attributes is not enough: reverting the contract line to
+  Stock(symbol, 'SMART', 'USD') leaves every attribute correct and every other test
+  green, while trading an entirely different listing.
+  """
+
+  def _trader(self, **cfg):
+    config = {
+      'id': 'etfbot', 'broker': 'ibkr', 'symbol': 'vwce',
+      'tradleware_api_key': 'tw_live_x', 'account_id': 'DU123456',
+      'gateway': {'host': 'ib_gateway', 'port': 8888},
+    }
+    config.update(cfg)
+    trader = IBKRTrader(config, logger=_Recorder())
+    trader.ib = _FakeIB()
+    return trader
+
+  async def test_the_contract_uses_the_configured_venue_and_currency(self):
+    trader = self._trader(exchange='AEB', trading_currency='EUR')
+    await trader.connect()
+    assert trader.contract.symbol == 'VWCE'
+    assert trader.contract.exchange == 'AEB'
+    assert trader.contract.currency == 'EUR'
+
+  async def test_the_contract_is_qualified(self):
+    """An unqualified contract is rejected by IB at order time, not before."""
+    trader = self._trader(exchange='AEB', trading_currency='EUR')
+    await trader.connect()
+    assert trader.ib.qualified == [trader.contract]
+
+  async def test_the_primary_exchange_is_set_when_configured(self):
+    trader = self._trader(exchange='SMART', primary_exchange='AEB',
+                          trading_currency='EUR')
+    await trader.connect()
+    assert trader.contract.primaryExchange == 'AEB'
+
+  async def test_no_primary_exchange_is_sent_when_unset(self):
+    trader = self._trader()
+    await trader.connect()
+    assert not trader.contract.primaryExchange
+
+  async def test_a_default_config_still_produces_smart_usd(self):
+    """Every existing USD bot must be unaffected by this change."""
+    trader = self._trader()
+    await trader.connect()
+    assert trader.contract.exchange == 'SMART'
+    assert trader.contract.currency == 'USD'

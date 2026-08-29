@@ -47,6 +47,37 @@ bots:
     tradleware_api_key: "your_tradleware_api_key_here"
 ```
 
+### Non-US instruments
+
+Two settings decide **what the account holds**; two decide **what the instrument is**.
+They default to a US-listed, USD setup, so a plain `AAPL` bot needs none of them.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `account_currency` | `USD` | Which `TotalCashValue` row orders are sized against |
+| `trading_currency` | same as `account_currency` | The currency the instrument trades in |
+| `exchange` | `SMART` | Routing venue; `SMART` lets IB choose |
+| `primary_exchange` | *(unset)* | Disambiguates a cross-listed ticker |
+
+`SMART` is right for US listings and ambiguous for anything cross-listed — the same
+ticker exists on several European venues in different currencies, and IB may qualify a
+listing you did not mean. Name the venue when that matters:
+
+```yaml
+  - id: myetfbot
+    account_id: "U1234567"
+    symbol: "VWCE"
+    account_currency: "EUR"
+    trading_currency: "EUR"
+    primary_exchange: "AEB"   # Euronext Amsterdam
+    fractional_shares: false  # most UCITS ETFs are not fractional-eligible at IBKR
+    tradleware_api_key: "your_tradleware_api_key_here"
+```
+
+`trading_currency` follows `account_currency` unless set, so a EUR account buying a EUR
+instrument only needs the one line. Set them apart when they genuinely differ — a USD
+account buying a EUR instrument, where IB converts or lends.
+
 **`account_currency`** names which cash balance the bot sizes orders against. IB reports
 `TotalCashValue` once per currency an account holds, so a multi-currency account returns
 several rows. Leave it out for a USD account. Set it to match the currency the instrument
