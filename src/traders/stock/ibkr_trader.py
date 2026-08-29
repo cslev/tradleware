@@ -150,6 +150,39 @@ class IBKRTrader(BaseStockTrader):
       return True
     return False
 
+  async def _fetch_cash_balance(self) -> float:
+    """
+    Return this account's TotalCashValue in `self.account_currency`.
+
+    IB reports one TotalCashValue row per currency an account holds, so a
+    multi-currency account returns several and only the configured one is meaningful
+    for sizing. Returns 0.0 when that currency is absent — but says so, naming the
+    currencies IB did report. Without that line a typo in `account_currency` is
+    indistinguishable from an empty account: both size every order against zero.
+
+    Propagates whatever `accountSummaryAsync` raises; callers decide whether a failed
+    lookup is fatal (it is when placing a live order, not when refreshing a card).
+    """
+    account_summary = await self.ib.accountSummaryAsync()
+    found_currencies = []
+    for item in account_summary:
+      if item.account == self.account_id and item.tag == 'TotalCashValue':
+        if item.currency == self.account_currency:
+          return float(item.value)
+        found_currencies.append(item.currency)
+
+    if found_currencies:
+      self.logger.warning(
+        f"No {self.account_currency} cash reported for account {self.account_id} — "
+        f"IB returned {', '.join(sorted(set(found_currencies)))}. "
+        f"Set 'account_currency' in the bot config to one of those."
+      )
+    else:
+      self.logger.warning(
+        f"IB reported no TotalCashValue at all for account {self.account_id}."
+      )
+    return 0.0
+
   async def fetch_positions(self) -> Dict[str, Any]:
     """
     Get position details with unrealized P&L for this symbol.
@@ -191,11 +224,7 @@ class IBKRTrader(BaseStockTrader):
         # Still get cash balance even if no position
         cash_balance = 0.0
         try:
-          account_summary = await self.ib.accountSummaryAsync()
-          for item in account_summary:
-            if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
-              cash_balance = float(item.value)
-              break
+          cash_balance = await self._fetch_cash_balance()
         except Exception as e:
           self._handle_ib_exception(e, "fetch_positions/accountSummary")
           self.logger.warning(f"Error fetching cash balance: {e}")
@@ -255,12 +284,8 @@ class IBKRTrader(BaseStockTrader):
       # Get account cash balance
       cash_balance = 0.0
       try:
-        account_summary = await self.ib.accountSummaryAsync()
-        for item in account_summary:
-          if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
-            cash_balance = float(item.value)
-            self.logger.debug(f"Cash balance: ${cash_balance:.2f}")
-            break
+        cash_balance = await self._fetch_cash_balance()
+        self.logger.debug(f"Cash balance: {cash_balance:.2f} {self.account_currency}")
       except Exception as e:
         self._handle_ib_exception(e, "fetch_positions/accountSummary")
         self.logger.warning(f"Error fetching cash balance: {e}")
@@ -428,14 +453,11 @@ class IBKRTrader(BaseStockTrader):
         # values only if the gateway is unreachable.
         try:
           if side == 'buy':
-            account_summary = await self.ib.accountSummaryAsync()
-            cash_available = 0.0
-            for item in account_summary:
-              if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
-                cash_available = float(item.value)
-                break
+            cash_available = await self._fetch_cash_balance()
             ctx['cash_available'] = cash_available
-            self.logger.info(f"[LAYER 3][DRY RUN] Using real cash balance: ${cash_available:.2f}")
+            self.logger.info(
+              f"[LAYER 3][DRY RUN] Using real cash balance: "
+              f"{cash_available:.2f} {self.account_currency}")
           else:
             position_info = await self.fetch_positions()
             shares = position_info.get('quantity', 0)
@@ -454,12 +476,7 @@ class IBKRTrader(BaseStockTrader):
         # LIVE PERCENTAGE MODE: fetch real balance from IB Gateway.
         if side == 'buy':
           try:
-            account_summary = await self.ib.accountSummaryAsync()
-            cash_available = 0.0
-            for item in account_summary:
-              if item.account == self.account_id and item.tag == 'TotalCashValue' and item.currency == 'USD':
-                cash_available = float(item.value)
-                break
+            cash_available = await self._fetch_cash_balance()
             ctx['cash_available'] = cash_available
           except Exception as balance_exc:
             self._handle_ib_exception(balance_exc, "create_order/accountSummary")

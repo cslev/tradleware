@@ -283,6 +283,7 @@ bots:
     symbol: AAPL
     extended_hours: false
     fractional_shares: false  # not all symbols support this; IBKR rejects if unsupported
+    account_currency: USD     # optional, default USD — which TotalCashValue row to size against
     tradleware_api_key: ...   # per-bot webhook auth key
     # Optional market hours (defaults to US Eastern / NYSE hours):
     # market_timezone: America/New_York

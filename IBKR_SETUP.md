@@ -43,8 +43,17 @@ bots:
     symbol: "AAPL"
     extended_hours: false
     fractional_shares: false
+    account_currency: "USD"   # optional, defaults to USD — see below
     tradleware_api_key: "your_tradleware_api_key_here"
 ```
+
+**`account_currency`** names which cash balance the bot sizes orders against. IB reports
+`TotalCashValue` once per currency an account holds, so a multi-currency account returns
+several rows. Leave it out for a USD account. Set it to match the currency the instrument
+trades in — sizing against USD while buying a EUR-denominated ETF reads a balance that has
+nothing to do with the order. If the configured currency is not among those IB reports,
+the bot logs a warning naming the ones it did return, rather than silently sizing
+against zero.
 
 **Important:** With the [`cslev/ibkr-docker`](https://github.com/cslev/ibkr-docker) Docker image:
 - **Always connect to port 8888** — the image handles internal routing

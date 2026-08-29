@@ -32,6 +32,11 @@ class BaseStockTrader(ABC):
     self.broker_id = config['broker'].lower()
     self.symbol = config['symbol'].upper()
     self.extended_hours = config.get('extended_hours', False)
+
+    # Currency of the cash balance orders are sized against, and the unit every cash
+    # figure in this class is reported in. Broker-agnostic: any stock account has one.
+    # Defaults to USD, which is what every config predating this setting assumed.
+    self.account_currency = str(config.get('account_currency', 'USD')).upper()
     self.tradleware_api_key = config['tradleware_api_key']
     self.logger = logger if logger else CustomLogger(
       name=self.__class__.__name__,
@@ -109,18 +114,20 @@ class BaseStockTrader(ABC):
       if cash is None or price is None:
         raise ValueError("cash_available or current_price missing in context")
       if cash <= 0:
-        raise ValueError(f"No cash available for buying. Cash: ${cash:.2f}")
+        raise ValueError(f"No cash available for buying. Cash: {cash:.2f} {self.account_currency}")
       amount_to_spend = cash * spend_percentage
       raw_quantity = amount_to_spend / price
       quantity = round(raw_quantity, 4) if fractional_shares else int(raw_quantity)
       if quantity <= 0:
         raise ValueError(
-          f"Calculated quantity is 0. Cash: ${cash:.2f}, Price: ${price:.2f}, "
-          f"Spend: ${amount_to_spend:.2f}"
+          f"Calculated quantity is 0. Cash: {cash:.2f} {self.account_currency}, "
+          f"Price: {price:.2f} {self.account_currency}, "
+          f"Spend: {amount_to_spend:.2f} {self.account_currency}"
         )
       self.logger.info(
-        f"Buy order sizing: ${amount_to_spend:.2f} ({spend_percentage*100:.1f}% of ${cash:.2f}) "
-        f"→ {quantity} shares @ ${price:.2f}"
+        f"Buy order sizing: {amount_to_spend:.2f} {self.account_currency} "
+        f"({spend_percentage*100:.1f}% of {cash:.2f}) "
+        f"→ {quantity} shares @ {price:.2f}"
         + (" [fractional]" if fractional_shares else " [whole shares]")
       )
       return quantity
