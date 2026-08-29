@@ -488,6 +488,7 @@ class IBKRTrader(BaseStockTrader):
     self.logger.debug("[CREATE ORDER] Starting order creation process...")
     if params is None:
       params = {}
+    dry_run_mode = params.get('dry_run', False)
 
 
 
@@ -507,7 +508,7 @@ class IBKRTrader(BaseStockTrader):
     # ─────────────────────────────────────────────────────────────────────────
 
     try:
-      ctx = await self._resolve_market_and_balance(side, dry_run=params.get('dry_run', False))
+      ctx = await self._resolve_market_and_balance(side, dry_run=dry_run_mode)
     except RuntimeError as exc:
       self.logger.error(f"[LAYER 2] {exc}")
       raise
@@ -515,7 +516,6 @@ class IBKRTrader(BaseStockTrader):
     # ─────────────────────────────────────────────────────────────────────────
     # LAYER 3 — CALCULATE ORDER SIZE (base class: _calculate_order_size)
     # ─────────────────────────────────────────────────────────────────────────
-    dry_run_mode = params.get('dry_run', False)
     try:
       # The balance is fetched either way. An explicit share count needs nothing
       # calculated from it, but it still has to be checked against it — see
@@ -535,7 +535,7 @@ class IBKRTrader(BaseStockTrader):
     # LAYER 4 — DRY RUN AND LIVE EXECUTION (IBKR-specific)
     # ─────────────────────────────────────────────────────────────────────────
     try:
-      if params.get('dry_run', False):
+      if dry_run_mode:
         # DRY RUN: return simulated order object
         now = datetime.now()
         mock_order = {
