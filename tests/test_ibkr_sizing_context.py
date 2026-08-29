@@ -161,3 +161,143 @@ class TestReportedUnits:
     await trader._fetch_sizing_context("buy", {})
     logged = " ".join(trader.logger.messages)
     assert "EUR" in logged and "$" not in logged
+
+
+class TestExplicitQuantityIsValidated:
+  """
+  Quantity mode has nothing to size, but plenty to check.
+
+  It used to skip the balance fetch entirely and send the order straight to the broker.
+  The crypto traders have always validated both directions in the same situation.
+  """
+
+  def _trader(self, cash=None, shares=None, price=100.0):
+    from src.traders.stock.base_stock_trader import BaseStockTrader
+
+    holder = types.SimpleNamespace(
+      account_currency="USD",
+      logger=_Recorder(),
+    )
+    ctx = {"current_price": price}
+    if cash is not None:
+      ctx["cash_available"] = cash
+    if shares is not None:
+      ctx["shares_owned"] = shares
+    return BaseStockTrader._validate_explicit_quantity, holder, ctx
+
+  def test_an_affordable_buy_passes(self):
+    check, holder, ctx = self._trader(cash=1000.0, price=100.0)
+    check(holder, "buy", 5, ctx)          # 500 of 1000
+
+  def test_an_unaffordable_buy_is_refused(self):
+    """Previously sent to IBKR and rejected there, with a worse message."""
+    check, holder, ctx = self._trader(cash=1000.0, price=100.0)
+    with pytest.raises(ValueError, match="Insufficient cash"):
+      check(holder, "buy", 20, ctx)       # 2000 of 1000
+
+  def test_a_buy_of_exactly_the_balance_passes(self):
+    check, holder, ctx = self._trader(cash=1000.0, price=100.0)
+    check(holder, "buy", 10, ctx)
+
+  def test_a_sell_within_the_position_passes(self):
+    check, holder, ctx = self._trader(shares=100)
+    check(holder, "sell", 40, ctx)
+
+  def test_selling_the_whole_position_passes(self):
+    check, holder, ctx = self._trader(shares=100)
+    check(holder, "sell", 100, ctx)
+
+  def test_an_oversized_sell_is_refused(self):
+    """
+    The dangerous one. A margin-enabled account does not reject this — it opens a short
+    for the excess, which is the opposite of the intended trade.
+    """
+    check, holder, ctx = self._trader(shares=10)
+    with pytest.raises(ValueError, match="short position"):
+      check(holder, "sell", 100, ctx)
+
+  def test_selling_with_no_position_is_refused(self):
+    check, holder, ctx = self._trader(shares=0)
+    with pytest.raises(ValueError, match="Insufficient position"):
+      check(holder, "sell", 1, ctx)
+
+  def test_the_buy_error_names_the_account_currency(self):
+    check, holder, ctx = self._trader(cash=100.0, price=450.0)
+    holder.account_currency = "EUR"
+    with pytest.raises(ValueError) as exc:
+      check(holder, "buy", 1, ctx)
+    assert "EUR" in str(exc.value) and "$" not in str(exc.value)
+
+  def test_missing_context_is_reported_not_ignored(self):
+    check, holder, _ = self._trader()
+    with pytest.raises(ValueError, match="missing in context"):
+      check(holder, "buy", 1, {"current_price": 100.0})
+
+
+class TestCreateOrderWiring:
+  """
+  The helper is only worth anything if create_order calls it.
+
+  Checking _validate_explicit_quantity in isolation is not enough: reverting Layer 3 to
+  skip the fetch in quantity mode leaves every unit test above green while sending
+  unchecked orders to the broker. These drive the real create_order.
+  """
+
+  def _trader(self, cash=None, shares=None, price=100.0):
+    trader = make_trader(cash=cash, shares=shares)
+    trader.symbol = "AAPL"
+    trader.calls = []
+
+    inner_cash, inner_positions = trader._fetch_cash_balance, trader.fetch_positions
+
+    async def record_cash():
+      trader.calls.append("cash")
+      return await inner_cash()
+
+    async def record_positions():
+      trader.calls.append("positions")
+      return await inner_positions()
+
+    trader._fetch_cash_balance = record_cash
+    trader.fetch_positions = record_positions
+
+    async def resolve(side, dry_run=False):
+      return {"can_trade": True, "market_status": "open", "current_price": price,
+              "cash_available": None, "shares_owned": None}
+
+    trader._resolve_market_and_balance = resolve
+    return trader
+
+  async def test_a_quantity_buy_fetches_the_balance(self):
+    trader = self._trader(cash=1000.0)
+    await trader.create_order(side="buy", quantity=5, params={"dry_run": True})
+    assert trader.calls == ["cash"], "quantity mode must not skip the balance fetch"
+
+  async def test_a_quantity_sell_fetches_the_position(self):
+    trader = self._trader(shares=100)
+    await trader.create_order(side="sell", quantity=10, params={"dry_run": True})
+    assert trader.calls == ["positions"]
+
+  async def test_an_affordable_quantity_buy_still_goes_through(self):
+    trader = self._trader(cash=1000.0)
+    order = await trader.create_order(side="buy", quantity=5, params={"dry_run": True})
+    assert order["quantity"] == 5
+    assert order["status"] == "simulated"
+
+  async def test_an_unaffordable_quantity_buy_is_refused_before_the_broker(self):
+    trader = self._trader(cash=100.0, price=450.0)
+    with pytest.raises(ValueError, match="Insufficient cash"):
+      await trader.create_order(side="buy", quantity=10, params={"dry_run": True})
+
+  async def test_an_oversized_quantity_sell_is_refused_before_the_broker(self):
+    """The short-position case, driven end to end."""
+    trader = self._trader(shares=10)
+    with pytest.raises(ValueError, match="short position"):
+      await trader.create_order(side="sell", quantity=100, params={"dry_run": True})
+
+  async def test_percentage_mode_is_unaffected(self):
+    trader = self._trader(cash=1000.0, price=100.0)
+    order = await trader.create_order(side="buy", spend_percentage=0.5,
+                                      params={"dry_run": True})
+    assert trader.calls == ["cash"]
+    assert order["quantity"] == 5      # 50% of 1000 at 100

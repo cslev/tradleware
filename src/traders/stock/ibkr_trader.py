@@ -517,11 +517,14 @@ class IBKRTrader(BaseStockTrader):
     # ─────────────────────────────────────────────────────────────────────────
     dry_run_mode = params.get('dry_run', False)
     try:
+      # The balance is fetched either way. An explicit share count needs nothing
+      # calculated from it, but it still has to be checked against it — see
+      # _validate_explicit_quantity for why the sell case in particular matters.
+      await self._fetch_sizing_context(side, ctx, dry_run=dry_run_mode)
       if quantity is not None:
-        # An explicit share count needs no balance to compute a size from.
-        self.logger.info(f"[LAYER 3] Quantity mode: {quantity} shares (skipping balance fetch)")
+        self.logger.info(f"[LAYER 3] Quantity mode: {quantity} shares")
+        self._validate_explicit_quantity(side, quantity, ctx)
       else:
-        await self._fetch_sizing_context(side, ctx, dry_run=dry_run_mode)
         quantity = self._calculate_order_size(side, spend_percentage, ctx,
                                               fractional_shares=self.fractional_shares)
     except (ValueError, RuntimeError) as exc:

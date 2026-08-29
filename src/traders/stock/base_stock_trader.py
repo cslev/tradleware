@@ -84,6 +84,51 @@ class BaseStockTrader(ABC):
     except (ValueError, AttributeError) as exc:
       raise ValueError(f"Invalid time format '{value}'. Expected 'HH:MM' (e.g. '09:30').") from exc
 
+  def _validate_explicit_quantity(self, side: str, quantity: float, ctx: dict) -> None:
+    """
+    Check that an explicitly requested share count is actually affordable / held.
+
+    Quantity mode has nothing to size, so it used to skip the balance fetch entirely —
+    but "nothing to calculate" is not "nothing to check". The crypto traders have always
+    validated both directions here; the stock path did not, and sent the order straight
+    to the broker.
+
+    The sell case is the one that matters. An oversized sell is not simply refused in a
+    margin-enabled account: the excess opens a short position, which is the opposite of
+    the intended trade and is not a position Tradleware models anywhere else. Refusing
+    it here means short exposure can never arrive by accident. (If deliberate shorting
+    is ever wanted, this is the check to relax.)
+
+    Raises:
+      ValueError: quantity exceeds available cash (buy) or the position held (sell).
+    """
+    if side == 'buy':
+      cash = ctx.get('cash_available')
+      price = ctx.get('current_price')
+      if cash is None or price is None:
+        raise ValueError("cash_available or current_price missing in context")
+      estimated_cost = quantity * price
+      if estimated_cost > cash:
+        raise ValueError(
+          f"Insufficient cash. Need ~{estimated_cost:.2f} {self.account_currency} "
+          f"for {quantity} shares @ {price:.2f}, have {cash:.2f} {self.account_currency}."
+        )
+      self.logger.info(
+        f"Quantity check: {quantity} shares @ {price:.2f} "
+        f"≈ {estimated_cost:.2f} {self.account_currency} of {cash:.2f} available"
+      )
+      return
+
+    shares = ctx.get('shares_owned')
+    if shares is None:
+      raise ValueError("shares_owned missing in context")
+    if quantity > shares:
+      raise ValueError(
+        f"Insufficient position. Asked to sell {quantity} shares, hold {shares}. "
+        f"Selling more than is held would open a short position."
+      )
+    self.logger.info(f"Quantity check: selling {quantity} of {shares} shares held")
+
   def _calculate_order_size(self,
                             side: str,
                             spend_percentage: float,
