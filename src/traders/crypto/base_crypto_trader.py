@@ -435,6 +435,8 @@ class BaseCryptoTrader(ABC):
       spend_percentage: float = None,
       quantity: float = None,
       order_execution_strategy: str = 'market',
+      *,
+      spend_amount: float = None,
   ) -> tuple:
     """
     Determines order_type, amount_to_trade, and price from market context and inputs.
@@ -546,14 +548,28 @@ class BaseCryptoTrader(ABC):
     #############################
     ### SPEND PERCENTAGE MODE ###
     #############################
-    elif spend_percentage is not None:
+    elif spend_percentage is not None or spend_amount is not None:
+      mode = "CASH" if spend_amount is not None else "SPEND %"
+      basis = (f"{spend_amount:.2f} {quote}" if spend_amount is not None
+               else f"{spend_percentage*100:.1f}%")
       self.logger.info(
-        f"[SPEND % MODE] {side} {spend_percentage*100:.1f}% on {symbol} via {order_execution_strategy}"
+        f"[{mode} MODE] {side} {basis} on {symbol} via {order_execution_strategy}"
       )
 
       if side == 'buy':
         available_quote = free.get(quote, total.get(quote, 0.0))
-        spend_cost      = available_quote * spend_percentage
+        if spend_amount is not None:
+          # Pinned rather than derived. Everything downstream is unchanged: the cost is
+          # already denominated in quote for a market buy, and maker_limit divides it by
+          # the price exactly as the percentage path does.
+          if spend_amount > available_quote:
+            raise ValueError(
+              f"Insufficient {quote} balance. Asked to spend {spend_amount:.2f} {quote}, "
+              f"have {available_quote:.2f} {quote}."
+            )
+          spend_cost = spend_amount
+        else:
+          spend_cost = available_quote * spend_percentage
         if spend_cost <= 0:
           raise ValueError(
             f"Insufficient {quote} balance ({available_quote:.2f}) to place buy order."
@@ -563,7 +579,7 @@ class BaseCryptoTrader(ABC):
           order_type = 'market'
           # amount_to_trade is in QUOTE (cost); execution layer converts to base
           amount_to_trade = spend_cost
-          self.logger.info(f"[SPEND % MODE] Market buy cost: {amount_to_trade:.2f} {quote}")
+          self.logger.info(f"[{mode} MODE] Market buy cost: {amount_to_trade:.2f} {quote}")
           min_cost = cost_limits.get('min')
           max_cost = cost_limits.get('max')
           if min_cost is not None and amount_to_trade < min_cost:
@@ -584,7 +600,7 @@ class BaseCryptoTrader(ABC):
           if float(price) <= 0:
             raise RuntimeError("Calculated maker buy price is zero or negative.")
           amount_to_trade = spend_cost / float(price)
-          self.logger.info(f"[SPEND % MODE] Maker limit buy: {amount_to_trade:.8f} {base} @ {price}")
+          self.logger.info(f"[{mode} MODE] Maker limit buy: {amount_to_trade:.8f} {base} @ {price}")
           min_amount = amount_limits.get('min')
           max_amount = amount_limits.get('max')
           if min_amount is not None and amount_to_trade < min_amount:
@@ -598,6 +614,11 @@ class BaseCryptoTrader(ABC):
           amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
 
       elif side == 'sell':
+        if spend_amount is not None:
+          raise ValueError(
+            "Cash-denominated sizing is buy-only. To exit a position use "
+            "order_size_type 'percentage' (100 closes it) or 'quantity'."
+          )
         available_base  = free.get(base, total.get(base, 0.0))
         amount_to_trade = available_base * spend_percentage
         if amount_to_trade <= 0:
@@ -617,7 +638,7 @@ class BaseCryptoTrader(ABC):
         if order_execution_strategy == 'market':
           order_type = 'market'
           amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
-          self.logger.info(f"[SPEND % MODE] Market sell: {amount_to_trade} {base}")
+          self.logger.info(f"[{mode} MODE] Market sell: {amount_to_trade} {base}")
         elif order_execution_strategy == 'maker_limit':
           order_type = 'limit'
           ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
@@ -625,9 +646,39 @@ class BaseCryptoTrader(ABC):
             raise RuntimeError(f"Could not fetch ask price for {symbol} for maker limit sell.")
           price = self._get_maker_sell_price(symbol, ticker)
           amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
-          self.logger.info(f"[SPEND % MODE] Maker limit sell: {amount_to_trade} {base} @ {price}")
+          self.logger.info(f"[{mode} MODE] Maker limit sell: {amount_to_trade} {base} @ {price}")
+
+    else:
+      # Unreachable while _validate_order_params insists on exactly one mode. Left as a
+      # raise rather than a fall-through, because the fall-through was to
+      # amount_to_trade = 0.0 — a silently sized order rather than a refused one.
+      raise ValueError(
+        "No sizing mode supplied: expected one of spend_percentage, quantity, spend_amount."
+      )
 
     return order_type, amount_to_trade, price
+
+  @staticmethod
+  def is_cost_denominated(order_type: str, side: str,
+                          spend_percentage: float = None,
+                          spend_amount: float = None) -> bool:
+    """
+    True when `amount_to_trade` holds a QUOTE-currency cost rather than a base amount.
+
+    Only a market buy sized by percentage or cash is: `_calculate_order_size` returns the
+    cost and the execution layer converts it via createMarketBuyOrderWithCost. Quantity
+    mode, every sell, and all limit orders return a base amount.
+
+    Each trader asks this in three places — which CCXT call to make, how to simulate a
+    dry run, and whether to skip `_safe_amount_to_precision`. That last one is the reason
+    this is a named method rather than an inline condition: applying base-asset precision
+    to a quote cost silently rounds e.g. 300 USDT to BTC's eight decimals.
+
+    Static, and takes what it needs as arguments, because a trader instance serves
+    concurrent signals — storing this on `self` would let one order read another's flag.
+    """
+    return (order_type == 'market' and side == 'buy'
+            and (spend_percentage is not None or spend_amount is not None))
 
   def _validate_order_params(self,
                               symbol: str,
@@ -635,7 +686,9 @@ class BaseCryptoTrader(ABC):
                               spend_percentage: float = None,
                               quantity: float = None,
                               order_execution_strategy: str = 'market',
-                              dry_run: bool = False) -> None:
+                              dry_run: bool = False,
+                              *,
+                              spend_amount: float = None) -> None:
     """
     Validates all order parameters before execution.
 
@@ -659,11 +712,16 @@ class BaseCryptoTrader(ABC):
       raise ValueError(f"Invalid side: '{side}'. Must be one of {self.VALID_ORDER_SIDES}.")
 
     # --- spend_percentage / quantity mutual exclusivity ---
-    if spend_percentage is not None and quantity is not None:
-      raise ValueError("Cannot specify both spend_percentage and quantity. Choose one.")
-
-    if spend_percentage is None and quantity is None:
-      raise ValueError("Must specify either spend_percentage or quantity.")
+    # Counted rather than compared pairwise: three params need three "A and B" checks,
+    # a fourth would need six, and the one that gets forgotten fails silently.
+    modes = {'spend_percentage': spend_percentage,
+             'quantity': quantity,
+             'spend_amount': spend_amount}
+    supplied = [name for name, value in modes.items() if value is not None]
+    if len(supplied) > 1:
+      raise ValueError(f"Cannot specify more than one of {', '.join(sorted(supplied))}. Choose one.")
+    if not supplied:
+      raise ValueError(f"Must specify exactly one of {', '.join(sorted(modes))}.")
 
     # --- spend_percentage range ---
     if spend_percentage is not None:
@@ -678,6 +736,11 @@ class BaseCryptoTrader(ABC):
       if quantity <= 0:
         raise ValueError(f"quantity must be positive, got: {quantity}.")
 
+    # --- spend_amount positivity ---
+    if spend_amount is not None:
+      if spend_amount <= 0:
+        raise ValueError(f"spend_amount must be positive, got: {spend_amount}.")
+
     # --- order_execution_strategy ---
     if order_execution_strategy not in self.VALID_ORDER_TYPES:
       raise ValueError(
@@ -691,6 +754,6 @@ class BaseCryptoTrader(ABC):
 
     self.logger.debug(
       f"Order parameters validated: symbol={symbol}, side={side}, "
-      f"spend_percentage={spend_percentage}, quantity={quantity}, "
+      f"spend_percentage={spend_percentage}, quantity={quantity}, spend_amount={spend_amount}, "
       f"order_execution_strategy={order_execution_strategy}, dry_run={dry_run}"
     )

@@ -300,6 +300,7 @@ class FakeStockTrader:
   broker_id = "ibkr"
   symbol = "AAPL"
   account_id = "U1234567"
+  account_currency = "USD"   # BaseStockTrader sets this; the stub must mirror it
   extended_hours = False
   fractional_shares = True
   gateway_host = "ib_gateway"

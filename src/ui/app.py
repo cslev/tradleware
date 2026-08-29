@@ -1473,18 +1473,6 @@ async def handle_webhook(request: Request):
   ######################################################
   async with trader_execution_lock(trader_id):
     if trader.bot_type == "crypto":
-      # TEMPORARY — remove when cash sizing reaches the crypto traders.
-      # Without this the request would arrive at create_order with every sizing
-      # parameter None and fail as "Must specify either spend_percentage or quantity",
-      # which reads as though the field does not exist rather than is not wired up yet.
-      if spend_amount is not None:
-        trader.logger.error("order_size_type 'cash' is not yet supported for crypto bots.")
-        raise HTTPException(
-          status_code=400,
-          detail="order_size_type 'cash' is not yet supported for crypto bots. "
-                 "Use 'percentage' or 'quantity'."
-        )
-
       ######################################################
       ## CRYPTO TRADER: CHECK IF TICKER MATCHES PAIR
       ######################################################
@@ -1525,6 +1513,8 @@ async def handle_webhook(request: Request):
           try:
             if order_size_type == "percentage":
               trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
+            elif order_size_type == "cash":
+              trader.logger.info(f"Executing BUY order for {ticker} with {spend_amount:.2f} {stablecoin_symbol}")
             else:
               trader.logger.info(f"Executing BUY order for {ticker}: {quantity} {ticker.split('/')[0]}")
 
@@ -1533,6 +1523,7 @@ async def handle_webhook(request: Request):
               side='buy',
               spend_percentage=spend_percentage,
               quantity=quantity,
+              spend_amount=spend_amount,
               order_execution_strategy='market',  # Market order for immediate execution
               dry_run=dry_run
             )
@@ -1606,6 +1597,8 @@ async def handle_webhook(request: Request):
           try:
             if order_size_type == "percentage":
               trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
+            elif order_size_type == "cash":
+              trader.logger.info(f"Executing SELL order for {ticker} sized in cash — refused below, sells are buy-only")
             else:
               trader.logger.info(f"Executing SELL order for {ticker}: {quantity} {ticker.split('/')[0]}")
 
@@ -1614,6 +1607,7 @@ async def handle_webhook(request: Request):
               side='sell',
               spend_percentage=spend_percentage,
               quantity=quantity,
+              spend_amount=spend_amount,
               order_execution_strategy='market',  # Market order for immediate execution
               dry_run=dry_run
             )
@@ -1702,6 +1696,9 @@ async def handle_webhook(request: Request):
       try:
         if order_size_type == "percentage":
           trader.logger.info(f"Executing {action.upper()} order for {ticker} with {order_size}% position size")
+        elif order_size_type == "cash":
+          # Share count is not known yet — the trader derives it from the live price.
+          trader.logger.info(f"Executing {action.upper()} order for {ticker} with {spend_amount:.2f} {trader.account_currency}")
         else:
           # Keep quantity as float for fractional-shares bots, otherwise truncate to int
           quantity_to_use = quantity if trader.fractional_shares else int(quantity)

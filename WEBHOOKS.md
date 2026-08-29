@@ -108,18 +108,23 @@ Key fields:
 |---|---|---|
 | `percentage` | percent of available cash (buy) or of the position (sell), 0–100 | `25` → a quarter |
 | `quantity` | exact shares or coins | `12` → 12 shares |
-| `cash` | **stock bots only, buy only** — cash to spend, in the bot's `account_currency` | `300` → $300 worth |
+| `cash` | **buy only** — the currency you pay with: the account currency for stocks, the pair's quote currency for crypto | `300` → 300 USD of an ETF, or 300 USDT of BTC |
 
 `cash` is what monthly DCA wants: the amount is fixed rather than derived from the
-balance. Two things follow from that.
+balance. The same payload works on either broker family — a signal never needs to know
+which one it is hitting. Two things follow from the amount being fixed.
 
-Without `fractional_shares: true`, the order is **truncated to whole shares** — $300 into
+**Stocks:** without `fractional_shares: true`, the order is **truncated to whole shares** — $300 into
 a $110 ETF buys 2 shares ($220) and logs `Spent 220.00 of 300.00 requested`. Unlike
 percentage mode this does not catch up on its own, because the next order is pinned to
 the same amount and never reads the balance. Enable fractional shares where the
 instrument supports it, or expect the remainder to accumulate.
 
-Cash-denominated **sells are rejected**. Sizing an exit in cash changes meaning as the
+**Crypto:** the amount is checked against the pair's quote balance and against the
+exchange's minimum notional, so an amount below the venue's floor is refused with the
+limit named rather than rejected by the exchange.
+
+Cash-denominated **sells are rejected**, on both broker families. Sizing an exit in cash changes meaning as the
 price moves and cannot express "close the position" — use `percentage` with `100`.
 
 > **Tip:** Each bot's dashboard card has a **Webhook Details** pane showing the exact endpoint URL, a ready-to-use cURL example, and a live test button — the easiest way to verify your setup without leaving the UI.

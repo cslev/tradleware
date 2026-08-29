@@ -201,11 +201,16 @@ class BaseStockTrader(ABC):
       # Whole shares rarely consume the whole budget, and in cash mode the shortfall
       # does not self-correct: the next order is pinned to the same amount and never
       # looks at the balance, so the remainder accumulates instead of being deployed.
-      if spend_amount is not None and amount_to_spend - spent > 0.01:
+      #
+      # Only worth saying when it is material. Fractional sizing floors at 4dp, so its
+      # shortfall is at most price/10000 — a penny that no one can act on, and a warning
+      # on every single order is how real ones stop being read.
+      shortfall = amount_to_spend - spent
+      if spend_amount is not None and shortfall > max(0.01, amount_to_spend * 0.01):
         self.logger.warning(
           f"Spent {spent:.2f} of {amount_to_spend:.2f} {self.account_currency} "
-          f"requested — {amount_to_spend - spent:.2f} not deployed "
-          f"({'enable fractional_shares to spend it' if not fractional_shares else 'rounding'})"
+          f"requested — {shortfall:.2f} not deployed"
+          + ("" if fractional_shares else ". Enable fractional_shares to spend it")
         )
       return quantity
 
@@ -298,7 +303,10 @@ class BaseStockTrader(ABC):
     Exactly one of spend_percentage or quantity must be provided.
     Raises ValueError with a helpful log message if input is invalid.
     """
-    self.logger.debug(f"[L1] Validating order params: side={side}, spend_percentage={spend_percentage}, quantity={quantity}, order_execution_strategy={order_execution_strategy}, limit_price={limit_price}")
+    self.logger.debug(
+      f"[L1] Validating order params: side={side}, "
+      f"spend_percentage={spend_percentage}, quantity={quantity}, spend_amount={spend_amount}, "
+      f"order_execution_strategy={order_execution_strategy}, limit_price={limit_price}")
     # --- side ---
     if side not in self.VALID_ORDER_SIDES:
       self.logger.error(f"Invalid 'side' argument: {side}")
@@ -336,7 +344,10 @@ class BaseStockTrader(ABC):
     if order_execution_strategy == "maker_limit" and not limit_price:
       self.logger.error("limit_price is required for 'maker_limit' orders")
       raise ValueError("limit_price is required for 'maker_limit' orders")
-    self.logger.info(f"[LAYER 1] Param validation successful: side={side}, spend_percentage={spend_percentage}, quantity={quantity}, strategy={order_execution_strategy}, limit_price={limit_price}")
+    self.logger.info(
+      f"Param validation successful: side={side}, "
+      f"spend_percentage={spend_percentage}, quantity={quantity}, spend_amount={spend_amount}, "
+      f"strategy={order_execution_strategy}, limit_price={limit_price}")
 
   def _setup_log_buffer(self):
     """Setup logging to also write to the trader's log buffer"""

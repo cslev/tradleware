@@ -254,17 +254,142 @@ class TestWebhookAcceptsCash:
     assert stock_trader.orders[0].get("spend_percentage") == 0.5
     assert stock_trader.orders[0].get("spend_amount") is None
 
-  async def test_a_crypto_bot_gets_a_clear_message_rather_than_a_confusing_one(
-      self, client_factory, webhook_url, crypto_trader):
+  async def test_a_crypto_bot_accepts_cash_sizing(self, client_factory, webhook_url,
+                                                  crypto_trader):
     """
-    Until crypto supports cash sizing, the request must be refused by name — not fall
-    through to "Must specify either spend_percentage or quantity", which reads as
-    though the field does not exist.
+    Cash sizing is a webhook-API field, not a stock feature — the same payload must work
+    whichever broker family the bot belongs to. Crypto was refused by an explicit
+    stopgap until the traders were wired up; that stopgap is gone.
     """
     from conftest import signal_payload
     async with client_factory() as client:
       response = await client.post(webhook_url, json=signal_payload(
         order_size=300, order_size_type="cash", dry_run=False))
-    assert response.status_code == 400
-    assert "not yet supported for crypto" in response.json()["detail"]
-    assert crypto_trader.orders == []
+
+    assert response.status_code == 200, response.text
+    assert crypto_trader.orders, "no order reached the crypto trader"
+    order = crypto_trader.orders[0]
+    assert order.get("spend_amount") == 300.0
+    assert order.get("quantity") is None
+    assert order.get("spend_percentage") is None
+
+  async def test_the_same_payload_works_for_both_broker_families(
+      self, client_factory, webhook_url, crypto_trader, stock_trader):
+    """Broker-transparent signals: only api_key/trader_id/ticker differ."""
+    from conftest import signal_payload
+    sizing = {"order_size": 300, "order_size_type": "cash", "dry_run": False}
+
+    async with client_factory() as client:
+      crypto = await client.post(webhook_url, json=signal_payload(**sizing))
+      stock = await client.post(webhook_url, json=signal_payload(
+        api_key=stock_trader.tradleware_api_key, trader_id="fakestock",
+        ticker=stock_trader.symbol, **sizing))
+
+    assert (crypto.status_code, stock.status_code) == (200, 200)
+    assert crypto_trader.orders[0]["spend_amount"] == 300.0
+    assert stock_trader.orders[0]["spend_amount"] == 300.0
+
+
+class TestResidueWarningIsMaterial:
+  """
+  The warning exists to surface cash that is not being deployed. A penny of floor
+  rounding is not that, and a warning on every order is how the real ones stop being
+  read — the earlier fixed 0.01 threshold fired on ordinary fractional buys.
+  """
+
+  def test_fractional_rounding_does_not_warn(self):
+    """300 at 165 floors to 1.8181 shares — 1.3 cents short, and nothing to do about it."""
+    _, logger = size(cash=5000.0, price=165.0, spend_amount=300.0, fractional=True)
+    assert logger.warnings == [], logger.warnings
+
+  @pytest.mark.parametrize("price", [7.0, 165.0, 999.99])
+  def test_no_fractional_price_produces_a_warning(self, price):
+    """Whatever the price, fractional sizing deploys essentially all of it."""
+    _, logger = size(cash=100_000.0, price=price, spend_amount=300.0, fractional=True)
+    assert logger.warnings == [], f"price {price}: {logger.warnings}"
+
+  def test_a_material_whole_share_shortfall_still_warns(self):
+    """300 at 110 strands 80 — over a quarter of the budget."""
+    _, logger = size(cash=5000.0, price=110.0, spend_amount=300.0)
+    assert any("80.00 not deployed" in w for w in logger.warnings), logger.warnings
+
+  def test_the_whole_share_warning_names_the_remedy(self):
+    _, logger = size(cash=5000.0, price=110.0, spend_amount=300.0)
+    assert any("fractional_shares" in w for w in logger.warnings)
+
+  def test_a_trivial_whole_share_shortfall_stays_quiet(self):
+    """300 at 3 buys 100 shares exactly — nothing stranded, nothing to say."""
+    _, logger = size(cash=5000.0, price=3.0, spend_amount=300.0)
+    assert logger.warnings == []
+
+
+class TestExecutionLogging:
+  """
+  The handler logs what it is about to do before calling the trader. Those lines were
+  `if percentage / else`, with the else assuming a share count — so a cash order printed
+  "None DOGE", and on a stock bot without fractional shares the else called int(None)
+  and raised before the order was ever placed.
+  """
+
+  async def test_a_crypto_cash_buy_logs_the_amount_not_none(
+      self, client_factory, webhook_url, crypto_trader, caplog):
+    import logging
+    from conftest import signal_payload
+    caplog.set_level(logging.INFO, logger="FakeCryptoTrader")
+
+    async with client_factory() as client:
+      await client.post(webhook_url, json=signal_payload(
+        order_size=25, order_size_type="cash", dry_run=False))
+
+    executing = [r.message for r in caplog.records if "Executing BUY order" in r.message]
+    assert executing, [r.message for r in caplog.records]
+    assert "None" not in executing[0], executing[0]
+    assert "25.00" in executing[0]
+
+  async def test_a_stock_cash_buy_does_not_crash_without_fractional_shares(
+      self, client_factory, webhook_url, stock_trader):
+    """
+    int(None) raised a TypeError here. It only stayed hidden because the bot under test
+    had fractional_shares enabled.
+    """
+    from conftest import signal_payload
+    stock_trader.fractional_shares = False
+    try:
+      async with client_factory() as client:
+        response = await client.post(webhook_url, json=signal_payload(
+          api_key=stock_trader.tradleware_api_key, trader_id="fakestock",
+          ticker=stock_trader.symbol,
+          order_size=300, order_size_type="cash", dry_run=False))
+      assert response.status_code == 200, response.text
+      assert stock_trader.orders[0]["spend_amount"] == 300.0
+    finally:
+      stock_trader.fractional_shares = True
+
+  async def test_a_stock_cash_buy_logs_the_amount(self, client_factory, webhook_url,
+                                                  stock_trader, caplog):
+    import logging
+    from conftest import signal_payload
+    caplog.set_level(logging.INFO, logger="FakeStockTrader")
+
+    async with client_factory() as client:
+      await client.post(webhook_url, json=signal_payload(
+        api_key=stock_trader.tradleware_api_key, trader_id="fakestock",
+        ticker=stock_trader.symbol,
+        order_size=300, order_size_type="cash", dry_run=False))
+
+    executing = [r.message for r in caplog.records if "Executing BUY order" in r.message]
+    assert executing, [r.message for r in caplog.records]
+    assert "None" not in executing[0], executing[0]
+
+  async def test_quantity_mode_logging_is_unchanged(self, client_factory, webhook_url,
+                                                    crypto_trader, caplog):
+    import logging
+    from conftest import signal_payload
+    caplog.set_level(logging.INFO, logger="FakeCryptoTrader")
+
+    async with client_factory() as client:
+      await client.post(webhook_url, json=signal_payload(
+        order_size=5, order_size_type="quantity", dry_run=False))
+
+    executing = [r.message for r in caplog.records if "Executing BUY order" in r.message]
+    assert executing and "5" in executing[0] and "BTC" in executing[0]

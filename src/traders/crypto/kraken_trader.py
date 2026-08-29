@@ -263,8 +263,9 @@ class KrakenTrader(BaseCryptoTrader):
                           quantity: float = None,
                           order_execution_strategy: str = 'market',
                           dry_run: bool = False,
-                          params: dict = None
-                        ) -> Optional[Dict[str, Any]]:
+                          params: dict = None,
+                          *,
+                          spend_amount: float = None) -> Optional[Dict[str, Any]]:
     """
     Creates an order on Kraken with flexible execution and amount.
 
@@ -290,9 +291,10 @@ class KrakenTrader(BaseCryptoTrader):
       self._validate_order_params(
         symbol, side, spend_percentage, quantity,
         order_execution_strategy=order_execution_strategy,
+        spend_amount=spend_amount,
         dry_run=dry_run
       )
-      self.logger.info("[CREATE ORDER] Order parameters validated successfully.")
+      self.logger.info("Order parameters validated successfully.")
     except ValueError as exc:
       self.logger.error(f"Order validation failed: {exc}")
       return None
@@ -303,14 +305,14 @@ class KrakenTrader(BaseCryptoTrader):
     try:
       ctx = await self._resolve_market_and_balance(symbol)
     except RuntimeError as exc:
-      self.logger.error(f"[CREATE ORDER] {exc}")
+      self.logger.error(f"{exc}")
       return None
 
     base_currency = ctx['base']
     quote_currency = ctx['quote']
 
     self.logger.debug(
-      f"[CREATE ORDER] quantity={quantity}, spend_percentage={spend_percentage}"
+      f"[CREATE ORDER] quantity={quantity}, spend_percentage={spend_percentage}, spend_amount={spend_amount}"
     )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -323,10 +325,11 @@ class KrakenTrader(BaseCryptoTrader):
         ctx=ctx,
         spend_percentage=spend_percentage,
         quantity=quantity,
+        spend_amount=spend_amount,
         order_execution_strategy=order_execution_strategy,
       )
     except (ValueError, RuntimeError) as exc:
-      self.logger.error(f"[CREATE ORDER] Order sizing failed: {exc}")
+      self.logger.error(f"Order sizing failed: {exc}")
       return None
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -335,7 +338,7 @@ class KrakenTrader(BaseCryptoTrader):
     if dry_run:
       self.logger.warning("🧪 DRY RUN: Order simulation complete (NOT executed)")
 
-      if order_type == 'market' and side == 'buy' and spend_percentage is not None:
+      if self.is_cost_denominated(order_type, side, spend_percentage, spend_amount):
         ticker = await self._safe_api_call(self.exchange.fetch_ticker, symbol)
         sim_price = ticker['last'] if ticker and ticker.get('last') else 0
         sim_amount = amount_to_trade / sim_price if sim_price > 0 else 0
@@ -394,7 +397,7 @@ class KrakenTrader(BaseCryptoTrader):
     # All other cases (quantity mode, sells, limit orders) use the standard
     # CCXT create_order call.
     # ─────────────────────────────────────────────────────────────────────────
-    if order_type == 'market' and side == 'buy' and spend_percentage is not None:
+    if self.is_cost_denominated(order_type, side, spend_percentage, spend_amount):
       try:
         if hasattr(self.exchange, 'createMarketBuyOrderWithCost'):
           self.logger.info(
@@ -451,7 +454,7 @@ class KrakenTrader(BaseCryptoTrader):
       )
 
     # Apply precision for all non-spend%-market-buy paths
-    if not (order_type == 'market' and side == 'buy' and spend_percentage is not None):
+    if not self.is_cost_denominated(order_type, side, spend_percentage, spend_amount):
       amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
 
     if price is not None:

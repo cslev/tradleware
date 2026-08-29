@@ -226,14 +226,14 @@ class IBKRTrader(BaseStockTrader):
       if side == 'buy':
         ctx['cash_available'] = await self._fetch_cash_balance()
         self.logger.info(
-          f"[LAYER 3]{' [DRY RUN]' if dry_run else ''} Cash available: "
+          f"{'[DRY RUN] ' if dry_run else ''}Cash available: "
           f"{ctx['cash_available']:.2f} {self.account_currency}"
         )
       else:
         position_info = await self.fetch_positions()
         ctx['shares_owned'] = position_info.get('quantity', 0)
         self.logger.info(
-          f"[LAYER 3]{' [DRY RUN]' if dry_run else ''} Position: "
+          f"{'[DRY RUN] ' if dry_run else ''}Position: "
           f"{ctx['shares_owned']} shares"
         )
       return ctx
@@ -242,7 +242,7 @@ class IBKRTrader(BaseStockTrader):
       if not dry_run:
         raise RuntimeError(f"Failed to fetch balance for sizing: {exc}") from exc
       self.logger.warning(
-        f"[LAYER 3][DRY RUN] Could not fetch real balance ({exc}); using simulated values"
+        f"[DRY RUN] Could not fetch real balance ({exc}); using simulated values"
       )
       if side == 'buy':
         ctx['cash_available'] = 10_000.0
@@ -513,7 +513,7 @@ class IBKRTrader(BaseStockTrader):
     try:
       ctx = await self._resolve_market_and_balance(side, dry_run=dry_run_mode)
     except RuntimeError as exc:
-      self.logger.error(f"[LAYER 2] {exc}")
+      self.logger.error(f"{exc}")
       raise
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -525,14 +525,14 @@ class IBKRTrader(BaseStockTrader):
       # _validate_explicit_quantity for why the sell case in particular matters.
       await self._fetch_sizing_context(side, ctx, dry_run=dry_run_mode)
       if quantity is not None:
-        self.logger.info(f"[LAYER 3] Quantity mode: {quantity} shares")
+        self.logger.info(f"Quantity mode: {quantity} shares")
         self._validate_explicit_quantity(side, quantity, ctx)
       else:
         quantity = self._calculate_order_size(side, spend_percentage, ctx,
                                               fractional_shares=self.fractional_shares,
                                               spend_amount=spend_amount)
     except (ValueError, RuntimeError) as exc:
-      self.logger.error(f"[LAYER 3] {exc}")
+      self.logger.error(f"{exc}")
       raise
 
     # ─────────────────────────────────────────────────────────────────────────
