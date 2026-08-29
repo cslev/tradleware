@@ -148,6 +148,17 @@ Dockerfile already does this).
 
 ### Step 4 — Run
 
+Create the shared Docker network first. Tradleware and IB Gateway both attach to
+`tradleware-network`, and whichever stack you start first needs it to already exist —
+so it is created explicitly rather than as a side effect of one particular stack:
+
+```bash
+docker network create tradleware-network
+```
+
+It only needs creating once per machine and survives `docker-compose down`. If it is
+already there, Docker says so and nothing is harmed.
+
 ```bash
 docker-compose up -d
 ```

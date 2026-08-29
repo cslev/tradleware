@@ -105,13 +105,31 @@ cp .env.ibkr.example                   .env.ibkr
 
 Edit both files: credentials in `.env.ibkr`, bot settings in `ibkr.yaml`.
 
-### 2. Start IB Gateway
+### 2. Create the shared network
+
+Tradleware and IB Gateway talk over a Docker network named `tradleware-network`, which is
+how `host: "ib_gateway"` in `ibkr.yaml` resolves. Create it **before bringing up either
+stack** — neither one owns it, and either may be started first:
+
+```bash
+docker network create tradleware-network
+```
+
+Once per machine; it survives `docker-compose down`. If you already created it during
+[Getting Started](GETTING_STARTED.md), skip this. Starting the gateway without it fails
+with:
+
+```
+network tradleware-network declared as external, but could not be found
+```
+
+### 3. Start IB Gateway
 
 ```bash
 docker-compose -f docker-compose.ibkr.yml up -d
 ```
 
-### 3. Check Gateway Status
+### 4. Check Gateway Status
 
 ```bash
 docker-compose -f docker-compose.ibkr.yml logs -f
@@ -119,17 +137,38 @@ docker-compose -f docker-compose.ibkr.yml logs -f
 
 Wait for the message indicating successful connection to IBKR servers.
 
-### 4. Monitor Gateway (Optional)
+### 5. Monitor Gateway (Optional)
 
 Access the gateway web interface via noVNC at `http://localhost:6080` — no VNC client needed, works in any browser.
 
-### 5. Start Tradleware
+### 6. Start Tradleware
 
 ```bash
 docker-compose up -d
 ```
 
 Tradleware reads `bot_configs/stock/ibkr.yaml` and automatically connects to IB Gateway at `host:port`.
+
+### Running Tradleware outside Docker
+
+For development, Tradleware often runs on the host while IB Gateway stays in its
+container. The container name `ib_gateway` does not resolve from the host, so the log
+fills with:
+
+```
+Failed to connect to IB Gateway: [Errno -2] Name or service not known
+```
+
+`docker-compose.ibkr.yml` publishes `8888:8888`, so point the bot at the host instead:
+
+```yaml
+gateway:
+  host: "127.0.0.1"    # was "ib_gateway" — container DNS only works from inside Docker
+  port: 8888
+```
+
+No network is needed in this arrangement; the published port is enough. Change it back
+to `ib_gateway` before running Tradleware in Docker again.
 
 ---
 
@@ -158,6 +197,11 @@ docker-compose -f docker-compose.ibkr.yml down
 ---
 
 ## Troubleshooting
+
+### `network tradleware-network declared as external, but could not be found`
+
+The gateway was started before anything created the network. Run
+`docker network create tradleware-network`, then bring the stack up again.
 
 ### Connection Refused
 - Ensure gateway is fully started (check logs) — allow 30–60 seconds after starting

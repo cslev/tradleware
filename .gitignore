@@ -229,3 +229,8 @@ src/logs/
 # Node build tooling — Tailwind only. Restored by `npm install` in src/ui/,
 # reproducibly, from the tracked package-lock.json
 node_modules/
+
+# IB Gateway container state — 11MB of TWS settings, logs and session data, written by
+# docker-compose.ibkr.yml's ./tws-settings volume. Machine-specific and can contain
+# account details.
+tws-settings/

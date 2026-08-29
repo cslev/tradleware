@@ -117,6 +117,7 @@ git clone --depth 1 https://github.com/cslev/tradleware
 cd tradleware
 cp .env.example .env                                    # set your dashboard password and webhook path
 cp bot_configs/crypto/okx.yaml.example bot_configs/crypto/okx.yaml   # and your exchange keys
+docker network create tradleware-network                # shared with IB Gateway; once per machine
 docker-compose up -d
 ```
 
