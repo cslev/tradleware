@@ -212,19 +212,6 @@ to handle when building it:
 - Only worth full validation/documentation when strategies actively use specific entry price targets
 
 
-### Demo / Paper Trading Support (OKX)
-- OKX paper trading lacks functions Tradleware depends on (e.g. fetch_balance). Demo trading support will not be developed. Use `dry_run` in webhooks for testing; note that actual exchange API responses are not captured in dry_run mode.
-
-### Public Project Website
-- A dedicated landing/documentation site for Tradleware
-- Goals: explain the project, showcase features, link to Docker Hub and GitHub
-- Tech TBD (static site preferred — e.g. GitHub Pages, Hugo, or plain HTML)
-
-### Trading Strategy Development
-- Develop and document ready-to-use TradingView Pine Script strategies
-- Current strategies are in `src/strategies/` (Bollinger Band, Gaussian Channel, Supertrend, Bull Market Support Band)
-- Goal: expand the library and add usage instructions per strategy
-
 ---
 
 ## Session History
