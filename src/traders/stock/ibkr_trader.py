@@ -467,7 +467,9 @@ class IBKRTrader(BaseStockTrader):
                          order_execution_strategy: str = 'market',
                          limit_price: Optional[float] = None,
                          quantity: Optional[float] = None,
-                         params: dict = None) -> Optional[Dict[str, Any]]:
+                         params: dict = None,
+                         *,
+                         spend_amount: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Place a buy/sell order for this symbol.
 
@@ -478,6 +480,8 @@ class IBKRTrader(BaseStockTrader):
       limit_price: Price for limit orders (required if order_execution_strategy is 'maker_limit')
       quantity: Explicit share count to trade. Float when fractional_shares=True, whole number otherwise.
       params: Additional IB-specific parameters
+      spend_amount: Exact cash to spend, in the account currency. Buy only. Mutually
+                    exclusive with spend_percentage and quantity.
 
     Returns:
       Order information dict or None on failure
@@ -490,15 +494,14 @@ class IBKRTrader(BaseStockTrader):
       params = {}
     dry_run_mode = params.get('dry_run', False)
 
-
-
     try:
       self._validate_order_params(
         side=side,
         spend_percentage=spend_percentage,
         order_execution_strategy=order_execution_strategy,
         limit_price=limit_price,
-        quantity=quantity)
+        quantity=quantity,
+        spend_amount=spend_amount)
     except ValueError as exc:
       self.logger.error(f"Order parameter validation failed: {exc}")
       raise
@@ -526,7 +529,8 @@ class IBKRTrader(BaseStockTrader):
         self._validate_explicit_quantity(side, quantity, ctx)
       else:
         quantity = self._calculate_order_size(side, spend_percentage, ctx,
-                                              fractional_shares=self.fractional_shares)
+                                              fractional_shares=self.fractional_shares,
+                                              spend_amount=spend_amount)
     except (ValueError, RuntimeError) as exc:
       self.logger.error(f"[LAYER 3] {exc}")
       raise

@@ -633,6 +633,12 @@ templates.env.filters['mask_secret'] = mask_secret
 _TICKER_SEPARATORS = re.compile(r'[/\-_\s]+')
 
 
+# Sizing modes a webhook may request. Kept beside the branch that consumes it — adding
+# a name here without a matching branch raises rather than falling through to another
+# mode's handling.
+VALID_ORDER_SIZE_TYPES = ("percentage", "quantity", "cash")
+
+
 def canonical_ticker(value) -> str:
   """
   Strip separators and case from a ticker so the same pair spelled different ways compares equal.
@@ -1377,9 +1383,10 @@ async def handle_webhook(request: Request):
 
   # Parse order_size_type — presence already guaranteed by missing fields check above
   order_size_type = str(data.get("order_size_type")).lower()
-  if order_size_type not in ["percentage", "quantity"]:
-    trader.logger.error(f"Invalid order_size_type: '{order_size_type}'. Must be 'percentage' or 'quantity'.")
-    raise HTTPException(status_code=400, detail=f"Invalid order_size_type: '{order_size_type}'. Must be 'percentage' or 'quantity'.")
+  if order_size_type not in VALID_ORDER_SIZE_TYPES:
+    valid = ", ".join(f"'{t}'" for t in VALID_ORDER_SIZE_TYPES)
+    trader.logger.error(f"Invalid order_size_type: '{order_size_type}'. Must be one of {valid}.")
+    raise HTTPException(status_code=400, detail=f"Invalid order_size_type: '{order_size_type}'. Must be one of {valid}.")
 
   # Parse order_size value — presence already guaranteed by missing fields check above
   order_size_raw = data.get("order_size")
@@ -1395,21 +1402,37 @@ async def handle_webhook(request: Request):
     trader.logger.error(f"Invalid order_size type: {type(order_size_raw).__name__}. Must be a number.")
     raise HTTPException(status_code=400, detail=f"order_size must be a number, got: {type(order_size_raw).__name__}.")
 
-  # Validate based on order_size_type
+  # Validate based on order_size_type. Every known mode gets its own branch and the
+  # final `else` is the error: an earlier version used `else` as the quantity branch,
+  # so adding a mode to the allow-list without a branch here would have executed it as
+  # a share count. Unreachable while VALID_ORDER_SIZE_TYPES and these branches agree,
+  # which is the point.
+  spend_percentage = quantity = spend_amount = None
+
   if order_size_type == "percentage":
     if not 0.0 < order_size <= 100.0:
       trader.logger.error(f"order_size out of range for percentage mode: {order_size}. Must be between 0 (exclusive) and 100 (inclusive).")
       raise HTTPException(status_code=400, detail=f"order_size out of range: {order_size}. Must be between 0 and 100 for percentage mode.")
     spend_percentage = order_size / 100.0
-    quantity = None
     trader.logger.info(f"Order mode: PERCENTAGE ({order_size}%)")
-  else:  # quantity mode
+
+  elif order_size_type == "quantity":
     if order_size <= 0:
       trader.logger.error(f"order_size must be positive in quantity mode: {order_size}")
       raise HTTPException(status_code=400, detail=f"order_size must be positive: {order_size}")
-    spend_percentage = None
     quantity = order_size
     trader.logger.info(f"Order mode: QUANTITY ({quantity})")
+
+  elif order_size_type == "cash":
+    if order_size <= 0:
+      trader.logger.error(f"order_size must be positive in cash mode: {order_size}")
+      raise HTTPException(status_code=400, detail=f"order_size must be positive: {order_size}")
+    spend_amount = order_size
+    trader.logger.info(f"Order mode: CASH ({spend_amount})")
+
+  else:
+    trader.logger.error(f"Unhandled order_size_type: '{order_size_type}'.")
+    raise HTTPException(status_code=400, detail=f"Unhandled order_size_type: '{order_size_type}'.")
 
   ################################################
   #### CHECK IF ACTION SIGNAL IS BUY/SELL/LONG/SHORT
@@ -1438,6 +1461,18 @@ async def handle_webhook(request: Request):
   ######################################################
   async with trader_execution_lock(trader_id):
     if trader.bot_type == "crypto":
+      # TEMPORARY — remove when cash sizing reaches the crypto traders.
+      # Without this the request would arrive at create_order with every sizing
+      # parameter None and fail as "Must specify either spend_percentage or quantity",
+      # which reads as though the field does not exist rather than is not wired up yet.
+      if spend_amount is not None:
+        trader.logger.error("order_size_type 'cash' is not yet supported for crypto bots.")
+        raise HTTPException(
+          status_code=400,
+          detail="order_size_type 'cash' is not yet supported for crypto bots. "
+                 "Use 'percentage' or 'quantity'."
+        )
+
       ######################################################
       ## CRYPTO TRADER: CHECK IF TICKER MATCHES PAIR
       ######################################################
@@ -1663,6 +1698,7 @@ async def handle_webhook(request: Request):
         order_result = await trader.create_order(
           side=action,
           spend_percentage=spend_percentage,
+          spend_amount=spend_amount,
           quantity=(quantity if trader.fractional_shares else int(quantity)) if quantity is not None else None,
           order_execution_strategy='market',
           params={'dry_run': dry_run}

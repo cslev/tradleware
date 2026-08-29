@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime, time, timedelta
+import math
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo
 
@@ -133,25 +134,31 @@ class BaseStockTrader(ABC):
                             side: str,
                             spend_percentage: float,
                             ctx: dict,
-                            fractional_shares: bool = False) -> float:
+                            fractional_shares: bool = False,
+                            *,
+                            spend_amount: float = None) -> float:
     """
-    Compute share quantity to trade from context and spend percentage.
+    Compute share quantity to trade from context and either a percentage or a cash amount.
 
     Args:
       side: 'buy' or 'sell'
       spend_percentage: Fraction of available cash/shares to use (0.0 < x <= 1.0).
       ctx: Output of _resolve_market_and_balance().
-      fractional_shares: When True, returns a float rounded to 4 decimal places
+      fractional_shares: When True, returns a float floored to 4 decimal places
                          instead of truncating to a whole integer. The broker must
                          support fractional shares for the symbol — if not, the
                          order will be rejected at execution time.
+      spend_amount: Exact cash to spend, in `self.account_currency`. Buy only, and
+                    mutually exclusive with spend_percentage. Keyword-only so it cannot
+                    be passed positionally into the existing four-argument signature.
 
     Returns:
       float: Share quantity to trade (whole number as float when fractional_shares=False,
              fractional float when fractional_shares=True).
 
     Raises:
-      ValueError: On insufficient funds, missing context, or zero quantity.
+      ValueError: On insufficient funds, missing context, zero quantity, or a
+                  cash-denominated sell.
     """
     if side == 'buy':
       cash = ctx.get('cash_available')
@@ -160,22 +167,53 @@ class BaseStockTrader(ABC):
         raise ValueError("cash_available or current_price missing in context")
       if cash <= 0:
         raise ValueError(f"No cash available for buying. Cash: {cash:.2f} {self.account_currency}")
-      amount_to_spend = cash * spend_percentage
+
+      if spend_amount is not None:
+        if spend_amount > cash:
+          raise ValueError(
+            f"Insufficient cash. Asked to spend {spend_amount:.2f} "
+            f"{self.account_currency}, have {cash:.2f} {self.account_currency}."
+          )
+        amount_to_spend = spend_amount
+        basis = f"{spend_amount:.2f} requested"
+      else:
+        amount_to_spend = cash * spend_percentage
+        basis = f"{spend_percentage*100:.1f}% of {cash:.2f}"
+
       raw_quantity = amount_to_spend / price
-      quantity = round(raw_quantity, 4) if fractional_shares else int(raw_quantity)
+      # Floor, never round: rounding up puts the order over the cash it was sized
+      # against, which for a full-balance order is rejected outright by the broker.
+      quantity = math.floor(raw_quantity * 10_000) / 10_000 if fractional_shares \
+          else int(raw_quantity)
       if quantity <= 0:
         raise ValueError(
           f"Calculated quantity is 0. Cash: {cash:.2f} {self.account_currency}, "
           f"Price: {price:.2f} {self.account_currency}, "
           f"Spend: {amount_to_spend:.2f} {self.account_currency}"
         )
+
+      spent = quantity * price
       self.logger.info(
         f"Buy order sizing: {amount_to_spend:.2f} {self.account_currency} "
-        f"({spend_percentage*100:.1f}% of {cash:.2f}) "
-        f"→ {quantity} shares @ {price:.2f}"
+        f"({basis}) → {quantity} shares @ {price:.2f}"
         + (" [fractional]" if fractional_shares else " [whole shares]")
       )
+      # Whole shares rarely consume the whole budget, and in cash mode the shortfall
+      # does not self-correct: the next order is pinned to the same amount and never
+      # looks at the balance, so the remainder accumulates instead of being deployed.
+      if spend_amount is not None and amount_to_spend - spent > 0.01:
+        self.logger.warning(
+          f"Spent {spent:.2f} of {amount_to_spend:.2f} {self.account_currency} "
+          f"requested — {amount_to_spend - spent:.2f} not deployed "
+          f"({'enable fractional_shares to spend it' if not fractional_shares else 'rounding'})"
+        )
       return quantity
+
+    if spend_amount is not None:
+      raise ValueError(
+        "Cash-denominated sizing is buy-only. To exit a position use "
+        "order_size_type 'percentage' (100 closes it) or 'quantity'."
+      )
     shares = ctx.get('shares_owned')
     if shares is None:
       raise ValueError("shares_owned missing in context")
@@ -252,7 +290,9 @@ class BaseStockTrader(ABC):
                             spend_percentage: float = None,
                             order_execution_strategy: str = 'market',
                             limit_price: Optional[float] = None,
-                            quantity: Optional[float] = None):
+                            quantity: Optional[float] = None,
+                            *,
+                            spend_amount: Optional[float] = None):
     """
     Validates the standard order parameters for all stock traders.
     Exactly one of spend_percentage or quantity must be provided.
@@ -263,16 +303,27 @@ class BaseStockTrader(ABC):
     if side not in self.VALID_ORDER_SIDES:
       self.logger.error(f"Invalid 'side' argument: {side}")
       raise ValueError(f"'side' must be one of {self.VALID_ORDER_SIDES}")
-    # --- spend_percentage / quantity mutual exclusivity ---
-    if spend_percentage is not None and quantity is not None:
-      raise ValueError("Cannot specify both spend_percentage and quantity. Choose one.")
-    if spend_percentage is None and quantity is None:
-      raise ValueError("Must specify either spend_percentage or quantity.")
+    # --- exactly one sizing mode ---
+    # Counted rather than compared pairwise: a chain of "A and B", "A and C", "B and C"
+    # grows quadratically and is the kind of thing a fourth mode would silently break.
+    modes = {'spend_percentage': spend_percentage,
+             'quantity': quantity,
+             'spend_amount': spend_amount}
+    supplied = [name for name, value in modes.items() if value is not None]
+    if len(supplied) > 1:
+      raise ValueError(f"Cannot specify more than one of {', '.join(sorted(supplied))}. Choose one.")
+    if not supplied:
+      raise ValueError(f"Must specify exactly one of {', '.join(sorted(modes))}.")
     # --- spend_percentage range ---
     if spend_percentage is not None:
       if spend_percentage <= self.MIN_SPEND_PERCENTAGE or spend_percentage > self.MAX_SPEND_PERCENTAGE:
         self.logger.error(f"Invalid 'spend_percentage': {spend_percentage}")
         raise ValueError(f"'spend_percentage' must be in ({self.MIN_SPEND_PERCENTAGE}, {self.MAX_SPEND_PERCENTAGE}]")
+    # --- spend_amount positivity ---
+    if spend_amount is not None:
+      if spend_amount <= 0:
+        self.logger.error(f"Invalid 'spend_amount': {spend_amount}")
+        raise ValueError(f"'spend_amount' must be positive, got: {spend_amount}")
     # --- quantity positivity ---
     if quantity is not None:
       if quantity <= 0:

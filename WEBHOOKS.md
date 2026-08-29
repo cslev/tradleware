@@ -97,10 +97,30 @@ Key fields:
 |  |  | ⚠️ **Hardcode it — do not use `{{ticker}}`.** A bot trades exactly one instrument, so this field is an interlock confirming the alert is pointed at the right bot; it can never usefully vary. TradingView expands `{{ticker}}` to the venue-native spelling (`BTCUSDC` for `BINANCE:BTCUSDC`), not the `BTC/USDC` form Tradleware expects. Separator and case differences (`BTCUSDC`, `btc-usdc`) are accepted with a warning and rewritten to the configured pair, but a different instrument is always rejected. Perpetuals keep their `:` (`BTC/USDT:USDT` never matches spot `BTC/USDT`). |
 | `action` | Yes | `buy` or `sell` |
 | `timestamp` | Yes | Unix timestamp (seconds or ms) or ISO 8601 string — **must be the moment the signal fired**, see [Replay protection](#replay-protection) |
-| `order_size` | Yes | Amount to trade — percentage (0–100) or exact quantity depending on `order_size_type` |
-| `order_size_type` | No | `percentage` (default) or `quantity` |
+| `order_size` | Yes | Amount to trade — meaning depends on `order_size_type` |
+| `order_size_type` | No | `percentage` (default), `quantity`, or `cash` |
 | `alert_name` | No | Optional label shown in logs and notifications |
 | `dry_run` | No | `true` to simulate without executing — useful for testing |
+
+### Sizing modes
+
+| `order_size_type` | `order_size` means | Example |
+|---|---|---|
+| `percentage` | percent of available cash (buy) or of the position (sell), 0–100 | `25` → a quarter |
+| `quantity` | exact shares or coins | `12` → 12 shares |
+| `cash` | **stock bots only, buy only** — cash to spend, in the bot's `account_currency` | `300` → $300 worth |
+
+`cash` is what monthly DCA wants: the amount is fixed rather than derived from the
+balance. Two things follow from that.
+
+Without `fractional_shares: true`, the order is **truncated to whole shares** — $300 into
+a $110 ETF buys 2 shares ($220) and logs `Spent 220.00 of 300.00 requested`. Unlike
+percentage mode this does not catch up on its own, because the next order is pinned to
+the same amount and never reads the balance. Enable fractional shares where the
+instrument supports it, or expect the remainder to accumulate.
+
+Cash-denominated **sells are rejected**. Sizing an exit in cash changes meaning as the
+price moves and cannot express "close the position" — use `percentage` with `100`.
 
 > **Tip:** Each bot's dashboard card has a **Webhook Details** pane showing the exact endpoint URL, a ready-to-use cURL example, and a live test button — the easiest way to verify your setup without leaving the UI.
 

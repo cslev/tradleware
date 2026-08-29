@@ -315,6 +315,23 @@ class FakeStockTrader:
   def get_market_status(self):
     return "closed"
 
+  def can_trade_now(self):
+    return True
+
+  def get_time_until_market_opens(self):
+    return "0m"
+
+  async def create_order(self, **kwargs):
+    """Record the sizing arguments the handler chose, the way the crypto stub does."""
+    self.orders.append(kwargs)
+    return {
+      "order_id": f"stock-{len(self.orders)}",
+      "quantity": kwargs.get("quantity") or 0,
+      "price": 100.0,
+      "status": "simulated",
+      "side": kwargs.get("side"),
+    }
+
 
 @pytest.fixture
 def crypto_trader():
