@@ -46,7 +46,7 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 
 # Application version
-TRADLEWARE_VERSION = "v3.4.3b"
+TRADLEWARE_VERSION = "v3.5.0b"
 
 # Cache-busting suffix for static assets. Browsers hold on to /static/js/main.js across
 # reloads, so a released fix can sit on disk while users keep running the old file —

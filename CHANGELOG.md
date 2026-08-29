@@ -5,34 +5,54 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v3.4.3b] - 2026-08-29
+## [v3.5.0b] - 2026-08-29
 
-Stock bots are no longer assumed to be US-listed and USD-denominated. Existing bots are
-unaffected — every new setting defaults to the behaviour that was previously hardcoded.
+Signals can now be sized in cash — "invest 300" — instead of a percentage or an exact
+quantity. Stock bots also stop assuming a US-listed, USD-denominated instrument. Every
+new setting defaults to the previous behaviour, so existing bots are unaffected.
 
 ### Added
 
-- **`account_currency`** (default `USD`) — which cash balance a bot sizes orders against.
-  IBKR reports one cash figure per currency an account holds; this names the one to use.
-  If it is absent from what the broker reports, the bot now says which currencies *were*
-  returned instead of quietly sizing against zero.
-- **`trading_currency`** (defaults to `account_currency`) — the currency the instrument
-  trades in. Set it apart only when it genuinely differs from the account's.
-- **`exchange`** (default `SMART`) and **`primary_exchange`** (unset) — contract routing.
-  `SMART` lets IBKR choose a venue, which is right for US listings and ambiguous for a
-  cross-listed ticker that exists on several European venues in different currencies.
+- **Cash-denominated order sizing** — `order_size_type: "cash"` makes `order_size` an
+  amount of the currency you pay with: your account currency for stocks, the pair's quote
+  currency for crypto. The same payload works on either, so a signal never needs to know
+  which broker it reaches. **Buy only** — use `percentage` with `100` to close a position.
+  This is what recurring DCA wants: the amount stays fixed rather than following the
+  balance.
+  - Without `fractional_shares: true`, stock orders truncate to whole shares and log what
+    was left undeployed. Unlike percentage sizing this does not catch up on its own, so
+    enable fractional shares where the instrument supports it.
+  - Crypto amounts are checked against the pair's quote balance and the exchange's
+    minimum notional, naming the limit rather than letting the venue reject the order.
+- **`account_currency`** (default `USD`) for stock bots — which cash balance orders are
+  sized against. IBKR reports one figure per currency an account holds; this names the one
+  to use, and says which currencies *were* reported if the configured one is absent.
+- **`trading_currency`** (defaults to `account_currency`), **`exchange`** (default
+  `SMART`) and **`primary_exchange`** — contract routing. `SMART` suits US listings and is
+  ambiguous for a ticker cross-listed on several European venues in different currencies.
+
+### Changed
+
+- Explicit share counts are now checked against available cash or the position held
+  before the order is sent. Selling more than is held is refused rather than passed to the
+  broker, where a margin-enabled account would open a short for the excess.
+- Bot card logs drop internal `[LAYER n]` prefixes; they remain at DEBUG level.
+- Cash figures in stock logs show the account's currency instead of a `$` prefix.
+- The dashboard log pane keeps your scroll position instead of jumping to the newest entry
+  every refresh.
 
 ### Fixed
 
 - **Market-hours settings in stock bot configs now take effect.** `market_timezone`,
-  `market_open`, `market_close`, `pre_market_open` and `after_hours_close` were
-  documented and read by the trader, but never reached it — a bot on a non-US venue ran
-  on NYSE hours, refusing to trade during its own session and trading outside it.
-- **A crypto bot config that omits the optional `hostname` line now loads.** It
-  previously failed with an error that stopped the whole file, taking every other bot in
-  it along. The shipped examples all set `hostname: ""` explicitly, so only hand-written
-  configs that left the line out were affected.
-- Cash amounts in stock bot logs now show the account's currency instead of a `$` prefix.
+  `market_open`, `market_close`, `pre_market_open` and `after_hours_close` were documented
+  and read by the trader but never reached it — a bot on a non-US venue ran on NYSE hours,
+  refusing to trade during its own session and trading outside it.
+- **A crypto bot config that omits the optional `hostname` line now loads.** It previously
+  failed with an error that stopped the whole file, taking every other bot in it along.
+  The shipped examples all set `hostname: ""` explicitly, so only hand-written configs
+  that left the line out were affected.
+- Static assets are versioned, so a released fix reaches the browser instead of sitting
+  behind a cached copy of the previous one.
 
 ---
 

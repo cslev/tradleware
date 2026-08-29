@@ -73,7 +73,7 @@ Tradleware acts as the hardened "Switchboard" between your signals and the marke
 
 ### Precision Execution & Logic
 
-* **Hybrid Trade Sizing:** Support for both **Percentage-based** and **Fixed Quantity** trading—essential for traditional stocks that do not support fractional shares.
+* **Three Ways to Size a Trade:** **Percentage** of your balance, a **Fixed Quantity** of shares or coins, or a **Cash Amount** — "invest $300" — which is what recurring DCA actually wants. The same payload works on every broker: stocks size against your account currency, crypto against the pair's quote currency.
 * **Conflict-Free ROI:** Tradleware is broker-agnostic. It executes *your* logic, not an exchange's "AI bot" designed to farm transaction fees.
 * **The "USB-C" of Trading:** Pluggable and extensible. Are you a developer? Inject custom Python logic *after* a signal arrives but *before* it hits the exchange.
 
