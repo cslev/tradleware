@@ -74,7 +74,17 @@ async function refreshLogs(traderId) {
         
         if (response.ok) {
             const logs = data.logs;
-            
+
+            // Whether to re-pin to the bottom after refreshing. Measured BEFORE the
+            // content is replaced — afterwards scrollHeight has already changed and the
+            // answer is always "yes". Without this the 5s refresh drags the reader back
+            // down mid-sentence every time they scroll up to read something.
+            const STICK_TO_BOTTOM_PX = 40;   // a line or two of slack, not pixel-exact
+            const wasAtBottom = !debugLogContainer || (
+                debugLogContainer.scrollHeight
+                - debugLogContainer.scrollTop
+                - debugLogContainer.clientHeight <= STICK_TO_BOTTOM_PX);
+
             if (logs && logs.length > 0) {
                 // Process each log line to add color classes
                 const coloredLogs = logs.map(log => {
@@ -104,8 +114,9 @@ async function refreshLogs(traderId) {
             
             debugLogElement.className = 'whitespace-pre-wrap text-cyan-600 text-xs m-0';
             
-            // Auto-scroll to bottom after updating content
-            if (debugLogContainer) {
+            // Follow new entries only for a reader who was already at the bottom.
+            // Scrolled up means they are reading; leave them where they are.
+            if (debugLogContainer && wasAtBottom) {
                 setTimeout(() => {
                     debugLogContainer.scrollTop = debugLogContainer.scrollHeight;
                 }, 10); // Small delay to ensure content is rendered

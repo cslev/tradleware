@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
   <title>{{ title }}</title>
-  <link href="/static/css/output.css" rel="stylesheet">
+  <link href="/static/css/output.css?v={{ static_version }}" rel="stylesheet">
   <script src="https://unpkg.com/heroicons@2.0.18/24/solid/index.js"></script>
 </head>
 <body class="min-h-screen dashboard-page flex flex-col">  <!-- make body a column flex container so footer can sit at bottom -->
@@ -495,6 +495,6 @@
   </footer>
 
    <!-- Import the external JavaScript file -->
-   <script src="/static/js/main.js"></script>
+   <script src="/static/js/main.js?v={{ static_version }}"></script>
  </body>
  </html>

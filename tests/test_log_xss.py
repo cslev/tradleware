@@ -166,3 +166,77 @@ class TestEscapeSemantics:
   def test_the_day_divider_is_untouched(self, escape):
     """Escaping must not mangle the separator the renderer matches on."""
     assert escape("── 2026-08-24 ──") == "── 2026-08-24 ──"
+
+
+class TestLogPaneScrolling:
+  """
+  The pane re-pinned to the bottom on every 5s refresh, so scrolling up to read
+  something older was undone before you finished reading it.
+  """
+
+  def test_the_scroll_position_is_measured_before_the_content_is_replaced(self, source):
+    """
+    Order matters and is easy to get wrong: after innerHTML is assigned, scrollHeight
+    has already changed and 'was the reader at the bottom?' always answers yes.
+    """
+    measure = source.index("const wasAtBottom")
+    replace = source.index("debugLogElement.innerHTML = coloredLogs")
+    assert measure < replace, "wasAtBottom must be computed before the DOM write"
+
+  def test_re_pinning_is_conditional(self, source):
+    assert "if (debugLogContainer && wasAtBottom)" in source
+
+  def test_the_unconditional_scroll_is_gone(self, source):
+    """The exact line that caused it."""
+    block = source[source.index("async function refreshLogs"):
+                   source.index("async function refreshBalance")]
+    assert "if (debugLogContainer) {\n                setTimeout" not in block
+
+  def test_a_reader_at_the_bottom_still_follows_new_entries(self, source):
+    """Tailing must keep working — the fix must not simply disable auto-scroll."""
+    assert "debugLogContainer.scrollTop = debugLogContainer.scrollHeight" in source
+
+
+@pytest.fixture(scope="module")
+def templates():
+  root = MAIN_JS.resolve().parents[2] / "templates"
+  return {p.name: p.read_text(encoding="utf-8") for p in root.glob("*.html")}
+
+
+class TestStaticCacheBusting:
+  """
+  Static assets are versioned so a shipped fix actually reaches the browser.
+
+  Without it, /static/js/main.js is cached across reloads and a corrected file can sit
+  on disk while users keep running the old one — which is how a working scroll fix
+  appeared not to work at all.
+  """
+
+  def test_every_static_reference_is_versioned(self, templates):
+    unversioned = []
+    for name, html in templates.items():
+      for asset in re.findall(r'/static/(?:js|css)/[A-Za-z0-9_.-]+(?:\?[^"\']*)?', html):
+        if "?v=" not in asset:
+          unversioned.append(f"{name}: {asset}")
+    assert unversioned == [], f"cacheable without a version: {unversioned}"
+
+  def test_the_token_does_not_disclose_the_version(self):
+    """
+    The login page is unauthenticated and deliberately hides the version — a
+    querystring is every bit as readable as a footer would be.
+    """
+    from src.ui.app import STATIC_VERSION, TRADLEWARE_VERSION
+    assert TRADLEWARE_VERSION not in STATIC_VERSION
+    assert TRADLEWARE_VERSION.lstrip("v") not in STATIC_VERSION
+
+  def test_the_token_changes_between_releases(self):
+    """A token that never changes busts no caches."""
+    import hashlib
+    token = lambda v: hashlib.sha256(v.encode()).hexdigest()[:8]
+    assert token("v3.4.3b") != token("v3.4.4b")
+
+  def test_the_token_is_stable_for_one_release(self):
+    from src.ui.app import STATIC_VERSION
+    import hashlib
+    from src.ui.app import TRADLEWARE_VERSION
+    assert STATIC_VERSION == hashlib.sha256(TRADLEWARE_VERSION.encode()).hexdigest()[:8]

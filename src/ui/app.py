@@ -11,6 +11,7 @@ signals, and provides endpoints for balance monitoring and order management.
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import hashlib
 import ipaddress
 import json
 import math
@@ -46,6 +47,15 @@ from src.traders.stock.ibkr_trader import IBKRTrader
 
 # Application version
 TRADLEWARE_VERSION = "v3.4.3b"
+
+# Cache-busting suffix for static assets. Browsers hold on to /static/js/main.js across
+# reloads, so a released fix can sit on disk while users keep running the old file —
+# which is exactly how a shipped CSS fix appeared not to work.
+#
+# Derived from the version rather than being the version: the login page is
+# unauthenticated and deliberately does not disclose which release is running, and a
+# querystring is as visible as a footer.
+STATIC_VERSION = hashlib.sha256(TRADLEWARE_VERSION.encode()).hexdigest()[:8]
 
 # You might need to adjust this import based on where your logger.py is relative to app.py
 # If your logger is within src/misc, you might access it like this:
@@ -898,7 +908,8 @@ async def login_page(request: Request):
       "error": error,
       "using_defaults": USING_DEFAULT_CREDENTIALS,
       "is_secure": is_secure,
-      "version": TRADLEWARE_VERSION  # Pass application version
+      "version": TRADLEWARE_VERSION,  # Pass application version
+      "static_version": STATIC_VERSION,
     }
   )
 
@@ -993,6 +1004,7 @@ async def read_root(request: Request):
       "client_ip": client_ip,  # Pass client IP for display
       "server_public_ip": SERVER_PUBLIC_IP,  # Pass server public IP for display
       "version": TRADLEWARE_VERSION,  # Pass application version
+      "static_version": STATIC_VERSION,
       "update_available": _update_state["update_available"],
       "latest_version": _update_state["latest_version"],
     }
