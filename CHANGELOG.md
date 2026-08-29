@@ -5,6 +5,37 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.4.3b] - 2026-08-29
+
+Stock bots are no longer assumed to be US-listed and USD-denominated. Existing bots are
+unaffected — every new setting defaults to the behaviour that was previously hardcoded.
+
+### Added
+
+- **`account_currency`** (default `USD`) — which cash balance a bot sizes orders against.
+  IBKR reports one cash figure per currency an account holds; this names the one to use.
+  If it is absent from what the broker reports, the bot now says which currencies *were*
+  returned instead of quietly sizing against zero.
+- **`trading_currency`** (defaults to `account_currency`) — the currency the instrument
+  trades in. Set it apart only when it genuinely differs from the account's.
+- **`exchange`** (default `SMART`) and **`primary_exchange`** (unset) — contract routing.
+  `SMART` lets IBKR choose a venue, which is right for US listings and ambiguous for a
+  cross-listed ticker that exists on several European venues in different currencies.
+
+### Fixed
+
+- **Market-hours settings in stock bot configs now take effect.** `market_timezone`,
+  `market_open`, `market_close`, `pre_market_open` and `after_hours_close` were
+  documented and read by the trader, but never reached it — a bot on a non-US venue ran
+  on NYSE hours, refusing to trade during its own session and trading outside it.
+- **A crypto bot config that omits the optional `hostname` line now loads.** It
+  previously failed with an error that stopped the whole file, taking every other bot in
+  it along. The shipped examples all set `hostname: ""` explicitly, so only hand-written
+  configs that left the line out were affected.
+- Cash amounts in stock bot logs now show the account's currency instead of a `$` prefix.
+
+---
+
 ## [v3.4.2b] - 2026-08-25
 
 ### Added

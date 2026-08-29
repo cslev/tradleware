@@ -6,9 +6,12 @@
 > Last updated: 18 Aug 2026 (session 17)
 > Last updated: 20 Aug 2026 (session 18)
 > Last updated: 25 Aug 2026 (session 19)
+> Last updated: 29 Aug 2026 (session 20)
 
 
 ## Current State
+**v3.4.3b** — configurable stock account/contract currency and venue; market-hours settings now reach the trader
+
 **v3.4.2b released** — dated bot card logs, ticker spelling tolerance, dashboard log escaping
 
 **v3.4.1b released** — fixes mixed-content static assets behind an HTTPS proxy (v3.4.0b only)
@@ -215,6 +218,36 @@ to handle when building it:
 ---
 
 ## Session History
+
+### 29 Aug 2026 (session 20) — stock bots stop assuming US/USD
+Started as one hardcoded `'USD'` in the IBKR cash lookup; the sweep that followed found
+three more layers of the same assumption, two of them pre-existing bugs.
+
+- **`account_currency`** (base class — every stock broker has one), default `USD`,
+  uppercased so `eur` in YAML still matches IB's `EUR`. The four duplicated
+  `TotalCashValue` lookups collapsed into `_fetch_cash_balance()`, each caller keeping
+  its own error handling: non-fatal refreshing a card, fatal placing a live order. A
+  missing currency now logs which ones IB *did* return — `0.0` is otherwise
+  indistinguishable from an empty account.
+- **Contract routing** (`exchange`, `primary_exchange`, `trading_currency`). Contracts
+  were built `Stock(symbol, 'SMART', 'USD')` at two sites — the bot's own contract and
+  an ad-hoc one in `get_market_price`. `trading_currency` defaults to
+  `account_currency`; they are separate because a USD account can buy a EUR instrument.
+- **The config loader whitelists fields**, so none of the above would have reached the
+  trader — and neither had the five market-hours settings (`market_timezone` and
+  friends), documented and read but never emitted. A European bot silently ran NYSE
+  hours. Also fixed `bot['hostname']` raising KeyError on a config the validator had
+  just accepted, since `hostname` is deliberately optional.
+- **Guard against recurrence:** a test greps every `config.get('x')` / `config['x']` out
+  of the trader modules and asserts the loader emits each one, for both broker families.
+  Adding a setting and forgetting the loader now fails with the field name.
+- Backward compatibility verified by construction, not assertion: a pre-change config
+  produces a byte-identical `Stock(symbol='AAPL', exchange='SMART', currency='USD')`.
+- Suite 418 → 445, pylint 10.00/10.
+
+**Known limitation:** `fetch_positions` and the dashboard still report stock values
+without a currency label, and IBKR's `SMART` routing is only disambiguated when
+`primary_exchange` is set.
 
 ### 23 Aug 2026 (session 18) — ticker spelling tolerance
 Signals for `BTCUSDC` were rejected against a bot configured for `BTC/USDC`. Root cause was

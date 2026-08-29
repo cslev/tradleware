@@ -21,6 +21,14 @@ bots:
     extended_hours: false                 # Allow pre-market and after-hours trading
     fractional_shares: false              # Enable fractional shares (not all symbols support this)
     tradleware_api_key: "your_tradleware_api_key_here"  # Webhook auth key — generate with: openssl rand -hex 32
+    # Account and contract — all optional, defaults suit a US-listed, USD-denominated bot.
+    # The first says what the ACCOUNT holds, the rest say what the INSTRUMENT is.
+    # account_currency: "USD"              # Default. Which cash balance orders are sized
+                                           #   against — IB reports one per currency held
+    # trading_currency: "USD"              # Defaults to account_currency. The currency the
+                                           #   instrument trades in. Set apart only if they differ
+    # exchange: "SMART"                    # Default. SMART lets IB pick the venue
+    # primary_exchange: ""                 # Disambiguates a cross-listed ticker, e.g. "AEB"
     # Market hours — all optional, defaults are US Eastern (NYSE/NASDAQ)
     # Use IANA timezone names: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
     # market_timezone: "America/New_York"  # Default. Use e.g. "Asia/Singapore" for SGX
@@ -28,3 +36,18 @@ bots:
     # market_close: "16:00"               # Default. SGX: "17:00"
     # pre_market_open: "04:00"            # Default. SGX: "08:30"
     # after_hours_close: "20:00"          # Default. SGX: "17:00"
+
+  # A non-US example: a EUR-denominated UCITS ETF on Euronext Amsterdam.
+  # SMART alone is ambiguous here — the same ticker is listed on several European
+  # venues in different currencies, so name the primary exchange.
+  # - id: myetfbot
+  #   account_id: "U1234567"
+  #   symbol: "VWCE"
+  #   account_currency: "EUR"             # sizes orders against the EUR cash balance
+  #   primary_exchange: "AEB"             # Euronext Amsterdam
+  #   fractional_shares: false            # most UCITS ETFs are not fractional-eligible at IBKR
+  #   market_timezone: "Europe/Amsterdam"
+  #   market_open: "09:00"
+  #   market_close: "17:30"
+  #   tradleware_api_key: "your_tradleware_api_key_here"
+  #   # trading_currency is omitted — it follows account_currency (EUR)
