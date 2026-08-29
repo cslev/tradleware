@@ -209,6 +209,47 @@ class IBKRTrader(BaseStockTrader):
       )
     return 0.0
 
+  async def _fetch_sizing_context(self, side: str, ctx: dict, dry_run: bool = False) -> dict:
+    """
+    Populate `ctx` with the balance an order needs to be sized: cash to buy, shares to sell.
+
+    `dry_run` decides only what happens when the gateway is unreachable. A dry run falls
+    back to simulated values so it still returns something to look at; a live order
+    fails instead, because sizing against a number nobody managed to read is how you
+    place an order you did not mean.
+
+    Splitting that from "do we need a balance at all?" is deliberate. Those two
+    questions used to be braided into one if/elif chain, which meant the same fetch was
+    written twice and every change to it had to be made in both copies.
+    """
+    try:
+      if side == 'buy':
+        ctx['cash_available'] = await self._fetch_cash_balance()
+        self.logger.info(
+          f"[LAYER 3]{' [DRY RUN]' if dry_run else ''} Cash available: "
+          f"{ctx['cash_available']:.2f} {self.account_currency}"
+        )
+      else:
+        position_info = await self.fetch_positions()
+        ctx['shares_owned'] = position_info.get('quantity', 0)
+        self.logger.info(
+          f"[LAYER 3]{' [DRY RUN]' if dry_run else ''} Position: "
+          f"{ctx['shares_owned']} shares"
+        )
+      return ctx
+    except Exception as exc:
+      self._handle_ib_exception(exc, "create_order/sizing")
+      if not dry_run:
+        raise RuntimeError(f"Failed to fetch balance for sizing: {exc}") from exc
+      self.logger.warning(
+        f"[LAYER 3][DRY RUN] Could not fetch real balance ({exc}); using simulated values"
+      )
+      if side == 'buy':
+        ctx['cash_available'] = 10_000.0
+      else:
+        ctx['shares_owned'] = 10
+      return ctx
+
   async def fetch_positions(self) -> Dict[str, Any]:
     """
     Get position details with unrealized P&L for this symbol.
@@ -475,47 +516,12 @@ class IBKRTrader(BaseStockTrader):
     # LAYER 3 — CALCULATE ORDER SIZE (base class: _calculate_order_size)
     # ─────────────────────────────────────────────────────────────────────────
     dry_run_mode = params.get('dry_run', False)
-    try:  # pylint: disable=too-many-nested-blocks
+    try:
       if quantity is not None:
-        # QUANTITY MODE: caller supplied an explicit share count — no live API needed.
+        # An explicit share count needs no balance to compute a size from.
         self.logger.info(f"[LAYER 3] Quantity mode: {quantity} shares (skipping balance fetch)")
-      elif dry_run_mode:
-        # DRY RUN + PERCENTAGE MODE: try real balance first; fall back to simulated
-        # values only if the gateway is unreachable.
-        try:
-          if side == 'buy':
-            cash_available = await self._fetch_cash_balance()
-            ctx['cash_available'] = cash_available
-            self.logger.info(
-              f"[LAYER 3][DRY RUN] Using real cash balance: "
-              f"{cash_available:.2f} {self.account_currency}")
-          else:
-            position_info = await self.fetch_positions()
-            shares = position_info.get('quantity', 0)
-            ctx['shares_owned'] = shares
-            self.logger.info(f"[LAYER 3][DRY RUN] Using real position: {shares} shares")
-        except Exception as balance_exc:
-          # Gateway unavailable — fall back to simulated values so dry_run still works.
-          self.logger.warning(f"[LAYER 3][DRY RUN] Could not fetch real balance ({balance_exc}); using simulated values")
-          if side == 'buy':
-            ctx['cash_available'] = 10_000.0
-          else:
-            ctx['shares_owned'] = 10
-        quantity = self._calculate_order_size(side, spend_percentage, ctx,
-                                                fractional_shares=self.fractional_shares)
       else:
-        # LIVE PERCENTAGE MODE: fetch real balance from IB Gateway.
-        if side == 'buy':
-          try:
-            cash_available = await self._fetch_cash_balance()
-            ctx['cash_available'] = cash_available
-          except Exception as balance_exc:
-            self._handle_ib_exception(balance_exc, "create_order/accountSummary")
-            raise RuntimeError(f"Failed to fetch cash balance: {balance_exc}") from balance_exc
-        else:
-          position_info = await self.fetch_positions()
-          shares = position_info.get('quantity', 0)
-          ctx['shares_owned'] = shares
+        await self._fetch_sizing_context(side, ctx, dry_run=dry_run_mode)
         quantity = self._calculate_order_size(side, spend_percentage, ctx,
                                               fractional_shares=self.fractional_shares)
     except (ValueError, RuntimeError) as exc:
