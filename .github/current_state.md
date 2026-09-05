@@ -123,10 +123,39 @@ to handle when building it:
 - [ ] `cancel_order()` — raises `NotImplementedError`. All orders are market orders that fill immediately; nothing to cancel. Only becomes relevant if limit orders are ever added.
 - [ ] `fetch_open_orders()` — raises `NotImplementedError`. Useful for dashboard visibility into pending orders only.
 
-### Limit Order Support via webhook
-- `order_execution_strategy` is now read from the webhook payload in `app.py` (no longer hardcoded to `'market'`)
-- However, the field is not yet formally documented in the webhook schema or validated at the API boundary — the payload `order_execution_strategy` is only passed through if present
-- Only worth full validation/documentation when strategies actively use specific entry price targets
+### Limit / stop orders via webhook — evaluated 05 Sep 2026, not building
+**Correction to the previous note here:** `order_execution_strategy` is *not* read from the
+payload. `app.py` hardcodes `'market'` at all three `create_order` call sites, so the
+`LimitOrder` branch in `ibkr_trader` is unreachable from a webhook.
+
+Decided against, on the grounds that a real-time strategy which fires "buy now" has already
+chosen the moment — a resting limit either fills worse or silently misses the trade. And a
+protective stop would be a *second* exit mechanism competing with the crash signal that
+already sells the position, which is how a wick takes you out before your own strategy
+would have. One signal source owns entries and exits.
+
+If this is ever revisited, the useful shapes are **not** standalone resting orders:
+- **Marketable limit** (limit at market + ~0.2%) — caps slippage on a thin instrument,
+  fills immediately, needs no lifecycle handling.
+- **`IB.bracketOrder(action, qty, limitPrice, takeProfitPrice, stopLossPrice)`** — buy and
+  its protective stop placed atomically and OCA-linked, so IB cancels the sibling itself.
+  No open-order discovery, no cancel-and-replace, no ownership tagging.
+- **`Order.trailingPercent`** — a native server-side trailing stop. Strictly better than a
+  cron that rewrites a stop daily: it ratchets continuously and cannot lag an intraday move.
+
+Standalone resting orders were the expensive option, and the cost was self-inflicted:
+they would have required `fetch_open_orders()`, cancel-and-replace keyed on an `orderRef`
+tag (TradingView cannot know an order id, so a signal can never cancel by id), and a fix
+to the `clientId` bug below.
+
+### `clientId` is randomised on every restart — latent
+`ibkr_trader.py` uses `hash(self.account_identifier) % 1000`, and Python salts string
+hashing per process, so the same bot connects as a different IB client each start (observed:
+254, 928, 733). Harmless today because no order outlives a request. Two consequences if
+anything changes: `reqOpenOrders()` would not return orders placed before a restart, and two
+bot ids can collide mod 1000 within one process and have the second connection refused.
+Fix would be a stable derivation (`hashlib` over the bot id) or an explicit `client_id` in
+the bot config.
 
 
 ---
