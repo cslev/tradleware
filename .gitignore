@@ -234,3 +234,7 @@ node_modules/
 # docker-compose.ibkr.yml's ./tws-settings volume. Machine-specific and can contain
 # account details.
 tws-settings/
+
+# Editor workspace files. VS Code and VSCodium share this convention — VSCodium is the
+# same codebase with branding stripped, so one pattern covers both.
+*.code-workspace
