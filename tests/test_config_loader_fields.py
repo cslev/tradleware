@@ -224,3 +224,55 @@ class TestShippedExample:
     assert etf["primary_exchange"] == "AEB"
     assert etf["market_timezone"] == "Europe/Amsterdam"
     assert etf["market_open"] == "09:00"
+
+
+class TestTheModuleDocstringMatchesReality:
+  """
+  The header documents the dict shape the loader returns, and it is the first thing
+  anyone reads before touching this file. It had silently fallen nine keys behind —
+  every stock setting added for v3.5.0b plus client_id — so it described a return value
+  that had not existed for a week.
+
+  Nothing else catches this: the code is correct, only the documentation lies.
+  """
+
+  @staticmethod
+  def _documented(doc):
+    """
+    Keys the docstring actually declares, as `'name':` dict entries.
+
+    A bare substring search is not enough — 'client_id' also appears inside the prose
+    (`_assign_client_ids`), so deleting the real entry left the test green.
+    """
+    return set(re.findall(r"^\s*'([a-z_]+)':", doc, re.MULTILINE))
+
+  def _emitted(self, tmp_path, loader, filename, body):
+    path = tmp_path / filename
+    path.write_text(body, encoding="utf-8")
+    configs = loader(filename.split('.')[0], path)
+    from src.misc.config_loader import _assign_client_ids
+    _assign_client_ids(configs)
+    return set(configs[0])
+
+  def test_every_stock_key_appears_in_the_docstring(self, tmp_path):
+    import src.misc.config_loader as cl
+    emitted = self._emitted(tmp_path, cl._load_stock_bots, "ibkr.yaml", STOCK_MINIMAL)
+    undocumented = sorted(emitted - self._documented(cl.__doc__))
+    assert undocumented == [], (
+      f"the loader returns {undocumented} but the module docstring never mentions them"
+    )
+
+  def test_every_crypto_key_appears_in_the_docstring(self, tmp_path):
+    import src.misc.config_loader as cl
+    body = """
+bots:
+  - id: mybtcbot
+    api_key: "k"
+    secret_key: "s"
+    stablecoin_fiat_pair: "USDT/SGD"
+    crypto_stablecoin_pair: "BTC/USDT"
+    tradleware_api_key: "tw_live_x"
+"""
+    emitted = self._emitted(tmp_path, cl._load_crypto_bots, "okx.yaml", body)
+    undocumented = sorted(emitted - self._documented(cl.__doc__))
+    assert undocumented == [], undocumented

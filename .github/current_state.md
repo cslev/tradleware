@@ -8,6 +8,7 @@
 > Last updated: 25 Aug 2026 (session 19)
 > Last updated: 29 Aug 2026 (session 20)
 > Last updated: 29 Aug 2026 (session 21)
+> Last updated: 05 Sep 2026 (session 22)
 
 
 ## Current State
@@ -148,19 +149,45 @@ they would have required `fetch_open_orders()`, cancel-and-replace keyed on an `
 tag (TradingView cannot know an order id, so a signal can never cancel by id), and a fix
 to the `clientId` bug below.
 
-### `clientId` is randomised on every restart — latent
-`ibkr_trader.py` uses `hash(self.account_identifier) % 1000`, and Python salts string
-hashing per process, so the same bot connects as a different IB client each start (observed:
-254, 928, 733). Harmless today because no order outlives a request. Two consequences if
-anything changes: `reqOpenOrders()` would not return orders placed before a restart, and two
-bot ids can collide mod 1000 within one process and have the second connection refused.
-Fix would be a stable derivation (`hashlib` over the bot id) or an explicit `client_id` in
-the bot config.
-
-
----
-
 ## Session History
+
+### 05 Sep 2026 (session 22) — IB client ids, and two documentation lies
+**Limit / stop orders: evaluated and declined** — see Future Goals for the reasoning.
+Investigating it turned up the two items below, both independent of the feature.
+
+**`clientId` was randomised on every restart.** `ibkr_trader.py` derived it from
+`hash(self.account_identifier) % 1000`, and Python salts string hashing per process, so
+the same bot introduced itself to IB as a different client each start (measured 254, 928,
+733). IB refuses a second connection on an id already in use, and `% 1000` makes two bots
+collidable — 0.1% per restart at two bots, 4.4% at ten. Randomisation is what made it
+nasty: a fixed hash collides permanently and gets fixed on day one, whereas this ran for
+months, failed to connect once, and "recovered" on the next restart.
+
+- `client_id` is now an optional per-bot config field. Pinned ids win; the rest fill from
+  the lowest free number, so auto-assigned bots cannot collide with each other or with a
+  pinned one.
+- A duplicate pin is **reassigned rather than left to fail**, reported at error level — a
+  bot whose id is not the number you typed beats a bot that never trades.
+- Surfaced at startup by `_report_client_ids()`, mirroring `_report_weak_api_keys`. The
+  "no client_id set" note is deliberately `info`, not `warning`: at warning level it would
+  push a Gotify notification on every restart of a healthy setup, and auto-assignment is
+  not a problem — only less stable if bots are reordered.
+- Verified against the paper account: `client_id=1` carried from YAML to `connectAsync`,
+  cash sizing correct against a real balance (200.00 USD → 1.4027 MSTR @ 142.58, floored
+  not rounded), and a live order correctly refused by the market-hours gate on a Saturday.
+
+**The module docstring in `config_loader.py` was nine keys behind** — `client_id` plus
+every stock setting added for v3.5.0b. It described a return value that had not existed
+for a week, and it is the first thing anyone reads before touching that file.
+
+**Both guards nearly shipped vacuous.** The docstring test first checked
+`key not in docstring`, which passed even with the entry deleted, because `client_id` also
+appears in the prose as `_assign_client_ids`. It now matches `'key':` in dict-entry form.
+Only mutation testing caught it — the same failure mode as the two diagnostics bugs caught
+in session 21. Tests that assert on documentation need mutating like any other.
+
+- Suite 588 → 609, pylint 10.00/10.
+
 
 ### 29 Aug 2026 (session 21) — cash-denominated order sizing, both broker families
 `order_size_type: "cash"` shipped. The amount is the currency you pay with — account

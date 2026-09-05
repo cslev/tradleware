@@ -41,6 +41,26 @@ Returned dict shape — IBKR stock bot:
     'extended_hours':    False,
     'fractional_shares': False,
     'tradleware_api_key': '...',
+
+    # Unique IB client id. Pinned in YAML, or assigned by _assign_client_ids() so no
+    # two bots share one — IB refuses the second connection on a duplicate.
+    'client_id':         1,
+
+    # What the ACCOUNT holds vs what the INSTRUMENT is. Defaults suit a US-listed,
+    # USD-denominated bot, so an existing config is unaffected.
+    'account_currency':  'USD',
+    'trading_currency':  'USD',              # defaults to account_currency
+    'exchange':          'SMART',
+    'primary_exchange':  '',                 # disambiguates a cross-listed ticker
+
+    # Market hours. Read by BaseStockTrader; a bot on a non-US venue needs these or it
+    # runs on NYSE hours.
+    'market_timezone':   'America/New_York',
+    'market_open':       '09:30',
+    'market_close':      '16:00',
+    'pre_market_open':   '04:00',
+    'after_hours_close': '20:00',
+
     'gateway': {
       'host':         '127.0.0.1',
       'port':         8888,
