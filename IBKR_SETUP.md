@@ -54,6 +54,7 @@ They default to a US-listed, USD setup, so a plain `AAPL` bot needs none of them
 
 | Field | Default | Meaning |
 |---|---|---|
+| `client_id` | auto-assigned | Unique IB client id. IB refuses two connections sharing one, so a duplicate leaves a bot unable to connect. Assigned automatically when absent — but the number follows config order, so pin it if you want it stable |
 | `account_currency` | `USD` | Which `TotalCashValue` row orders are sized against |
 | `trading_currency` | same as `account_currency` | The currency the instrument trades in |
 | `exchange` | `SMART` | Routing venue; `SMART` lets IB choose |

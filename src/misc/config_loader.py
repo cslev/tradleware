@@ -189,6 +189,9 @@ def _load_stock_bots(broker: str, path: Path) -> list:
 
       # Account and contract settings. Defaults match what the traders applied when
       # these were absent, so an existing US/USD bot is unaffected.
+      # None means "assign one for me" — resolved by _assign_client_ids() once every
+      # bot is loaded, since uniqueness is a property of the whole set, not one file.
+      'client_id':          bot.get('client_id'),
       'account_currency':   str(bot.get('account_currency', 'USD')),
       'trading_currency':   str(bot.get('trading_currency',
                                         bot.get('account_currency', 'USD'))),
@@ -209,6 +212,85 @@ def _load_stock_bots(broker: str, path: Path) -> list:
     )
 
   return configs
+
+
+# Client-id problems found during the last load, for the app to surface at startup with
+# a Gotify-enabled logger. The loader's own logger has no Gotify wired.
+_CLIENT_ID_FINDINGS: list = []
+
+
+def client_id_findings() -> list:
+  """Client-id problems from the last get_bot_configs() call. See _assign_client_ids."""
+  return list(_CLIENT_ID_FINDINGS)
+
+
+def _assign_client_ids(configs: list) -> None:
+  """
+  Give every stock bot a unique IB client id, honouring any pinned in config.
+
+  IB refuses a second connection using a client id already in use, so a duplicate means
+  one bot silently never connects. The previous scheme was `hash(bot_id) % 1000`, which
+  is worse than it looks: Python salts string hashing per process, so the ids were
+  redrawn on every restart. A collision therefore appeared at random — the bot would run
+  for weeks, fail to start once, and "recover" on the next restart.
+
+  Pinned ids win; the rest are filled from the lowest free number, so auto-assigned bots
+  can never collide with each other or with a pinned one. A duplicate pin is reassigned
+  rather than left to fail, because a bot that does not trade is worse than a bot whose
+  id is not the number you typed — but it is reported loudly either way.
+  """
+  _CLIENT_ID_FINDINGS.clear()
+  stock = [c for c in configs if c.get('bot_type') == 'stock']
+  if not stock:
+    return
+
+  taken, unpinned, unset = set(), [], []
+  for bot_cfg in stock:
+    raw = bot_cfg.get('client_id')
+    if raw is None:
+      unpinned.append(bot_cfg)
+      unset.append(bot_cfg)
+      continue
+    try:
+      pinned = int(raw)
+    except (TypeError, ValueError):
+      _CLIENT_ID_FINDINGS.append({
+        'bot_id': bot_cfg['id'], 'level': 'warning',
+        'reason': f"client_id {raw!r} is not a whole number; one will be assigned instead",
+      })
+      unpinned.append(bot_cfg)
+      continue
+    if pinned in taken:
+      _CLIENT_ID_FINDINGS.append({
+        'bot_id': bot_cfg['id'], 'level': 'critical',
+        'reason': (f"client_id {pinned} is already used by another bot. IB refuses a "
+                   f"duplicate, so one of them would never connect — assigning a free "
+                   f"id to this one. Give each bot its own client_id."),
+      })
+      unpinned.append(bot_cfg)
+      continue
+    bot_cfg['client_id'] = pinned
+    taken.add(pinned)
+
+  next_id = 1
+  for bot_cfg in unpinned:
+    while next_id in taken:
+      next_id += 1
+    bot_cfg['client_id'] = next_id
+    taken.add(next_id)
+
+  if unset:
+    # Info, not warning: an auto-assigned id is correct and collision-free, so this is a
+    # note about stability rather than a problem. At warning level it would push a
+    # Gotify notification on every restart of a perfectly healthy setup.
+    _CLIENT_ID_FINDINGS.append({
+      'bot_id': None, 'level': 'info',
+      'reason': (f"{len(unset)} stock bot(s) have no client_id and were assigned one "
+                 f"automatically ("
+                 + ", ".join(f"{c['id']}={c['client_id']}" for c in unset)
+                 + "). Auto-assigned ids follow config load order, so adding or "
+                   "reordering bots shifts them. Set client_id per bot to pin them."),
+    })
 
 
 def get_bot_configs() -> list:
@@ -247,6 +329,8 @@ def get_bot_configs() -> list:
   else:
     _loader_logger.warning("bot_configs/stock/ not found, skipping stock bots")
 
+  _assign_client_ids(all_configs)
+
   _loader_logger.info(f"Config loader finished: {len(all_configs)} bot(s) found")
   return all_configs
 
@@ -275,6 +359,7 @@ if __name__ == '__main__':
         print(f"  [{cfg['bot_type'].upper()}]  id={cfg['id']}  broker={cfg['broker'].upper()}")
         print(f"    symbol:            {cfg['symbol']}")
         print(f"    account_id:        {cfg['account_id']}")
+        print(f"    client_id:         {cfg['client_id']}")
         print(f"    extended_hours:    {cfg['extended_hours']}")
         print(f"    fractional_shares: {cfg['fractional_shares']}")
         print(f"    tradleware_key:    {cfg['tradleware_api_key'][:6]}{'*' * 10}  (truncated)")

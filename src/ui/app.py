@@ -31,7 +31,7 @@ from starlette.middleware.sessions import SessionMiddleware
 # First-party imports
 from src.misc.logger import CustomLogger, flush_gotify_queue
 from src.misc.get_env import get_env
-from src.misc.config_loader import get_bot_configs
+from src.misc.config_loader import get_bot_configs, client_id_findings
 from src.misc.failure_limiter import FailureLimiter
 from src.misc.key_strength import assess_key, find_shared_keys
 from src.misc.rejection_reporter import RejectionReporter
@@ -222,6 +222,25 @@ def api_key_findings() -> dict:
   return findings
 
 
+def _report_client_ids() -> None:
+  """
+  Surface client-id problems once at startup. Never refuses to start.
+
+  IB rejects a second connection on an id already in use, so a duplicate leaves one bot
+  silently not trading. The loader reassigns rather than letting that happen, but the
+  operator still needs to know their config says something it did not get.
+  """
+  for finding in client_id_findings():
+    who = f"bot '{finding['bot_id']}': " if finding['bot_id'] else ""
+    message = f"{who}{finding['reason']}"
+    if finding['level'] == 'critical':
+      logger.error(message)
+    elif finding['level'] == 'warning':
+      logger.warning(message)
+    else:
+      logger.info(message)
+
+
 def _report_weak_api_keys() -> None:
   """Log the webhook key findings once at startup. Never refuses to start."""
   findings = api_key_findings()
@@ -292,6 +311,7 @@ async def lifespan(app: FastAPI):  # pylint: disable=redefined-outer-name
   else:
     logger.error("No bot configurations found. Check the bot_configs/ directory.")
 
+  _report_client_ids()
   _report_weak_api_keys()
 
   # Start IBKR health-check background task

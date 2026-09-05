@@ -283,6 +283,7 @@ bots:
     symbol: AAPL
     extended_hours: false
     fractional_shares: false  # not all symbols support this; IBKR rejects if unsupported
+    client_id: 1              # optional — unique IB client id; auto-assigned when absent
     account_currency: USD     # optional, default USD — which TotalCashValue row to size against
     trading_currency: USD     # optional, defaults to account_currency — the instrument's currency
     exchange: SMART           # optional, default SMART — routing venue

@@ -36,6 +36,17 @@ class IBKRTrader(BaseStockTrader):
     # Per-bot IBKR credentials
     self.account_id = config['account_id']
 
+    # Assigned by config_loader._assign_client_ids(), which guarantees uniqueness across
+    # every stock bot. Never derive this from hash() — Python salts string hashing per
+    # process, so the id changed on every restart and collisions surfaced at random.
+    if config.get('client_id') is None:
+      raise ValueError(
+        f"No client_id for bot '{config['id']}'. Stock configs must come from "
+        f"config_loader.get_bot_configs(), which assigns unique ids. Defaulting one "
+        f"here would let two bots collide and leave one silently unable to connect."
+      )
+    self.client_id = int(config['client_id'])
+
     # Fractional share support (off by default — not all symbols support it)
     self.fractional_shares = config.get('fractional_shares', False)
 
@@ -67,6 +78,7 @@ class IBKRTrader(BaseStockTrader):
     self.logger.info(
         f"IBKRTrader initialized: {self.symbol} on {self.exchange} "
         f"in {self.trading_currency} via port {self.gateway_port} "
+        f"(client_id={self.client_id}) "
         f"(fractional_shares={'enabled' if self.fractional_shares else 'disabled'})"
     )
 
@@ -92,7 +104,7 @@ class IBKRTrader(BaseStockTrader):
       await self.ib.connectAsync(
         host=self.gateway_host,
         port=self.gateway_port,
-        clientId=hash(self.account_identifier) % 1000  # Unique client ID per bot
+        clientId=self.client_id
       )
 
       # Register error handler for connection issues.

@@ -211,6 +211,8 @@ class TestContractRouting:
       'id': 'etfbot', 'broker': 'ibkr', 'symbol': 'vwce',
       'tradleware_api_key': 'tw_live_x', 'account_id': 'DU123456',
       'gateway': {'host': 'ib_gateway', 'port': 8888},
+      # Normally assigned by config_loader; required, never defaulted.
+      'client_id': 1,
     }
     config.update(cfg)
     return IBKRTrader(config, logger=_Recorder())
@@ -298,6 +300,8 @@ class TestConnectBuildsTheConfiguredContract:
       'id': 'etfbot', 'broker': 'ibkr', 'symbol': 'vwce',
       'tradleware_api_key': 'tw_live_x', 'account_id': 'DU123456',
       'gateway': {'host': 'ib_gateway', 'port': 8888},
+      # Normally assigned by config_loader; required, never defaulted.
+      'client_id': 1,
     }
     config.update(cfg)
     trader = IBKRTrader(config, logger=_Recorder())

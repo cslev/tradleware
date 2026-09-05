@@ -21,6 +21,12 @@ bots:
     extended_hours: false                 # Allow pre-market and after-hours trading
     fractional_shares: false              # Enable fractional shares (not all symbols support this)
     tradleware_api_key: "your_tradleware_api_key_here"  # Webhook auth key — generate with: openssl rand -hex 32
+    # client_id: 1                        # Optional. IB refuses two connections sharing
+                                          #   a client id, so each bot needs its own.
+                                          #   Left out, Tradleware assigns one — but the
+                                          #   number then follows config order and shifts
+                                          #   when you add or reorder bots. Pin it if you
+                                          #   want it stable.
     # Account and contract — all optional, defaults suit a US-listed, USD-denominated bot.
     # The first says what the ACCOUNT holds, the rest say what the INSTRUMENT is.
     # account_currency: "USD"              # Default. Which cash balance orders are sized
