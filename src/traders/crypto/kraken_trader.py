@@ -365,7 +365,7 @@ class KrakenTrader(BaseCryptoTrader):
         )
         return mock_order
 
-      amount_to_trade_precise = self.exchange.amount_to_precision(symbol, amount_to_trade)
+      amount_to_trade_precise = self._safe_amount_to_precision(symbol, amount_to_trade)
       mock_order = {
         'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
         'symbol': symbol,

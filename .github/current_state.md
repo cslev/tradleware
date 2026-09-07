@@ -9,10 +9,13 @@
 > Last updated: 29 Aug 2026 (session 20)
 > Last updated: 29 Aug 2026 (session 21)
 > Last updated: 05 Sep 2026 (session 22)
+> Last updated: 07 Sep 2026 (session 23)
 
 
 ## Current State
-**v3.5.0b** — cash-denominated order sizing on both broker families; configurable stock
+**v3.5.1b** — 100%-of-balance orders no longer fail on the exchange fee; amounts rounded when a venue publishes no precision; stable IBKR client ids
+
+**v3.5.0b released** — cash-denominated order sizing on both broker families; configurable stock
 account/contract currency and venue; market-hours settings now reach the trader
 (v3.4.3b was bumped but never released — its contents ship here)
 
@@ -108,6 +111,71 @@ and stranded whole-share residue from cash-mode DCA lands in the same pool. **Us
 mode for the re-entry tranches too sidesteps all of it** — no signal then reads the balance,
 so residue and deposits are inert.
 
+### TradingView times out before Tradleware answers
+Every crypto order takes roughly ten seconds end to end, and TradingView's webhook
+timeout is a few seconds, so it disconnects long before the response. Measured on the
+07 Sep IR order:
+
+| step | elapsed |
+|---|---|
+| webhook received | 0s |
+| balance fetch #1 | +3s |
+| balance fetch #2 | +7s |
+| ticker / price | +9s |
+| exchange replied | +10s |
+
+Tradleware *does* answer correctly — the `ExchangeNotAvailable` re-raises, the handler
+catches it and returns a JSON error — but nobody is listening by then. TradingView
+reports **"Webhook delivery failed — request took too long and timed out"**.
+
+**This is not limited to failures.** A successful order takes the same ten seconds, so
+TradingView marks working trades as failed too. A red entry in TV's alert log currently
+says nothing about whether the trade happened, which is why the Tradleware log is the
+only trustworthy record.
+
+Not urgent, because a retry is harmless: TradingView resends an identical payload, the
+replay guard matches the fingerprint and refuses it as a duplicate. No accidental
+double-orders.
+
+The fix is to acknowledge immediately — return `202 Accepted` and execute in the
+background. That is a real change of contract, not a tweak:
+- the response currently carries the order id, filled quantity and price; none of that
+  exists yet at acknowledgement time
+- errors would surface only in the log and Gotify, never in the HTTP reply
+- the per-bot execution lock still serialises the work, so a second signal arriving
+  during a background execution waits rather than racing
+
+### Crypto orders fetch the balance twice
+Visible in the timing above: the handler fetches it for buy/sell validation, then
+`_resolve_market_and_balance` fetches it again ~4s later for sizing. Same data, two
+round trips.
+
+Removing the duplicate cuts 3–4s off every crypto order. Not enough on its own to beat
+TradingView's timeout, but it is free and it halves the window in which the balance can
+change between the check and the sizing — today those are two different reads, so a
+concurrent withdrawal could pass validation and then size against something else.
+
+### Stocks may have the same fee gap crypto just had — unverified
+`base_stock_trader._calculate_order_size` computes `amount_to_spend = cash *
+spend_percentage` with no allowance for commission, so `percentage: 100` sizes an order
+against the entire cash balance. That is exactly the shape that failed on Independent
+Reserve: the order was arithmetically impossible because the fee had to come from money
+already spent.
+
+**Not confirmed to fire on IBKR**, and it needs a different fix if it does:
+- IB charges roughly **$0.005/share with a $1.00 minimum** — a per-share fee, not a
+  percentage, so the crypto approach (`cost / (1 + taker)`) does not transfer. Reserving
+  for it means estimating shares first, which is circular; likely a small flat buffer or
+  an iterate-once-and-shrink.
+- A margin account may absorb a small overdraft silently where IR refused outright, so
+  the failure could be invisible on some accounts and hard on others.
+- The paper test on 05 Sep spent 200 of ~990,955 USD — nowhere near the boundary, so it
+  said nothing about this.
+
+**Cheapest way to settle it:** one `percentage: 100` buy on the paper account. Either IB
+fills it, in which case there is nothing to fix, or it rejects and the message names the
+shortfall.
+
 ### Config hot-reload — prerequisites now in place
 `get_trader_lock(trader_id)` is exposed so a reload can take a bot's lock before swapping
 its trader instance, guaranteeing no request is mid-trade against the old one. Three things
@@ -150,6 +218,40 @@ tag (TradingView cannot know an order id, so a signal can never cancel by id), a
 to the `clientId` bug below.
 
 ## Session History
+
+### 07 Sep 2026 (session 23) — two live-order bugs on Independent Reserve
+A real `percentage: 100` SOL/SGD buy failed with
+`{"ErrorCode":"ValidationError","Message":"Available SGD balance is too small"}`. The
+balance was not too small — the order was 0.5% too large.
+
+- **Spending 100% of a balance is arithmetically impossible** where the venue charges its
+  fee on top: `balance >= cost * (1 + taker)`. The order cost exactly 43.440000 of 43.44
+  SGD, leaving nothing for the 0.2172 SGD fee. `_reserve_fee_headroom()` now trims the
+  cost using the venue's own `taker` from `ctx['market']`, only when it would not
+  otherwise fit, and logs the adjustment. Covers `percentage` and `cash` alike — the cash
+  guard was `spend_amount > available_quote`, so an amount equal to the balance passed
+  and then failed identically at the exchange.
+- **Precision was a separate, latent bug** found while diagnosing the first. CCXT reports
+  `precision: {'amount': None}` for IR, so `amount_to_precision` raises and the old bare
+  `except` returned the raw float — the order went out as 0.32264221993296116 SOL. Now
+  rounded **down** to 8dp with the reason logged. Rounding down rather than to nearest
+  for the same reason the fee reservation exists: rounding up can push a
+  balance-consuming order past what is available.
+- IR had two hand-rolled `try/except` bypasses around the shared helper; the other five
+  traders called `exchange.amount_to_precision` unguarded, which would crash on any venue
+  publishing no precision. All nine now route through `_safe_amount_to_precision`.
+- Verified live: the same signal that failed in the morning filled correctly.
+- Suite 609 → 646, pylint 10.00/10.
+
+**A backup mistake destroyed work mid-session and needs remembering.** The mutation-test
+backup path `$SP/crypto.orig` already existed from an earlier session, so `cp -r` copied
+*into* it instead of creating it, and every "restore" wrote back week-old files. That
+wiped both uncommitted fixes and reverted `spend_amount` from the `[CREATE ORDER]`
+diagnostic lines — committed work. Verification was worthless because it diffed against
+the same stale directory and reported "identical". Caught only when 19 of 20 tests failed
+with no mutation applied. Recovery was clean via `git checkout`. **Backup directories must
+be created fresh and asserted non-existent first.**
+
 
 ### 05 Sep 2026 (session 22) — IB client ids, and two documentation lies
 **Limit / stop orders: evaluated and declined** — see Future Goals for the reasoning.

@@ -344,7 +344,7 @@ class OKXTrader(BaseCryptoTrader):
         self.logger.info(f"  {side.upper()} ~{sim_amount:.8f} {base_currency} with {amount_to_trade:.2f} {quote_currency} (MARKET)")
         return mock_order
       # For all other cases, amount_to_trade is in base currency
-      amount_to_trade_precise = self.exchange.amount_to_precision(symbol, amount_to_trade)
+      amount_to_trade_precise = self._safe_amount_to_precision(symbol, amount_to_trade)
       mock_order = {
         'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
         'symbol': symbol,
@@ -447,11 +447,11 @@ class OKXTrader(BaseCryptoTrader):
       # For quantity mode, check if precision adjustment changes the amount
       if quantity is not None:
         original_amount = amount_to_trade
-        amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
+        amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
         if abs(float(amount_to_trade) - original_amount) > 0.0001:  # Significant difference
           self.logger.warning(f"⚠️ Requested quantity {original_amount} {base_currency} adjusted to {amount_to_trade} {base_currency} due to exchange precision rules")
       else:
-        amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
+        amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
 
       # Consistent logging - show price only if it's a limit order
       if price is not None:

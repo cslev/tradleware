@@ -5,6 +5,37 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.5.1b] - 2026-09-07
+
+Fixes for orders that spend an entire balance, and for exchanges that publish no
+precision. Both were found against live Independent Reserve orders.
+
+### Fixed
+
+- **An order sized at 100% of a balance no longer fails.** Exchanges charge their fee on
+  top of the order, so spending the whole balance leaves nothing to pay it with and the
+  request is arithmetically impossible. Independent Reserve refused it as *"Available SGD
+  balance is too small"*, which reads as though the balance were at fault when the order
+  was simply 0.5% too large. The fee is now reserved out of the order using the venue's
+  own published rate, and the adjustment is logged — *"Reserving 0.22 SGD for the 0.5%
+  taker fee"*. Orders that already fit are untouched. Applies to both `percentage` and
+  `cash` sizing, on every crypto exchange.
+- **Order amounts are rounded when an exchange publishes no precision.** Some venues do
+  not declare one, and the previous fallback sent the raw floating-point value — 17
+  decimal places, more than any exchange accepts. Amounts are now rounded down to 8
+  decimals in that case, and the reason is logged rather than silently discarded.
+- **Each IBKR bot now gets a stable, unique client id.** It was derived from a hash of
+  the bot id, which Python varies per process, so a bot connected as a different client
+  on every restart and two bots could collide — leaving one silently unable to connect
+  and appearing to fix itself after a restart. Set `client_id` per bot to pin it, or
+  leave it out and one is assigned. A duplicate is reassigned and reported.
+
+### Changed
+
+- Stock bot configs accept `client_id` (optional). Existing configs are unaffected.
+
+---
+
 ## [v3.5.0b] - 2026-08-29
 
 Signals can now be sized in cash — "invest 300" — instead of a percentage or an exact

@@ -149,12 +149,19 @@ class TestSizing:
     abstract, so the methods are called unbound against this.
     """
     import types
-    return types.SimpleNamespace(
+    stub = types.SimpleNamespace(
       logger=_Holder._Logger(),
       _safe_amount_to_precision=lambda _symbol, amount: amount,
       _get_maker_buy_price=lambda _symbol, _ticker: 100.0,
       _safe_api_call=None,
+      DEFAULT_TAKER_FEE=BaseCryptoTrader.DEFAULT_TAKER_FEE,
     )
+    # Bind the real fee-reservation rather than stubbing it: these orders are small
+    # relative to the balance, so it should leave them alone, and a stub would hide it
+    # if it ever stopped doing so.
+    stub._reserve_fee_headroom = types.MethodType(
+      BaseCryptoTrader._reserve_fee_headroom, stub)
+    return stub
 
   async def test_a_market_buy_returns_the_pinned_cost_in_quote(self):
     """The whole point: amount_to_trade is the cost, not a base amount."""

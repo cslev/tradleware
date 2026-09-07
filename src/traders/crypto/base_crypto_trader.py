@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import deque
+import math
 from datetime import datetime
 from typing import Optional, Dict, Any
 # Log the full traceback for debugging
@@ -415,17 +416,36 @@ class BaseCryptoTrader(ABC):
       raise ValueError(f"Invalid ask price in ticker for {symbol}: {ask}")
     return float(self.exchange.price_to_precision(symbol, float(ask) * 1.0001))
 
+  # Decimals to round to when the exchange publishes no amount precision. Eight is the
+  # most any major venue accepts, so it is the safest guess: too few would silently
+  # shrink the order, too many is what we are trying to avoid sending.
+  FALLBACK_AMOUNT_DECIMALS = 8
+
   def _safe_amount_to_precision(self, symbol: str, amount: float) -> float:
     """
-    Wraps exchange.amount_to_precision with a fallback to the raw value.
-    Some exchanges (e.g. Independent Reserve via CCXT) may not define
-    amount precision for all markets, causing a TypeError/AttributeError.
-    Falls back to the unmodified float so the order can still proceed.
+    Round an order amount to the exchange's precision, or to a sane default if it has none.
+
+    Some venues publish no precision at all — CCXT reports
+    `precision: {'amount': None}` for Independent Reserve, and `amount_to_precision`
+    raises `AssertionError: precision should not be None`. The previous fallback
+    returned the raw float, so an order went out as 0.32264221993296116 SOL: seventeen
+    decimals, more than any exchange accepts, produced by a bare `except` that hid why.
+
+    Rounds down rather than to nearest, because rounding up can push a
+    balance-consuming order past what is available — the same failure
+    `_reserve_fee_headroom` exists to prevent.
     """
     try:
       return float(self.exchange.amount_to_precision(symbol, amount))
-    except Exception:  # pylint: disable=broad-except
-      return float(amount)
+    except Exception as exc:  # pylint: disable=broad-except
+      factor = 10 ** self.FALLBACK_AMOUNT_DECIMALS
+      rounded = math.floor(float(amount) * factor) / factor
+      self.logger.debug(
+        f"No amount precision published for {symbol} ({type(exc).__name__}: {exc}); "
+        f"rounding {amount} down to {rounded} "
+        f"({self.FALLBACK_AMOUNT_DECIMALS} dp)."
+      )
+      return rounded
 
   async def _calculate_order_size(
       self,
@@ -567,9 +587,11 @@ class BaseCryptoTrader(ABC):
               f"Insufficient {quote} balance. Asked to spend {spend_amount:.2f} {quote}, "
               f"have {available_quote:.2f} {quote}."
             )
-          spend_cost = spend_amount
+          spend_cost = self._reserve_fee_headroom(
+            spend_amount, available_quote, quote, ctx.get('market'))
         else:
-          spend_cost = available_quote * spend_percentage
+          spend_cost = self._reserve_fee_headroom(
+            available_quote * spend_percentage, available_quote, quote, ctx.get('market'))
         if spend_cost <= 0:
           raise ValueError(
             f"Insufficient {quote} balance ({available_quote:.2f}) to place buy order."
@@ -657,6 +679,40 @@ class BaseCryptoTrader(ABC):
       )
 
     return order_type, amount_to_trade, price
+
+  # Used when the exchange reports no taker fee. Deliberately generous: overshooting the
+  # reserve costs a fraction of a percent of one order, while undershooting costs the
+  # whole order.
+  DEFAULT_TAKER_FEE = 0.01
+
+  def _reserve_fee_headroom(self, spend_cost: float, available_quote: float,
+                            quote: str, market: dict) -> float:
+    """
+    Trim a quote-denominated cost so the exchange's fee still fits inside the balance.
+
+    Exchanges that charge the fee *on top of* the order require
+    `balance >= cost * (1 + taker)`, so spending 100% of a balance can never succeed —
+    the request is arithmetically impossible rather than merely tight. Independent
+    Reserve refuses it with "Available SGD balance is too small", which reads as though
+    the balance were the problem when in fact the order was 0.5% too large.
+
+    Only trims when the cost would leave too little behind, so an order that already
+    fits is untouched.
+    """
+    taker = (market or {}).get('taker')
+    if taker is None:
+      taker = self.DEFAULT_TAKER_FEE
+    needed = spend_cost * (1 + taker)
+    if needed <= available_quote:
+      return spend_cost
+
+    trimmed = available_quote / (1 + taker)
+    self.logger.info(
+      f"Reserving {available_quote - trimmed:.4f} {quote} for the "
+      f"{taker * 100:.3g}% taker fee — spending {trimmed:.4f} of "
+      f"{available_quote:.4f} {quote}."
+    )
+    return trimmed
 
   @staticmethod
   def is_cost_denominated(order_type: str, side: str,

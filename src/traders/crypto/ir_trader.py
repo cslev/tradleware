@@ -386,10 +386,7 @@ class IRTrader(BaseCryptoTrader):
         return None
 
       base_amount = amount_to_trade / expected_price
-      try:
-        amount_to_trade = self.exchange.amount_to_precision(symbol, base_amount)
-      except Exception:
-        amount_to_trade = base_amount
+      amount_to_trade = self._safe_amount_to_precision(symbol, base_amount)
       self.logger.info(
         f"Market buy: ~{amount_to_trade} {base_currency} @ {expected_price} {quote_currency}"
       )
@@ -397,10 +394,7 @@ class IRTrader(BaseCryptoTrader):
 
     else:
       # Quantity mode, sell, or limit orders: amount_to_trade already in base currency
-      try:
-        amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
-      except Exception:
-        pass
+      amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
 
     if price is not None:
       self.logger.info(f"Placing {order_type} {side} {amount_to_trade} {base_currency} @ {price}")

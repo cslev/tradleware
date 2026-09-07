@@ -332,7 +332,7 @@ class CryptocomTrader(BaseCryptoTrader):
         self.logger.info(f"  {side.upper()} ~{sim_amount:.8f} {base_currency} with {amount_to_trade:.2f} {quote_currency} (MARKET)")
         return mock_order
       # For all other cases, amount_to_trade is in base currency
-      amount_to_trade_precise = self.exchange.amount_to_precision(symbol, amount_to_trade)
+      amount_to_trade_precise = self._safe_amount_to_precision(symbol, amount_to_trade)
       mock_order = {
         'id': 'DRY_RUN_' + str(int(datetime.now().timestamp())),
         'symbol': symbol,
@@ -434,10 +434,10 @@ class CryptocomTrader(BaseCryptoTrader):
     # Apply amount precision - this should only be applied once, to the base currency amount
     if order_type == 'market' and side == 'buy':
       # For market buy, we already converted to base amount in the fallback above
-      amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
+      amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
     elif order_type != 'market' or side != 'buy':
       # For all other order types, apply precision normally
-      amount_to_trade = self.exchange.amount_to_precision(symbol, amount_to_trade)
+      amount_to_trade = self._safe_amount_to_precision(symbol, amount_to_trade)
 
     # Consistent logging
     if price is not None:
