@@ -1567,6 +1567,8 @@ async def handle_webhook(request: Request):
 
           if available_stablecoin <= 0:
             trader.logger.warning(f"Buy signal received for {ticker} but no {stablecoin_symbol} balance available. Available: {available_stablecoin}")
+            record_order(**journal_common_fields, outcome="insufficient_balance",
+                        available_balance=available_stablecoin)
             return {
               "status": "warning",
               "message": f"Buy signal received but insufficient {stablecoin_symbol} balance",
@@ -1657,6 +1659,8 @@ async def handle_webhook(request: Request):
 
           if available_crypto <= 0:
             trader.logger.warning(f"Sell signal received for {ticker} but no {crypto_symbol} balance available. Available: {available_crypto}")
+            record_order(**journal_common_fields, outcome="insufficient_balance",
+                        available_balance=available_crypto)
             return {
               "status": "warning",
               "message": f"Sell signal received but insufficient {crypto_symbol} balance",
@@ -1764,6 +1768,7 @@ async def handle_webhook(request: Request):
         elif time_until_open:
           error_msg += f"Market opens in {time_until_open}."
         trader.logger.warning(f"Cannot trade now: {error_msg}")
+        record_order(**journal_common_fields, outcome="market_closed", error=error_msg)
         return {
           "status": "warning",
           "message": error_msg,

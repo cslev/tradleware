@@ -203,6 +203,44 @@ class TestWebhookWritesToTheJournal:
     assert len(rows) == 1
     assert rows[0]["outcome"] == "error"
 
+  async def test_insufficient_stablecoin_balance_is_recorded_before_any_order_attempt(
+      self, client_factory, webhook_url, crypto_trader, journal_path):
+    """Rejected before create_order is ever called — previously log-only, not journaled."""
+    crypto_trader.balance = 0.0
+    async with client_factory() as client:
+      await client.post(webhook_url, json=signal_payload(dry_run=False))
+
+    rows = _read_rows(journal_path)
+    assert len(rows) == 1
+    assert rows[0]["outcome"] == "insufficient_balance"
+    assert rows[0]["available_balance"] == 0.0
+
+  async def test_insufficient_crypto_balance_on_sell_is_recorded(
+      self, client_factory, webhook_url, crypto_trader, journal_path):
+    async def no_crypto_balance():
+      return {"free": {"USDT": 1000.0, "BTC": 0.0}}
+    crypto_trader.fetch_balance = no_crypto_balance
+    async with client_factory() as client:
+      await client.post(webhook_url, json=signal_payload(action="sell", dry_run=False))
+
+    rows = _read_rows(journal_path)
+    assert len(rows) == 1
+    assert rows[0]["outcome"] == "insufficient_balance"
+
+  async def test_a_closed_market_rejection_is_recorded(
+      self, client_factory, webhook_url, stock_trader, journal_path):
+    """Rejected before create_order is ever called, same as the balance checks above."""
+    stock_trader.can_trade_now = lambda: False
+    payload = signal_payload(api_key="tw_live_stock_key", trader_id="fakestock",
+                             ticker="AAPL", dry_run=False)
+    async with client_factory() as client:
+      await client.post(webhook_url, json=payload)
+
+    rows = _read_rows(journal_path)
+    assert len(rows) == 1
+    assert rows[0]["outcome"] == "market_closed"
+    assert "error" in rows[0]
+
   async def test_a_dry_run_is_flagged_unmistakably(
       self, client_factory, webhook_url, crypto_trader, journal_path):
     """The journal cannot be trusted as a tax/reconciliation record otherwise."""
