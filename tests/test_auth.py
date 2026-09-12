@@ -7,6 +7,7 @@ Covers three fixes that interact:
   * trusted-IP access, which bypasses the cookie entirely
 """
 
+import logging
 import urllib.parse
 
 import pytest
@@ -209,3 +210,124 @@ class TestDefaultCredentialBanner:
     async with client_factory(scheme="https") as client:
       response = await client.get("/login")
     assert app.DASHBOARD_PASSWORD not in response.text
+
+
+class TestAlertNoiseVsRealAttempts:
+  """
+  GOTIFY_LOG_LEVEL defaults to WARNING, so anything logged at that level pushes a
+  notification. A GET with no credentials is what every internet-facing dashboard sees
+  from mass scanners within minutes of being reachable and proves no intent — it must
+  not alert. A wrong password on POST /login is a real attempt and should.
+
+  Scanner traffic goes to `access_logger`, a plain logging.Logger with no Gotify path
+  and its own rotating file — not merely logged at a lower level on the main logger.
+  A level check alone would be fragile: if an operator lowers GOTIFY_LOG_LEVEL to see
+  more of their own INFO-level events, every INFO line on the main logger would start
+  paging, scanner noise included. access_logger has no notification code path to
+  re-couple, at any threshold, and it keeps this traffic out of tradleware.log too.
+  """
+
+  async def test_an_unauthenticated_get_to_the_dashboard_does_not_warn(
+      self, client_factory, caplog):
+    caplog.set_level(logging.DEBUG)
+    async with client_factory(scheme="https", peer="203.0.113.9") as client:
+      await client.get("/")
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+
+  async def test_an_unauthenticated_get_is_still_logged_at_info(
+      self, client_factory, caplog):
+    """Quieter than a Gotify push, not silent — still visible reading the log by hand."""
+    caplog.set_level(logging.DEBUG)
+    async with client_factory(scheme="https", peer="203.0.113.9") as client:
+      await client.get("/")
+    infos = [r.message for r in caplog.records if r.levelno == logging.INFO]
+    assert any("Unauthenticated access attempt" in m for m in infos), infos
+
+  async def test_a_wrong_password_still_warns(self, client_factory, caplog):
+    caplog.set_level(logging.DEBUG)
+    async with client_factory(scheme="https") as client:
+      await post_login(client, password="not-the-password")
+    warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("Failed login attempt" in m for m in warnings), warnings
+
+  async def test_a_wrong_password_is_logged_exactly_once(self, client_factory, caplog):
+    """The line used to be duplicated — two near-identical warnings per failed attempt."""
+    caplog.set_level(logging.DEBUG)
+    async with client_factory(scheme="https") as client:
+      await post_login(client, password="not-the-password")
+    matches = [r.message for r in caplog.records if "Failed login attempt" in r.message]
+    assert len(matches) == 1, matches
+
+  async def test_the_scanner_noise_lands_on_a_separate_named_logger(
+      self, client_factory, caplog):
+    """Not just a level change on the main logger — a distinct logger entirely."""
+    caplog.set_level(logging.DEBUG)
+    async with client_factory(scheme="https", peer="203.0.113.9") as client:
+      await client.get("/")
+    scanner_records = [r for r in caplog.records
+                       if "Unauthenticated access attempt" in r.message]
+    assert scanner_records and all(r.name == "AccessLog" for r in scanner_records)
+
+  def test_the_access_logger_has_no_gotify_wiring_at_all(self, app):
+    """
+    Structural, not behavioural: it must be impossible to notify from this logger, not
+    merely unlikely at today's default threshold. CustomLogger instances carry
+    gotify_url/gotify_token; a plain logging.Logger has no such attributes to begin
+    with, so there is no coupling point left for a later change to re-introduce.
+    """
+    assert not hasattr(app.access_logger, "gotify_url")
+    assert not hasattr(app.access_logger, "gotify_token")
+
+  def test_the_access_logger_does_not_propagate_to_root(self, app):
+    """
+    caplog cannot tell propagate=True from propagate=False here: pytest's own
+    catching_logs deliberately attaches its handler directly to any logger that is
+    already non-propagating when a test starts (see _pytest.logging), which is exactly
+    what access_logger is by the time any test runs. A plain root-attached handler,
+    the kind production code might add, gets no such accommodation — this checks that
+    path directly instead.
+    """
+    class _Collector(logging.Handler):
+      def __init__(self):
+        super().__init__()
+        self.records = []
+
+      def emit(self, record):
+        self.records.append(record)
+
+    root = logging.getLogger()
+    collector = _Collector()
+    root.addHandler(collector)
+    try:
+      app.access_logger.info("propagation probe, should not reach root")
+    finally:
+      root.removeHandler(collector)
+    assert not any("propagation probe" in r.getMessage() for r in collector.records)
+
+  def test_the_access_logger_writes_to_its_own_file(self, app):
+    """Keeps scanner traffic out of tradleware.log, on its own rotation."""
+    access_handler = app.access_logger.handlers[0]
+    main_handler = next(h for h in app.logger.logger.handlers
+                        if hasattr(h, "baseFilename"))
+    assert access_handler.baseFilename.endswith("access.log")
+    assert access_handler.baseFilename != main_handler.baseFilename
+
+  async def test_scanner_traffic_never_reaches_gotify_even_with_it_wide_open(
+      self, client_factory, use_gotify, app):
+    """
+    The scenario the fix has to survive: Gotify is on, and the threshold is dropped to
+    the most permissive level there is, for some unrelated reason (an operator wanting
+    to see their own INFO-level events). Scanner traffic must still never page.
+    """
+    original_level = app.logger.gotify_log_level
+    app.logger.gotify_log_level = logging.DEBUG
+    try:
+      async with client_factory(scheme="https", peer="203.0.113.9") as client:
+        await client.get("/")
+        await client.get("/")
+        await client.get("/balance/does-not-exist")
+    finally:
+      app.logger.gotify_log_level = original_level
+    from src.misc import logger as logger_module
+    logger_module.flush_gotify_queue(timeout=5)
+    assert use_gotify.received == []

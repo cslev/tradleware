@@ -8,7 +8,9 @@ handler on the same file, which makes naive rotation corrupt itself.
 """
 
 import asyncio
+import csv
 import gzip
+import io
 import json
 import logging
 import time
@@ -17,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from src.misc import logger as logger_module
-from src.misc.logger import CustomLogger, RotatingFileHandler
+from src.misc.logger import CustomLogger, RotatingFileHandler, get_csv_file_logger
 from conftest import signal_payload
 
 
@@ -201,6 +203,122 @@ class TestLogRotation:
     log = self.make_logger("RotationK")
     log.info("probe 🚀 ✅ ❌ 📥")
     assert "probe 🚀" in (logs_dir / self.LOG_NAME).read_text(encoding="utf-8")
+
+
+class TestCSVAccessLog:
+  """
+  get_csv_file_logger: one CSV row per record, for events meant to be grepped, awked
+  or loaded with pandas rather than read by eye — access_logger's unauthenticated-hit
+  lines being the motivating case.
+
+  The one property that matters most is the one easiest to get wrong silently: a
+  hand-joined "field,field,field" line looks fine until a field contains a comma or a
+  quote, at which point it corrupts that row and shifts every column after it. Several
+  candidate fields here (a request path, a message) are attacker-controlled, so this
+  is proven by round-tripping through csv.reader, not just by not-crashing.
+  """
+
+  LOG_NAME = "csv_test.log"
+
+  @pytest.fixture
+  def logs_dir(self, monkeypatch):
+    directory = Path(logger_module.__file__).resolve().parent.parent / "logs"
+    for stale in directory.glob(f"{self.LOG_NAME}*"):
+      stale.unlink()
+    monkeypatch.setenv("LOG_MAX_BYTES", "20000")
+    monkeypatch.setenv("LOG_BACKUP_COUNT", "3")
+    logger_module._file_handlers.pop(self.LOG_NAME, None)
+    yield directory
+    logger_module._file_handlers.pop(self.LOG_NAME, None)
+    for created in directory.glob(f"{self.LOG_NAME}*"):
+      created.unlink()
+
+  def make_logger(self, name, fields=("client_ip", "method", "path")):
+    return get_csv_file_logger(name, self.LOG_NAME, fields=fields)
+
+  def rows(self, logs_dir):
+    """Every row in the current file, parsed back through csv.reader."""
+    text = (logs_dir / self.LOG_NAME).read_text(encoding="utf-8")
+    return list(csv.reader(io.StringIO(text)))
+
+  def test_the_header_names_every_column(self, logs_dir):
+    self.make_logger("CSVHeader").info("probe", extra={"client_ip": "1.1.1.1"})
+    header, *_ = self.rows(logs_dir)
+    assert header == ["timestamp", "level", "client_ip", "method", "path", "message"]
+
+  def test_a_plain_row_carries_its_fields_in_order(self, logs_dir):
+    self.make_logger("CSVPlain").info(
+      "Unauthenticated access attempt",
+      extra={"client_ip": "203.0.113.9", "method": "GET", "path": "/"}
+    )
+    _, row = self.rows(logs_dir)
+    assert row[2:] == ["203.0.113.9", "GET", "/", "Unauthenticated access attempt"]
+
+  def test_a_comma_in_a_field_round_trips_to_the_original_value(self, logs_dir):
+    """The failure a hand-joined line could not survive."""
+    poisoned = "/balance/bot,1"
+    self.make_logger("CSVComma").info(
+      "hit", extra={"client_ip": "1.2.3.4", "method": "GET", "path": poisoned}
+    )
+    _, row = self.rows(logs_dir)
+    assert row[4] == poisoned
+    assert len(row) == 6, f"a comma inside the field split it into extra columns: {row}"
+
+  def test_a_quote_in_a_field_round_trips_to_the_original_value(self, logs_dir):
+    poisoned = 'path with "quotes" in it'
+    self.make_logger("CSVQuote").info(
+      "hit", extra={"client_ip": "1.2.3.4", "method": "GET", "path": poisoned}
+    )
+    _, row = self.rows(logs_dir)
+    assert row[4] == poisoned
+
+  def test_a_comma_in_the_message_itself_also_round_trips(self, logs_dir):
+    self.make_logger("CSVMsgComma").info("hit, with a comma in the message itself")
+    _, row = self.rows(logs_dir)
+    assert row[-1] == "hit, with a comma in the message itself"
+
+  def test_a_call_missing_extra_fields_does_not_raise(self, logs_dir):
+    """Logging a scanner hit must never itself be the thing that throws."""
+    self.make_logger("CSVMissing").info("no extra supplied at all")
+    _, row = self.rows(logs_dir)
+    assert row[2:5] == ["", "", ""]
+    assert row[-1] == "no extra supplied at all"
+
+  def test_the_header_appears_exactly_once_across_repeated_construction(self, logs_dir):
+    """Same file requested by name twice must return the shared handler, not reopen it."""
+    self.make_logger("CSVOnceA").info("first")
+    self.make_logger("CSVOnceB").info("second")
+    header_lines = [r for r in self.rows(logs_dir) if r and r[0] == "timestamp"]
+    assert len(header_lines) == 1
+
+  def test_a_preexisting_nonempty_file_is_not_given_a_second_header(self, logs_dir):
+    """
+    The restart case: the process-local handler cache is gone, but the file on disk
+    already has content, so the header must not be written again.
+    """
+    (logs_dir / self.LOG_NAME).write_text(
+      "timestamp,level,client_ip,method,path,message\n"
+      "2026-01-01 00:00:00,INFO,9.9.9.9,GET,/,pre-existing line\n",
+      encoding="utf-8",
+    )
+    logger_module._file_handlers.pop(self.LOG_NAME, None)  # simulate a fresh process
+    self.make_logger("CSVRestart").info(
+      "after restart", extra={"client_ip": "1.1.1.1", "method": "GET", "path": "/"}
+    )
+    header_lines = [r for r in self.rows(logs_dir) if r and r[0] == "timestamp"]
+    assert len(header_lines) == 1
+
+  def test_rows_are_not_separated_by_blank_lines(self, logs_dir):
+    """
+    csv.writer's own line terminator must be suppressed: the handler's stream already
+    adds one newline per emit, and stacking both produces a blank row between every
+    real one.
+    """
+    log = self.make_logger("CSVNoBlank")
+    log.info("one")
+    log.info("two")
+    lines = (logs_dir / self.LOG_NAME).read_text(encoding="utf-8").splitlines()
+    assert "" not in lines
 
 
 class TestLogConfigParsing:

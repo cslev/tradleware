@@ -10,6 +10,7 @@
 > Last updated: 29 Aug 2026 (session 21)
 > Last updated: 05 Sep 2026 (session 22)
 > Last updated: 07 Sep 2026 (session 23)
+> Last updated: 12 Sep 2026 (session 24)
 
 
 ## Current State
@@ -110,6 +111,37 @@ Two caveats: any cash deposited between tranches inflates the pool and skews the
 and stranded whole-share residue from cash-mode DCA lands in the same pool. **Using `cash`
 mode for the re-entry tranches too sidesteps all of it** — no signal then reads the balance,
 so residue and deposits are inert.
+
+### No durable record of orders — build an order journal
+Tradleware never persists what it traded. An order exists only as lines in
+`tradleware.log`, which rotates at ~16 MB with gzip and eventually drops the oldest, and
+an instance run from a laptop leaves nothing on the Pi at all.
+
+Surfaced 08 Sep 2026: a BTC buy on the OKX bot around June could not be accounted for.
+The local logs were gone, the Pi never had them, and OKX itself was no help either —
+orders placed by API belong to the **subaccount** the key was issued for, so the main
+account view shows nothing, and OKX's own history API only reaches **3 months**. A trade
+from early June is already outside it. The exchange is not a reliable archive.
+
+**What to build:** an append-only journal, written the moment an order comes back from
+the exchange, holding at minimum:
+- timestamp, `trader_id`, exchange/broker, symbol
+- side, `order_size` and `order_size_type` as the signal asked for them
+- what was actually sent after sizing (amount or cost, and the fee reserved)
+- the exchange's order id, status, filled quantity, average price, fee
+- `alert_name` and `dry_run`, so simulated runs are distinguishable at a glance
+
+Notes for whoever builds it:
+- **Separate from the log.** The log is for reading; this is for keeping. It must not
+  rotate, and a size-capped log must never be the only copy.
+- Write it after the exchange responds, not before — a journal of intentions is not a
+  record of trades. Failed orders are still worth a row, with the error.
+- JSONL is probably enough and needs no dependency; SQLite if the dashboard should ever
+  query it. Either way it belongs on the mounted volume beside the logs so a container
+  rebuild does not take it.
+- Dry runs should be recorded but clearly flagged, or the journal cannot be trusted as a
+  tax or reconciliation record.
+- A dashboard tab reading it would make this visible without a shell.
 
 ### TradingView times out before Tradleware answers
 Every crypto order takes roughly ten seconds end to end, and TradingView's webhook
@@ -218,6 +250,43 @@ tag (TradingView cannot know an order id, so a signal can never cancel by id), a
 to the `clientId` bug below.
 
 ## Session History
+
+### 12 Sep 2026 (session 24) — scanner traffic stopped paging, and made parseable
+`GOTIFY_LOG_LEVEL` defaults to `WARNING`, but two call sites logged at that level from a
+plain unauthenticated **GET** — `read_root` (`/`) and `require_auth`, a second copy of
+the same check. `require_auth` turned out to be dead code: nothing in the file wires it
+up via `Depends(...)`, every real endpoint does its own inline `is_authenticated()`
+check instead — so it was removed rather than fixed in place. A GET proves nothing; it
+is what every internet-facing dashboard sees from mass scanners within minutes of being
+reachable. The result was a Gotify push for routine background noise, burying the one
+signal that is actually worth alerting on: a wrong password on `POST /login`, a real credential
+attempt — which was itself being logged **twice**, two near-identical warnings back to
+back (deduped).
+
+- First pass just dropped the two GET-side lines to `info`. Level alone is fragile,
+  and the user caught it: lowering `GOTIFY_LOG_LEVEL` later for an unrelated reason
+  (to see more of one's own `info()` events) would drag scanner noise back into Gotify
+  with it, since a level check has no memory of *why* the threshold was lowered.
+- Real fix: `access_logger`, a **plain `logging.Logger`**, not a `CustomLogger` — it has
+  no `gotify_url`/`gotify_token` attributes at all, so there is no notification code
+  path to re-couple at any threshold. `propagate = False` so it cannot leak into a root
+  handler either. Own rotating file (`access.log`), so a busy scanner cannot crowd out
+  real events in `tradleware.log`.
+- Then reformatted as **CSV** — `timestamp,level,client_ip,method,path,message` — so
+  the file is `pandas.read_csv`/`awk`/`csvkit`-able instead of free text. Built with the
+  `csv` module rather than hand-joining commas: `path` and `message` are
+  attacker-influenced and can legitimately contain a comma or a quote, which would
+  otherwise corrupt that row and shift every later column. Header written once; a
+  restart reopening a file that already has content does not get a second one.
+- **Two mutation-testing gaps, both instructive.** (1) The `propagate = False` claim
+  passed every test even reverted, because pytest's own `caplog` deliberately attaches
+  its handler directly to any *already non-propagating* logger at test start (see
+  `_pytest.logging.catching_logs`) — caught by attaching a throwaway handler straight to
+  the root logger instead, sidestepping caplog's special-casing entirely. (2) Dropping
+  `lineterminator=''` from the csv.writer call also passed every test until a dedicated
+  "no blank line between rows" check was added — csv.writer's own terminator stacks with
+  the handler's, so every row would have doubled.
+- Suite 650 → 664, pylint 10.00/10.
 
 ### 07 Sep 2026 (session 23) — two live-order bugs on Independent Reserve
 A real `percentage: 100` SOL/SGD buy failed with

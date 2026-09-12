@@ -29,7 +29,7 @@ import requests as http_requests
 from starlette.middleware.sessions import SessionMiddleware
 
 # First-party imports
-from src.misc.logger import CustomLogger, flush_gotify_queue
+from src.misc.logger import CustomLogger, flush_gotify_queue, get_csv_file_logger
 from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs, client_id_findings
 from src.misc.failure_limiter import FailureLimiter
@@ -525,6 +525,16 @@ logger = CustomLogger(name='Tradleware',
                       gotify_token=get_env('GOTIFY_APP_TOKEN'),
                       gotify_log_level=int(get_env('GOTIFY_LOG_LEVEL', '30')))
 
+# Unauthenticated hits from mass scanners and bots — routine internet background noise
+# for anything reachable, proving no real intent. Kept out of tradleware.log so a busy
+# scanner cannot crowd out real events, and on a logger with no Gotify path at all, so
+# lowering GOTIFY_LOG_LEVEL for an unrelated reason can never start paging on it too.
+# CSV-formatted (timestamp, level, client_ip, method, path, message) so it can be
+# grepped, awked or loaded with pandas rather than read by eye.
+access_logger = get_csv_file_logger(
+  'AccessLog', 'access.log', fields=('client_ip', 'method', 'path')
+)
+
 # Log authentication configuration at startup.
 # The password is never logged: this goes to the console, to tradleware_data/logs,
 # and is pushed to the Gotify server when GOTIFY_LOG_LEVEL is set to INFO or lower.
@@ -844,13 +854,6 @@ def is_authenticated(request: Request) -> bool:
   # Check session authentication
   return request.session.get("authenticated", False)
 
-def require_auth(request: Request):
-  """Dependency that requires authentication. Raises HTTPException if not authenticated."""
-  if not is_authenticated(request):
-    client_ip = get_client_ip(request)
-    logger.warning(f"Unauthorized access attempt from IP: {client_ip}")
-    raise HTTPException(status_code=401, detail="Authentication required")
-
 # Header the dashboard sets on requests that change something. A page on another site
 # cannot set a custom header without the browser first sending a CORS preflight, which
 # Tradleware does not answer, so the real request is never sent. The session cookie is
@@ -970,9 +973,9 @@ async def login(request: Request, username: str = Form(...), password: str = For
     logger.debug(f"✓ Successful login from IP: {client_ip}")
     return RedirectResponse(url="/", status_code=303)
 
-  # Log failed attempt
+  # Log failed attempt. A real credential attempt, so this is the one that should
+  # reach Gotify — unlike the GET-side lines above, this proves intent.
   logger.warning(f"✗ Failed login attempt from IP: {client_ip}, Username: '{username}'")
-  logger.warning(f"Failed login attempt from IP: {client_ip} with username: {username}")
   return RedirectResponse(url="/login?error=Invalid+credentials", status_code=303)
 
 @app.get("/logout")
@@ -993,8 +996,16 @@ async def read_root(request: Request):
 
   # Check authentication
   if not is_authenticated(request):
+    # access_logger, not the main logger: a GET with no credentials is what every
+    # internet-facing dashboard sees from mass scanners within minutes of being
+    # reachable, and proves no intent. The signal worth a Gotify push is a wrong
+    # password on POST /login, logged below on the main logger.
     if not is_loopback(client_ip):
-      logger.warning(f"Unauthenticated access attempt to dashboard from IP: {client_ip}")
+      access_logger.info(
+        "Unauthenticated access attempt to dashboard",
+        extra={"client_ip": client_ip, "method": request.method,
+               "path": request.url.path}
+      )
     return RedirectResponse(url="/login", status_code=303)
 
   if not is_loopback(client_ip):

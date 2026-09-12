@@ -1,4 +1,6 @@
+import csv
 import gzip
+import io
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -219,6 +221,125 @@ def _get_rotating_file_handler(logfile_name: str) -> RotatingFileHandler:
       # shared handler must not impose whichever level happened to be set up first.
       _file_handlers[logfile_name] = handler
   return _file_handlers[logfile_name]
+
+
+class _CSVFormatter(logging.Formatter):
+  """
+  Renders each record as one CSV row: timestamp, level, `fields` in call order, message.
+
+  Built with the csv module rather than "','.join(...)", because several of the
+  candidate columns — a request path, a User-Agent, the message itself — are supplied
+  by whoever is making the request. Any of them can legitimately contain a comma, a
+  quote, or a newline; hand-joining would let one such value silently corrupt that row
+  and shift every column after it, which defeats the entire point of a parseable log.
+  csv.writer quotes a field only when it needs to, so an ordinary row stays plain text.
+
+  A field a given call site's `extra=` did not supply renders as an empty column
+  rather than raising — logging a scanner hit must never itself throw.
+  """
+
+  def __init__(self, fields, datefmt='%Y-%m-%d %H:%M:%S'):
+    super().__init__(datefmt=datefmt)
+    self.fields = tuple(fields)
+
+  def format(self, record):
+    row = (
+      [self.formatTime(record, self.datefmt), record.levelname]
+      + [str(getattr(record, f, '')) for f in self.fields]
+      + [record.getMessage()]
+    )
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator='').writerow(row)
+    return buf.getvalue()
+
+
+def _get_csv_rotating_handler(logfile_name: str, fields) -> RotatingFileHandler:
+  """
+  Return the one CSV-formatting rotating handler for this file, shared like
+  `_get_rotating_file_handler` and for the same reason — two independent handlers on
+  one file corrupt each other's rollover.
+
+  Writes a header row the first time this file is created, never again: an existing
+  file being reopened in append mode (a restart) must not gain a second header
+  part-way through. Kept in the same registry as the plain-text handlers so a filename
+  collision returns the existing handler rather than opening the file twice with
+  conflicting formatters.
+  """
+  handler = _file_handlers.get(logfile_name)
+  if handler is not None:
+    return handler
+  with _file_handler_lock:
+    if logfile_name not in _file_handlers:
+      logs_dir = Path(__file__).resolve().parent.parent / "logs"
+      logs_dir.mkdir(parents=True, exist_ok=True)
+      path = logs_dir / logfile_name
+      needs_header = not path.exists() or path.stat().st_size == 0
+      handler = RotatingFileHandler(
+        path,
+        maxBytes=_int_env('LOG_MAX_BYTES', _LOG_MAX_BYTES_DEFAULT),
+        backupCount=_int_env('LOG_BACKUP_COUNT', _LOG_BACKUP_COUNT_DEFAULT),
+        encoding='utf-8'
+      )
+      handler.setFormatter(_CSVFormatter(fields))
+      if _bool_env('LOG_COMPRESS_ROTATED', True):
+        handler.namer = _gzip_namer
+        handler.rotator = _gzip_rotator
+      if needs_header:
+        header = ','.join(('timestamp', 'level') + tuple(fields) + ('message',))
+        handler.stream.write(header + '\n')
+        handler.stream.flush()
+      _file_handlers[logfile_name] = handler
+  return _file_handlers[logfile_name]
+
+
+def get_csv_file_logger(name: str, logfile_name: str, fields,
+                        level: int = logging.INFO) -> logging.Logger:
+  """
+  A logger, like get_plain_file_logger, with no Gotify path and its own file — but
+  writing one CSV row per record instead of a free-text line, for events meant to be
+  grepped, awked or loaded with pandas.read_csv rather than read by eye.
+
+  `fields` is fixed once, at construction, not chosen per call: every row in the file
+  then has the same shape, which is the property that actually makes a log parseable.
+  A schema a caller could silently redefine call to call would not be. Pass the values
+  per call via the standard logging `extra={...}` mapping — see the two access_logger
+  call sites in app.py.
+  """
+  csv_logger = logging.getLogger(name)
+  csv_logger.propagate = False
+  csv_logger.setLevel(level)
+  if not csv_logger.handlers:
+    csv_logger.addHandler(_get_csv_rotating_handler(logfile_name, fields))
+  return csv_logger
+
+
+def get_plain_file_logger(name: str, logfile_name: str,
+                          level: int = logging.INFO) -> logging.Logger:
+  """
+  A logger that writes to its own rotating file and can never reach Gotify.
+
+  Built for routine noise that is worth keeping on disk but must never page anyone —
+  an unauthenticated GET from a mass scanner, say. CustomLogger is the wrong base for
+  that: even with no Gotify URL passed in, its constructor falls back to the
+  GOTIFY_SERVER_URL / GOTIFY_APP_TOKEN env vars, and whether a level notifies depends
+  on GOTIFY_LOG_LEVEL — a setting an operator may lower for an unrelated reason (to see
+  more of their own INFO lines) without meaning to also start paging on scanner traffic.
+  A plain logging.Logger has no notification path to disable in the first place, so it
+  cannot be re-coupled to Gotify by a later change elsewhere.
+
+  Also keeps this traffic out of tradleware.log, on its own rotation schedule, so a
+  busy scanner cannot crowd out real events in the file an operator actually reads.
+
+  propagate is left False so records never reach the root logger — otherwise anything
+  attached there (a test's caplog, a future root-level handler) would see this traffic
+  too, which is the exact coupling this function exists to avoid.
+  """
+  plain_logger = logging.getLogger(name)
+  plain_logger.propagate = False
+  plain_logger.setLevel(level)
+  if not plain_logger.handlers:
+    plain_logger.addHandler(_get_rotating_file_handler(logfile_name))
+  return plain_logger
 
 
 _excepthook_installed = False
