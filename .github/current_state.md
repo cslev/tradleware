@@ -87,8 +87,6 @@ account/contract currency and venue; market-hours settings now reach the trader
 
 ## Future Goals
 
-### Security — deferred items from the session 17 hardening pass
-
 ### Strategy-side note: re-entry percentages compound against a shrinking pool
 Not a Tradleware change — a Pine Script concern for the crash/re-entry strategy.
 
