@@ -21,7 +21,7 @@ import secrets
 
 # Third-party imports
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException, Form
+from fastapi import FastAPI, Request, HTTPException, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -1229,8 +1229,243 @@ def _order_price_fields(trader, order_result: dict) -> dict:
   return {"average_fill_price": order_result.get("price")}
 
 
+async def _execute_signal(trader, trader_id, ticker, action, order_size, order_size_type,
+                          spend_percentage, spend_amount, quantity, dry_run,
+                          journal_common_fields) -> None:
+  """
+  Fetch the balance, place the order, and log/notify/journal the outcome.
+
+  Runs as a background task, scheduled after handle_webhook has already acknowledged
+  the request: TradingView's own webhook timeout is a few seconds, and a real order
+  takes far longer (balance fetch + exchange round trip). There is no caller left to
+  answer by the time this runs, so every exit here is a log line / Gotify push /
+  order-journal row, never an HTTP response. See "TradingView times out before
+  Tradleware answers" in current_state.md.
+  """
+  # pylint: disable=too-many-nested-blocks
+  ######################################################
+  ## SERIALISE EXECUTION FOR THIS BOT
+  ## Everything from here reads a balance and then trades on it. Held across the
+  ## whole sequence so an overlapping signal or a dashboard conversion cannot size
+  ## its order from a balance this request is about to change.
+  ######################################################
+  try:
+    async with trader_execution_lock(trader_id):
+      if trader.bot_type == "crypto":
+        ######################################################
+        # CRYPTO: Check balance and execute order
+        ######################################################
+        if action == "buy":
+          try:
+            # Fetch current balance to check stablecoin availability
+            raw_balance = await trader.fetch_balance()
+            free_balances = raw_balance.get('free', {})
+            stablecoin_symbol = trader.crypto_stablecoin_pair.split('/')[1]  # Extract stablecoin (e.g., USDT from BTC/USDT)
+            available_stablecoin = free_balances.get(stablecoin_symbol, 0.0)
+
+            if available_stablecoin <= 0:
+              trader.logger.warning(f"Buy signal received for {ticker} but no {stablecoin_symbol} balance available. Available: {available_stablecoin}")
+              record_order(**journal_common_fields, outcome="insufficient_balance",
+                          available_balance=available_stablecoin)
+              return
+
+            trader.logger.info(f"Buy signal validation passed. Available {stablecoin_symbol} balance: {available_stablecoin}")
+            # Execute the buy order
+            try:
+              if order_size_type == "percentage":
+                trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
+              elif order_size_type == "cash":
+                trader.logger.info(f"Executing BUY order for {ticker} with {spend_amount:.2f} {stablecoin_symbol}")
+              else:
+                trader.logger.info(f"Executing BUY order for {ticker}: {quantity} {ticker.split('/')[0]}")
+
+              order_result = await trader.create_order(
+                symbol=ticker,
+                side='buy',
+                spend_percentage=spend_percentage,
+                quantity=quantity,
+                spend_amount=spend_amount,
+                order_execution_strategy='market',  # Market order for immediate execution
+                dry_run=dry_run
+              )
+
+              if order_result:
+                trader.logger.info(f"BUY order executed successfully! Order ID: {order_result.get('id')}")
+                record_order(
+                  **journal_common_fields, outcome="filled",
+                  order_id=order_result.get('id'), amount=order_result.get('amount'),
+                  **_order_price_fields(trader, order_result),
+                )
+
+                # Get updated balance to show meaningful success message
+                try:
+                  updated_balance = await trader.fetch_balance()
+                  free_balances = updated_balance.get('free', {})
+                  crypto_symbol = ticker.split('/')[0]
+                  stablecoin_symbol = ticker.split('/')[1]
+                  crypto_balance = free_balances.get(crypto_symbol, 0.0)
+                  stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
+
+                  trader.logger.success(f"🚀 BUY Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
+                except Exception as balance_e:
+                  trader.logger.warning(f"🚀 BUY order completed but couldn't fetch updated balance: {order_result.get('id')}\n{balance_e}")
+                return
+
+              trader.logger.error("BUY order execution failed - no order result returned")
+              record_order(**journal_common_fields, outcome="rejected")
+              return
+            except Exception as order_e:
+              error_msg = str(order_e)
+              trader.logger.error(f"Error executing BUY order: {error_msg}")
+              record_order(**journal_common_fields, outcome="error", error=error_msg)
+              return
+
+          except Exception as exc:
+            error_msg = str(exc)
+            trader.logger.error(f"Failed to fetch balance for buy validation: {error_msg}")
+            record_order(**journal_common_fields, outcome="error", error=error_msg)
+            return
+
+        elif action == "sell":
+          try:
+            # Fetch current balance to check crypto availability
+            raw_balance = await trader.fetch_balance()
+            free_balances = raw_balance.get('free', {})
+            crypto_symbol = trader.crypto_stablecoin_pair.split('/')[0]  # Extract crypto (e.g., BTC from BTC/USDT)
+            available_crypto = free_balances.get(crypto_symbol, 0.0)
+
+            if available_crypto <= 0:
+              trader.logger.warning(f"Sell signal received for {ticker} but no {crypto_symbol} balance available. Available: {available_crypto}")
+              record_order(**journal_common_fields, outcome="insufficient_balance",
+                          available_balance=available_crypto)
+              return
+
+            trader.logger.info(f"Sell signal validation passed. Available {crypto_symbol} balance: {available_crypto}")
+
+            # Execute the sell order
+            try:
+              if order_size_type == "percentage":
+                trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
+              elif order_size_type == "cash":
+                trader.logger.info(f"Executing SELL order for {ticker} sized in cash — refused below, sells are buy-only")
+              else:
+                trader.logger.info(f"Executing SELL order for {ticker}: {quantity} {ticker.split('/')[0]}")
+
+              order_result = await trader.create_order(
+                symbol=ticker,
+                side='sell',
+                spend_percentage=spend_percentage,
+                quantity=quantity,
+                spend_amount=spend_amount,
+                order_execution_strategy='market',  # Market order for immediate execution
+                dry_run=dry_run
+              )
+
+              if order_result:
+                trader.logger.info(f"SELL order executed successfully! Order ID: {order_result.get('id')}")
+                record_order(
+                  **journal_common_fields, outcome="filled",
+                  order_id=order_result.get('id'), amount=order_result.get('amount'),
+                  **_order_price_fields(trader, order_result),
+                )
+
+                # Get updated balance to show meaningful success message
+                try:
+                  updated_balance = await trader.fetch_balance()
+                  free_balances = updated_balance.get('free', {})
+                  crypto_symbol = ticker.split('/')[0]
+                  stablecoin_symbol = ticker.split('/')[1]
+                  crypto_balance = free_balances.get(crypto_symbol, 0.0)
+                  stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
+
+                  trader.logger.success(f"💰 SELL Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
+                except Exception as balance_e:
+                  trader.logger.warning(f"💰 SELL order completed but couldn't fetch updated balance: {order_result.get('id')} - Error: {str(balance_e)}")
+                return
+
+              trader.logger.error("SELL order execution failed - no order result returned")
+              record_order(**journal_common_fields, outcome="rejected")
+              return
+            except Exception as order_e:
+              error_msg = str(order_e)
+              trader.logger.error(f"Error executing SELL order: {error_msg}")
+              record_order(**journal_common_fields, outcome="error", error=error_msg)
+              return
+
+          except Exception as exc:
+            error_msg = str(exc)
+            trader.logger.error(f"Failed to fetch balance for sell validation: {error_msg}")
+            record_order(**journal_common_fields, outcome="error", error=error_msg)
+            return
+
+      else:  # trader.bot_type == "stock" — handle_webhook already rejected anything else
+        ######################################################
+        # STOCK: Check if market allows trading (skipped for dry_run)
+        ######################################################
+        if not dry_run and not trader.can_trade_now():
+          market_status = trader.get_market_status()
+          time_until_open = trader.get_time_until_market_opens()
+          error_msg = f"Market is {market_status}. "
+          if market_status in ['pre-market', 'after-hours']:
+            error_msg += "Extended hours trading is disabled."
+          elif time_until_open:
+            error_msg += f"Market opens in {time_until_open}."
+          trader.logger.warning(f"Cannot trade now: {error_msg}")
+          record_order(**journal_common_fields, outcome="market_closed", error=error_msg)
+          return
+
+        ######################################################
+        # STOCK: Execute order (balance checks done internally)
+        ######################################################
+        try:
+          if order_size_type == "percentage":
+            trader.logger.info(f"Executing {action.upper()} order for {ticker} with {order_size}% position size")
+          elif order_size_type == "cash":
+            # Share count is not known yet — the trader derives it from the live price.
+            trader.logger.info(f"Executing {action.upper()} order for {ticker} with {spend_amount:.2f} {trader.account_currency}")
+          else:
+            # Keep quantity as float for fractional-shares bots, otherwise truncate to int
+            quantity_to_use = quantity if trader.fractional_shares else int(quantity)
+            trader.logger.info(f"Executing {action.upper()} order for {ticker}: {quantity_to_use} shares")
+
+          order_result = await trader.create_order(
+            side=action,
+            spend_percentage=spend_percentage,
+            spend_amount=spend_amount,
+            quantity=(quantity if trader.fractional_shares else int(quantity)) if quantity is not None else None,
+            order_execution_strategy='market',
+            params={'dry_run': dry_run}
+          )
+
+          if order_result:
+            trader.logger.success(
+              f"{'🚀' if action == 'buy' else '💰'} {action.upper()} order executed! "
+              f"Order ID: {order_result.get('order_id')} - "
+              f"{order_result.get('quantity')} shares @ ${order_result.get('price', 0):.2f}"
+            )
+            record_order(
+              **journal_common_fields, outcome="filled",
+              order_id=order_result.get('order_id'), filled_quantity=order_result.get('quantity'),
+              **_order_price_fields(trader, order_result),
+            )
+            return
+
+          trader.logger.error(f"{action.upper()} order execution failed - no order result returned")
+          record_order(**journal_common_fields, outcome="rejected")
+          return
+        except Exception as order_e:
+          error_msg = str(order_e)
+          trader.logger.error(f"Error executing {action.upper()} order: {error_msg}")
+          record_order(**journal_common_fields, outcome="error", error=error_msg)
+          return
+  except Exception as exc:  # nothing left to raise to; the lock itself can time out
+    error_msg = getattr(exc, "detail", None) or str(exc)
+    trader.logger.error(f"Signal execution failed for '{trader_id}': {error_msg}")
+    record_order(**journal_common_fields, outcome="error", error=str(error_msg))
+
+
 @app.post(f"/{WEBHOOK_PATH}")
-async def handle_webhook(request: Request):
+async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
 
   """
   Handles incoming webhooks with per-bot API key authentication.
@@ -1527,319 +1762,51 @@ async def handle_webhook(request: Request):
     "alert_name": alert_name,
   }
 
+  ########################################################################
+  ## TICKER VALIDATION
+  ## A bot trades exactly one instrument, so this is a pure local string compare —
+  ## no network I/O — and can fail fast synchronously like every other malformed-
+  ## signal check above, instead of waiting for the background task to find out.
+  ########################################################################
+  if trader.bot_type == "crypto":
+    expected_ticker = trader.crypto_stablecoin_pair
+  elif trader.bot_type == "stock":
+    expected_ticker = trader.symbol
+  else:
+    trader.logger.error(f"Unknown bot_type: {trader.bot_type}")
+    raise HTTPException(status_code=500, detail=f"Unknown bot type: {trader.bot_type}")
+
+  if not resolve_ticker(ticker, expected_ticker, trader.logger):
+    trader.logger.error(f"Invalid ticker: {ticker}, expected: {expected_ticker}")
+    raise HTTPException(
+      status_code=400,
+      detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
+    )
+  # Adopt the configured spelling for the background task: everything downstream
+  # splits on '/' and hands the symbol to the exchange.
+  ticker = expected_ticker
+  trader.logger.info(f"VALID ticker: {ticker}")
+
   ######################################################
-  ## BRANCH BASED ON TRADER TYPE (CRYPTO vs STOCK)
+  ## BRANCH BASED ON TRADER TYPE (CRYPTO vs STOCK), EXECUTED IN THE BACKGROUND
+  ## The balance fetch + exchange round trip takes longer than TradingView's own
+  ## webhook timeout, so the actual trade runs after this response is already on the
+  ## wire. The per-bot lock still serialises execution — it just does so in the
+  ## background instead of holding the connection open. From here on, every outcome
+  ## is a log line, a Gotify push, and an order-journal row, not an HTTP response.
+  ## See "TradingView times out before Tradleware answers" in current_state.md.
   ######################################################
-  # pylint: disable=too-many-nested-blocks
-  ######################################################
-  ## SERIALISE EXECUTION FOR THIS BOT
-  ## Everything from here reads a balance and then trades on it. Held across the
-  ## whole sequence so an overlapping signal or a dashboard conversion cannot size
-  ## its order from a balance this request is about to change.
-  ######################################################
-  async with trader_execution_lock(trader_id):
-    if trader.bot_type == "crypto":
-      ######################################################
-      ## CRYPTO TRADER: CHECK IF TICKER MATCHES PAIR
-      ######################################################
-      expected_ticker = trader.crypto_stablecoin_pair
-      if not resolve_ticker(ticker, expected_ticker, trader.logger):
-        trader.logger.error(f"Invalid ticker: {ticker}, expected: {expected_ticker}")
-        raise HTTPException(
-          status_code=400,
-          detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
-        )
-      # Adopt the configured spelling: everything below splits on '/' and hands the
-      # symbol to the exchange.
-      ticker = expected_ticker
-      trader.logger.info(f"VALID ticker: {ticker}")
+  background_tasks.add_task(
+    _execute_signal, trader, trader_id, ticker, action, order_size, order_size_type,
+    spend_percentage, spend_amount, quantity, dry_run, journal_common_fields
+  )
+  return {
+    "status": "accepted",
+    "message": "Signal received, executing",
+    "trader_id": trader_id,
+    "processed_at": timestamp_str
+  }
 
-      ######################################################
-      # CRYPTO: Check balance and execute order
-      ######################################################
-      if action == "buy":
-        try:
-          # Fetch current balance to check stablecoin availability
-          raw_balance = await trader.fetch_balance()
-          free_balances = raw_balance.get('free', {})
-          stablecoin_symbol = trader.crypto_stablecoin_pair.split('/')[1]  # Extract stablecoin (e.g., USDT from BTC/USDT)
-          available_stablecoin = free_balances.get(stablecoin_symbol, 0.0)
-
-          if available_stablecoin <= 0:
-            trader.logger.warning(f"Buy signal received for {ticker} but no {stablecoin_symbol} balance available. Available: {available_stablecoin}")
-            record_order(**journal_common_fields, outcome="insufficient_balance",
-                        available_balance=available_stablecoin)
-            return {
-              "status": "warning",
-              "message": f"Buy signal received but insufficient {stablecoin_symbol} balance",
-              "available_balance": available_stablecoin,
-              "processed_at": timestamp_str
-            }
-
-          trader.logger.info(f"Buy signal validation passed. Available {stablecoin_symbol} balance: {available_stablecoin}")
-          # Execute the buy order
-          try:
-            if order_size_type == "percentage":
-              trader.logger.info(f"Executing BUY order for {ticker} with {order_size}% of available {stablecoin_symbol} ({available_stablecoin*spend_percentage:.2f})")
-            elif order_size_type == "cash":
-              trader.logger.info(f"Executing BUY order for {ticker} with {spend_amount:.2f} {stablecoin_symbol}")
-            else:
-              trader.logger.info(f"Executing BUY order for {ticker}: {quantity} {ticker.split('/')[0]}")
-
-            order_result = await trader.create_order(
-              symbol=ticker,
-              side='buy',
-              spend_percentage=spend_percentage,
-              quantity=quantity,
-              spend_amount=spend_amount,
-              order_execution_strategy='market',  # Market order for immediate execution
-              dry_run=dry_run
-            )
-
-            if order_result:
-              trader.logger.info(f"BUY order executed successfully! Order ID: {order_result.get('id')}")
-              record_order(
-                **journal_common_fields, outcome="filled",
-                order_id=order_result.get('id'), amount=order_result.get('amount'),
-                **_order_price_fields(trader, order_result),
-              )
-
-              # Get updated balance to show meaningful success message
-              try:
-                updated_balance = await trader.fetch_balance()
-                free_balances = updated_balance.get('free', {})
-                crypto_symbol = ticker.split('/')[0]
-                stablecoin_symbol = ticker.split('/')[1]
-                crypto_balance = free_balances.get(crypto_symbol, 0.0)
-                stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
-
-                trader.logger.success(f"🚀 BUY Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
-              except Exception as balance_e:
-                trader.logger.warning(f"🚀 BUY order completed but couldn't fetch updated balance: {order_result.get('id')}\n{balance_e}")
-
-              return {
-                "status": "success",
-                "message": "BUY order executed successfully",
-                "order_id": order_result.get('id'),
-                "symbol": ticker,
-                "side": "buy",
-                "amount": order_result.get('amount'),
-                "price": order_result.get('price'),
-                "processed_at": timestamp_str
-              }
-
-            trader.logger.error("BUY order execution failed - no order result returned")
-            record_order(**journal_common_fields, outcome="rejected")
-            return {
-              "status": "error",
-              "message": "BUY order execution failed",
-              "processed_at": timestamp_str
-            }
-          except Exception as order_e:
-            error_msg = str(order_e)
-            trader.logger.error(f"Error executing BUY order: {error_msg}")
-            record_order(**journal_common_fields, outcome="error", error=error_msg)
-            return {
-              "status": "error",
-              "message": f"BUY order execution failed: {error_msg}",
-              "processed_at": timestamp_str
-            }
-
-        except Exception as exc:
-          trader.logger.error(f"Failed to fetch balance for buy validation: {str(exc)}")
-          raise HTTPException(status_code=500, detail=f"Failed to validate balance: {str(exc)}") from exc
-
-      elif action == "sell":
-        try:
-          # Fetch current balance to check crypto availability
-          raw_balance = await trader.fetch_balance()
-          free_balances = raw_balance.get('free', {})
-          crypto_symbol = trader.crypto_stablecoin_pair.split('/')[0]  # Extract crypto (e.g., BTC from BTC/USDT)
-          available_crypto = free_balances.get(crypto_symbol, 0.0)
-
-          if available_crypto <= 0:
-            trader.logger.warning(f"Sell signal received for {ticker} but no {crypto_symbol} balance available. Available: {available_crypto}")
-            record_order(**journal_common_fields, outcome="insufficient_balance",
-                        available_balance=available_crypto)
-            return {
-              "status": "warning",
-              "message": f"Sell signal received but insufficient {crypto_symbol} balance",
-              "available_balance": available_crypto,
-              "processed_at": timestamp_str
-            }
-
-          trader.logger.info(f"Sell signal validation passed. Available {crypto_symbol} balance: {available_crypto}")
-
-          # Execute the sell order
-          try:
-            if order_size_type == "percentage":
-              trader.logger.info(f"Executing SELL order for {ticker} with {spend_percentage*100:.2f}% of available {crypto_symbol}")
-            elif order_size_type == "cash":
-              trader.logger.info(f"Executing SELL order for {ticker} sized in cash — refused below, sells are buy-only")
-            else:
-              trader.logger.info(f"Executing SELL order for {ticker}: {quantity} {ticker.split('/')[0]}")
-
-            order_result = await trader.create_order(
-              symbol=ticker,
-              side='sell',
-              spend_percentage=spend_percentage,
-              quantity=quantity,
-              spend_amount=spend_amount,
-              order_execution_strategy='market',  # Market order for immediate execution
-              dry_run=dry_run
-            )
-
-            if order_result:
-              trader.logger.info(f"SELL order executed successfully! Order ID: {order_result.get('id')}")
-              record_order(
-                **journal_common_fields, outcome="filled",
-                order_id=order_result.get('id'), amount=order_result.get('amount'),
-                **_order_price_fields(trader, order_result),
-              )
-
-              # Get updated balance to show meaningful success message
-              try:
-                updated_balance = await trader.fetch_balance()
-                free_balances = updated_balance.get('free', {})
-                crypto_symbol = ticker.split('/')[0]
-                stablecoin_symbol = ticker.split('/')[1]
-                crypto_balance = free_balances.get(crypto_symbol, 0.0)
-                stablecoin_balance = free_balances.get(stablecoin_symbol, 0.0)
-
-                trader.logger.success(f"💰 SELL Complete! Portfolio: {crypto_balance:.8f} {crypto_symbol} + {stablecoin_balance:.2f} {stablecoin_symbol}")
-              except Exception as balance_e:
-                trader.logger.warning(f"💰 SELL order completed but couldn't fetch updated balance: {order_result.get('id')} - Error: {str(balance_e)}")
-
-              return {
-                "status": "success",
-                "message": "SELL order executed successfully",
-                "order_id": order_result.get('id'),
-                "symbol": ticker,
-                "side": "sell",
-                "amount": order_result.get('amount'),
-                "price": order_result.get('price'),
-                "processed_at": timestamp_str
-              }
-
-            trader.logger.error("SELL order execution failed - no order result returned")
-            record_order(**journal_common_fields, outcome="rejected")
-            return {
-              "status": "error",
-              "message": "SELL order execution failed",
-              "processed_at": timestamp_str
-            }
-          except Exception as order_e:
-            error_msg = str(order_e)
-            trader.logger.error(f"Error executing SELL order: {error_msg}")
-            record_order(**journal_common_fields, outcome="error", error=error_msg)
-            return {
-              "status": "error",
-              "message": f"SELL order execution failed: {error_msg}",
-              "processed_at": timestamp_str
-            }
-
-        except Exception as exc:
-          trader.logger.error(f"Failed to fetch balance for sell validation: {str(exc)}")
-          raise HTTPException(status_code=500, detail=f"Failed to validate balance: {str(exc)}") from exc
-
-    elif trader.bot_type == "stock":
-      ######################################################
-      ## STOCK TRADER: CHECK IF TICKER MATCHES SYMBOL
-      ######################################################
-      expected_ticker = trader.symbol
-      if not resolve_ticker(ticker, expected_ticker, trader.logger):
-        trader.logger.error(f"Invalid ticker: {ticker}, expected: {expected_ticker}")
-        raise HTTPException(
-          status_code=400,
-          detail=f"Invalid ticker symbol. Expected: {expected_ticker}, Received: {ticker}"
-        )
-      ticker = expected_ticker
-      trader.logger.info(f"VALID ticker: {ticker}")
-
-      ######################################################
-      # STOCK: Check if market allows trading (skipped for dry_run)
-      ######################################################
-      if not dry_run and not trader.can_trade_now():
-        market_status = trader.get_market_status()
-        time_until_open = trader.get_time_until_market_opens()
-        error_msg = f"Market is {market_status}. "
-        if market_status in ['pre-market', 'after-hours']:
-          error_msg += "Extended hours trading is disabled."
-        elif time_until_open:
-          error_msg += f"Market opens in {time_until_open}."
-        trader.logger.warning(f"Cannot trade now: {error_msg}")
-        record_order(**journal_common_fields, outcome="market_closed", error=error_msg)
-        return {
-          "status": "warning",
-          "message": error_msg,
-          "processed_at": timestamp_str
-        }
-
-      ######################################################
-      # STOCK: Execute order (balance checks done internally)
-      ######################################################
-      try:
-        if order_size_type == "percentage":
-          trader.logger.info(f"Executing {action.upper()} order for {ticker} with {order_size}% position size")
-        elif order_size_type == "cash":
-          # Share count is not known yet — the trader derives it from the live price.
-          trader.logger.info(f"Executing {action.upper()} order for {ticker} with {spend_amount:.2f} {trader.account_currency}")
-        else:
-          # Keep quantity as float for fractional-shares bots, otherwise truncate to int
-          quantity_to_use = quantity if trader.fractional_shares else int(quantity)
-          trader.logger.info(f"Executing {action.upper()} order for {ticker}: {quantity_to_use} shares")
-
-        order_result = await trader.create_order(
-          side=action,
-          spend_percentage=spend_percentage,
-          spend_amount=spend_amount,
-          quantity=(quantity if trader.fractional_shares else int(quantity)) if quantity is not None else None,
-          order_execution_strategy='market',
-          params={'dry_run': dry_run}
-        )
-
-        if order_result:
-          trader.logger.success(
-            f"{'🚀' if action == 'buy' else '💰'} {action.upper()} order executed! "
-            f"Order ID: {order_result.get('order_id')} - "
-            f"{order_result.get('quantity')} shares @ ${order_result.get('price', 0):.2f}"
-          )
-          record_order(
-            **journal_common_fields, outcome="filled",
-            order_id=order_result.get('order_id'), filled_quantity=order_result.get('quantity'),
-            **_order_price_fields(trader, order_result),
-          )
-          return {
-            "status": "success",
-            "message": f"{action.upper()} order executed successfully",
-            "order_id": order_result.get('order_id'),
-            "symbol": ticker,
-            "side": action,
-            "quantity": order_result.get('quantity'),
-            "price": order_result.get('price'),
-            "processed_at": timestamp_str
-          }
-
-        trader.logger.error(f"{action.upper()} order execution failed - no order result returned")
-        record_order(**journal_common_fields, outcome="rejected")
-        return {
-          "status": "error",
-          "message": f"{action.upper()} order execution failed",
-          "processed_at": timestamp_str
-        }
-      except Exception as order_e:
-        error_msg = str(order_e)
-        trader.logger.error(f"Error executing {action.upper()} order: {error_msg}")
-        record_order(**journal_common_fields, outcome="error", error=error_msg)
-        return {
-          "status": "error",
-          "message": f"{action.upper()} order execution failed: {error_msg}",
-          "processed_at": timestamp_str
-        }
-
-    else:
-      trader.logger.error(f"Unknown bot_type: {trader.bot_type}")
-      raise HTTPException(status_code=500, detail=f"Unknown bot type: {trader.bot_type}")
 
 @app.get("/logs/{trader_id}")
 async def get_trader_logs(request: Request, trader_id: str):

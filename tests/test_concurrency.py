@@ -7,6 +7,7 @@ intended, and both returned 200 with no error anywhere.
 """
 
 import asyncio
+import logging
 import time
 
 import pytest
@@ -122,17 +123,28 @@ class TestBotsStayIndependent:
 
 class TestLockLifecycle:
   async def test_a_busy_bot_gives_up_rather_than_queueing_forever(self, client_factory,
-                                                                  webhook_url, app):
+                                                                  webhook_url, app,
+                                                                  caplog):
+    """
+    Execution is backgrounded now, so the ack is always a fast 200 regardless of lock
+    contention — the second signal being turned away is only visible through the log
+    (still reaches Gotify at WARNING+) and through the fact that it never traded.
+    """
     app.TRADER_LOCK_TIMEOUT_S = 1
-    app.traders["fakebot"] = FakeCryptoTrader(balance=1000.0, latency=5.0)
+    trader = FakeCryptoTrader(balance=1000.0, latency=5.0)
+    app.traders["fakebot"] = trader
 
     async with client_factory() as client:
       first = asyncio.create_task(
         client.post(webhook_url, json=signal_payload(dry_run=False)))
       await asyncio.sleep(0.1)                       # let it take the lock
-      second = await client.post(webhook_url, json=signal_payload(dry_run=False))
+      with caplog.at_level(logging.ERROR):
+        second = await client.post(webhook_url, json=signal_payload(dry_run=False))
       first.cancel()
-    assert second.status_code == 503
+
+    assert second.status_code == 200
+    assert trader.orders == []   # the busy signal never reached create_order
+    assert any("busy" in r.message for r in caplog.records)
 
   async def test_the_lock_is_released_when_a_trade_fails(self, client_factory,
                                                          webhook_url, app):
@@ -143,7 +155,7 @@ class TestLockLifecycle:
     app.traders["fakebot"] = BrokenTrader()
     async with client_factory() as client:
       response = await client.post(webhook_url, json=signal_payload())
-    assert response.status_code >= 400
+    assert response.status_code == 200   # the failure is async-only now
     assert app.get_trader_lock("fakebot").locked() is False
 
   async def test_the_lock_is_released_after_a_normal_trade(self, client_factory,

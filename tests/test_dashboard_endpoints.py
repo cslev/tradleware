@@ -311,14 +311,19 @@ class TestTradingPathsStillWork:
     assert response.status_code == status
     assert crypto_trader.orders == []
 
-  async def test_the_response_reports_what_happened(self, client_factory, webhook_url,
-                                                    crypto_trader):
+  async def test_the_response_acknowledges_and_the_order_still_executes(
+      self, client_factory, webhook_url, crypto_trader):
+    """The webhook response is now a fast ack, not the trade outcome — the actual
+    result only shows up via logs/Gotify/the order journal, confirmed here through
+    the fake trader's own call record."""
     async with client_factory() as client:
       response = await client.post(webhook_url, json=signal_payload(dry_run=False))
     body = response.json()
-    assert body.get("status") in {"success", "warning"}
+    assert response.status_code == 200
+    assert body["status"] == "accepted"
     assert "processed_at" in body
     assert body["processed_at"].endswith("UTC")
+    assert len(crypto_trader.orders) == 1   # the background execution actually ran
 
 
 class TestConvertEndpoint:

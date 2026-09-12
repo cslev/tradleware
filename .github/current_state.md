@@ -110,40 +110,6 @@ and stranded whole-share residue from cash-mode DCA lands in the same pool. **Us
 mode for the re-entry tranches too sidesteps all of it** — no signal then reads the balance,
 so residue and deposits are inert.
 
-### TradingView times out before Tradleware answers
-Every crypto order takes roughly ten seconds end to end, and TradingView's webhook
-timeout is a few seconds, so it disconnects long before the response. Measured on the
-07 Sep IR order:
-
-| step | elapsed |
-|---|---|
-| webhook received | 0s |
-| balance fetch #1 | +3s |
-| balance fetch #2 | +7s |
-| ticker / price | +9s |
-| exchange replied | +10s |
-
-Tradleware *does* answer correctly — the `ExchangeNotAvailable` re-raises, the handler
-catches it and returns a JSON error — but nobody is listening by then. TradingView
-reports **"Webhook delivery failed — request took too long and timed out"**.
-
-**This is not limited to failures.** A successful order takes the same ten seconds, so
-TradingView marks working trades as failed too. A red entry in TV's alert log currently
-says nothing about whether the trade happened, which is why the Tradleware log is the
-only trustworthy record.
-
-Not urgent, because a retry is harmless: TradingView resends an identical payload, the
-replay guard matches the fingerprint and refuses it as a duplicate. No accidental
-double-orders.
-
-The fix is to acknowledge immediately — return `202 Accepted` and execute in the
-background. That is a real change of contract, not a tweak:
-- the response currently carries the order id, filled quantity and price; none of that
-  exists yet at acknowledgement time
-- errors would surface only in the log and Gotify, never in the HTTP reply
-- the per-bot execution lock still serialises the work, so a second signal arriving
-  during a background execution waits rather than racing
-
 ### Crypto orders fetch the balance twice
 Visible in the timing above: the handler fetches it for buy/sell validation, then
 `_resolve_market_and_balance` fetches it again ~4s later for sizing. Same data, two
@@ -287,6 +253,59 @@ never stored. Verified by mutation testing: reverting the crypto price handling 
 plain `order_result.get('price')` failed a test immediately, and removing a
 `record_order` call on a rejected-order branch failed another — both restored after.
 Suite 664 → 679, pylint 10.00/10.
+
+**Journal coverage gap, same session.** Two rejection paths logged a warning but never
+called `record_order`: insufficient balance (crypto buy/sell, before `create_order` is
+even attempted) and a closed market (stock). Both now journal `outcome="insufficient_balance"`
+/ `"market_closed"`, so the journal is a complete record of every rejected signal, not
+only ones that reached the exchange. Suite 679 → 682.
+
+**TradingView timeout fix, same session.** Every crypto order takes ~10s end to end
+(balance fetch, exchange round trip, updated-balance fetch), against TradingView's own
+~5s webhook timeout — it marked working trades as failed, not just genuine errors,
+because it disconnected before Tradleware answered.
+
+The webhook handler now does only fast, local, no-I/O checks synchronously (auth, replay,
+shape, ticker match) and returns a plain `200` immediately with `{"status": "accepted", ...}`
+— no order id, price, or fill data, since none of that exists yet. The actual work (balance
+fetch, `create_order`, all outcome branching) moved into `_execute_signal`, a new function
+scheduled via FastAPI's `BackgroundTasks` and run after the response is already on the wire.
+The per-bot execution lock still wraps it, so a second signal for the same bot still queues
+rather than racing — it just does so in the background instead of holding the HTTP
+connection open. From here on, every outcome (filled, rejected, error, insufficient
+balance, market closed) is a log line, a Gotify push, and an order-journal row — there is
+no HTTP caller left to answer, which is the whole point.
+
+Chose plain `200` over `202 Accepted` deliberately: TradingView's own docs only document
+retry behaviour for `5xx`, with no explicit written confirmation that `202` renders as
+"delivered" in its alert log, so `200` sidesteps an assumption for zero cost — nothing
+about the fix depends on the code being technically-correct-REST `202`.
+
+Two things a mutation test caught that weren't obvious from reading the code:
+- **Ticker validation moved to the wrong side of the boundary on the first pass.**
+  `resolve_ticker` is a pure string compare — no network I/O — and belongs with the other
+  fast synchronous checks, not backgrounded. It was initially left inside
+  `_execute_signal` by mistake; three tests expecting a synchronous `400` for a mismatched
+  ticker caught it immediately (asserted `200`, not `400`).
+- **A raise with no one left to catch it.** `trader_execution_lock`'s timeout path raises
+  `HTTPException` — correct when synchronous, meaningless inside a background task (no
+  response left to attach it to). Without a top-level `try/except` around
+  `_execute_signal`'s body, that exception propagated out of the background task and
+  crashed the request with `RuntimeError: Caught handled exception, but response already
+  started` instead of failing cleanly. Two tests exercising lock contention/failure caught
+  this the hard way (an unhandled exception, not a clean assertion failure) before the
+  wrapping `except Exception` was added; confirmed by reverting it and watching the same
+  crash reappear.
+
+Verified the actual production claim, not just the test suite: an in-process test client
+blocks until a `BackgroundTasks` job finishes (confirmed empirically — a 3s job read back
+as a 9s `client.post()`, since the buy path makes three sequential slow calls), which is
+a property of the *test transport*, not of ASGI. Checked separately with a real socket
+against a real `uvicorn` server and a 3-second background job: the client received its
+response in 0.01s. Suite 682 → 682 (three tests rewritten for the new contract:
+`response.status_code` is now always `200` regardless of outcome, and the fake trader's
+own call record or a captured log line — not the response body — proves what happened),
+pylint 10.00/10.
 
 ### 07 Sep 2026 (session 23) — two live-order bugs on Independent Reserve
 A real `percentage: 100` SOL/SGD buy failed with
