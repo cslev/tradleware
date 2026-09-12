@@ -99,6 +99,7 @@ for _logger_name in list(logging.root.manager.loggerDict):
       _handler.setStream(sys.__stdout__)
 
 from src.misc import logger as tradleware_logger  # noqa: E402  pylint: disable=wrong-import-position
+from src.misc import order_journal  # noqa: E402  pylint: disable=wrong-import-position
 from src.misc.failure_limiter import FailureLimiter  # noqa: E402  pylint: disable=wrong-import-position
 from src.misc.rejection_reporter import RejectionReporter  # noqa: E402  pylint: disable=wrong-import-position
 from src.misc.replay_guard import ReplayGuard  # noqa: E402  pylint: disable=wrong-import-position
@@ -126,11 +127,15 @@ def isolate_app_state(tmp_path):
   saved = {name: getattr(tradleware, name) for name in _MUTABLE_SETTINGS}
   saved_traders = dict(tradleware.traders)
   saved_gotify = (tradleware.logger.gotify_url, tradleware.logger.gotify_token)
+  saved_journal_path = order_journal._JOURNAL_PATH  # pylint: disable=protected-access
 
   tradleware.traders.clear()
   tradleware.get_trader_lock.__globals__["_TRADER_LOCKS"].clear()
   tradleware.logger.gotify_url = None
   tradleware.logger.gotify_token = None
+  # Otherwise any test that reaches create_order journals real-looking rows (bot ids,
+  # order ids) straight into the developer's actual src/logs/orders.jsonl.
+  order_journal._JOURNAL_PATH = tmp_path / "orders.jsonl"  # pylint: disable=protected-access
   # Reuse the TTL the application itself configured rather than recomputing it here.
   # Hardcoding the formula would make any test that asserts it check this fixture's
   # arithmetic instead of the app's, and a regression in app.py would go unnoticed.
@@ -157,6 +162,7 @@ def isolate_app_state(tmp_path):
   tradleware.traders.update(saved_traders)
   tradleware.get_trader_lock.__globals__["_TRADER_LOCKS"].clear()
   tradleware.logger.gotify_url, tradleware.logger.gotify_token = saved_gotify
+  order_journal._JOURNAL_PATH = saved_journal_path  # pylint: disable=protected-access
 
 
 @pytest.fixture

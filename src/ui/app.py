@@ -34,6 +34,7 @@ from src.misc.get_env import get_env
 from src.misc.config_loader import get_bot_configs, client_id_findings
 from src.misc.failure_limiter import FailureLimiter
 from src.misc.key_strength import assess_key, find_shared_keys
+from src.misc.order_journal import record_order
 from src.misc.rejection_reporter import RejectionReporter
 from src.misc.replay_guard import ReplayGuard, parse_signal_timestamp, signal_fingerprint
 from src.traders.crypto.binance_trader import BinanceTrader
@@ -1212,6 +1213,22 @@ async def get_position(request: Request, trader_id: str):
       }
     )
 
+def _order_price_fields(trader, order_result: dict) -> dict:
+  """Broker-family-aware fill price, for the order journal.
+
+  Not symmetric: ccxt's 'price' is the requested price (often 0/None for a
+  market order), so crypto rows need 'average' (fallback 'price') and 'cost'
+  instead. IBKR's 'price' is already the resolved avgFillPrice. See the order
+  journal design in current_state.md.
+  """
+  if trader.bot_type == "crypto":
+    return {
+      "average_fill_price": order_result.get("average") or order_result.get("price"),
+      "cost": order_result.get("cost"),
+    }
+  return {"average_fill_price": order_result.get("price")}
+
+
 @app.post(f"/{WEBHOOK_PATH}")
 async def handle_webhook(request: Request):
 
@@ -1492,6 +1509,24 @@ async def handle_webhook(request: Request):
 
   trader.logger.info(f"VALID Action {action} (raw: {action_raw})")
 
+  # Fields shared by every order journal row for this request, regardless of
+  # outcome — see the order journal design in current_state.md.
+  journal_common_fields = {
+    "timestamp": timestamp_str,
+    "trader_id": trader_id,
+    "bot_type": trader.bot_type,
+    "exchange_or_broker": trader.exchange_id if trader.bot_type == "crypto" else trader.broker_id,
+    "ticker": ticker,
+    "action": action,
+    "order_size": order_size,
+    "order_size_type": order_size_type,
+    "spend_percentage": spend_percentage,
+    "spend_amount": spend_amount,
+    "quantity": quantity,
+    "dry_run": dry_run,
+    "alert_name": alert_name,
+  }
+
   ######################################################
   ## BRANCH BASED ON TRADER TYPE (CRYPTO vs STOCK)
   ######################################################
@@ -1561,6 +1596,11 @@ async def handle_webhook(request: Request):
 
             if order_result:
               trader.logger.info(f"BUY order executed successfully! Order ID: {order_result.get('id')}")
+              record_order(
+                **journal_common_fields, outcome="filled",
+                order_id=order_result.get('id'), amount=order_result.get('amount'),
+                **_order_price_fields(trader, order_result),
+              )
 
               # Get updated balance to show meaningful success message
               try:
@@ -1587,6 +1627,7 @@ async def handle_webhook(request: Request):
               }
 
             trader.logger.error("BUY order execution failed - no order result returned")
+            record_order(**journal_common_fields, outcome="rejected")
             return {
               "status": "error",
               "message": "BUY order execution failed",
@@ -1595,6 +1636,7 @@ async def handle_webhook(request: Request):
           except Exception as order_e:
             error_msg = str(order_e)
             trader.logger.error(f"Error executing BUY order: {error_msg}")
+            record_order(**journal_common_fields, outcome="error", error=error_msg)
             return {
               "status": "error",
               "message": f"BUY order execution failed: {error_msg}",
@@ -1645,6 +1687,11 @@ async def handle_webhook(request: Request):
 
             if order_result:
               trader.logger.info(f"SELL order executed successfully! Order ID: {order_result.get('id')}")
+              record_order(
+                **journal_common_fields, outcome="filled",
+                order_id=order_result.get('id'), amount=order_result.get('amount'),
+                **_order_price_fields(trader, order_result),
+              )
 
               # Get updated balance to show meaningful success message
               try:
@@ -1671,6 +1718,7 @@ async def handle_webhook(request: Request):
               }
 
             trader.logger.error("SELL order execution failed - no order result returned")
+            record_order(**journal_common_fields, outcome="rejected")
             return {
               "status": "error",
               "message": "SELL order execution failed",
@@ -1679,6 +1727,7 @@ async def handle_webhook(request: Request):
           except Exception as order_e:
             error_msg = str(order_e)
             trader.logger.error(f"Error executing SELL order: {error_msg}")
+            record_order(**journal_common_fields, outcome="error", error=error_msg)
             return {
               "status": "error",
               "message": f"SELL order execution failed: {error_msg}",
@@ -1750,6 +1799,11 @@ async def handle_webhook(request: Request):
             f"Order ID: {order_result.get('order_id')} - "
             f"{order_result.get('quantity')} shares @ ${order_result.get('price', 0):.2f}"
           )
+          record_order(
+            **journal_common_fields, outcome="filled",
+            order_id=order_result.get('order_id'), filled_quantity=order_result.get('quantity'),
+            **_order_price_fields(trader, order_result),
+          )
           return {
             "status": "success",
             "message": f"{action.upper()} order executed successfully",
@@ -1762,6 +1816,7 @@ async def handle_webhook(request: Request):
           }
 
         trader.logger.error(f"{action.upper()} order execution failed - no order result returned")
+        record_order(**journal_common_fields, outcome="rejected")
         return {
           "status": "error",
           "message": f"{action.upper()} order execution failed",
@@ -1770,6 +1825,7 @@ async def handle_webhook(request: Request):
       except Exception as order_e:
         error_msg = str(order_e)
         trader.logger.error(f"Error executing {action.upper()} order: {error_msg}")
+        record_order(**journal_common_fields, outcome="error", error=error_msg)
         return {
           "status": "error",
           "message": f"{action.upper()} order execution failed: {error_msg}",

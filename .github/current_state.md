@@ -112,37 +112,6 @@ and stranded whole-share residue from cash-mode DCA lands in the same pool. **Us
 mode for the re-entry tranches too sidesteps all of it** — no signal then reads the balance,
 so residue and deposits are inert.
 
-### No durable record of orders — build an order journal
-Tradleware never persists what it traded. An order exists only as lines in
-`tradleware.log`, which rotates at ~16 MB with gzip and eventually drops the oldest, and
-an instance run from a laptop leaves nothing on the Pi at all.
-
-Surfaced 08 Sep 2026: a BTC buy on the OKX bot around June could not be accounted for.
-The local logs were gone, the Pi never had them, and OKX itself was no help either —
-orders placed by API belong to the **subaccount** the key was issued for, so the main
-account view shows nothing, and OKX's own history API only reaches **3 months**. A trade
-from early June is already outside it. The exchange is not a reliable archive.
-
-**What to build:** an append-only journal, written the moment an order comes back from
-the exchange, holding at minimum:
-- timestamp, `trader_id`, exchange/broker, symbol
-- side, `order_size` and `order_size_type` as the signal asked for them
-- what was actually sent after sizing (amount or cost, and the fee reserved)
-- the exchange's order id, status, filled quantity, average price, fee
-- `alert_name` and `dry_run`, so simulated runs are distinguishable at a glance
-
-Notes for whoever builds it:
-- **Separate from the log.** The log is for reading; this is for keeping. It must not
-  rotate, and a size-capped log must never be the only copy.
-- Write it after the exchange responds, not before — a journal of intentions is not a
-  record of trades. Failed orders are still worth a row, with the error.
-- JSONL is probably enough and needs no dependency; SQLite if the dashboard should ever
-  query it. Either way it belongs on the mounted volume beside the logs so a container
-  rebuild does not take it.
-- Dry runs should be recorded but clearly flagged, or the journal cannot be trusted as a
-  tax or reconciliation record.
-- A dashboard tab reading it would make this visible without a shell.
-
 ### TradingView times out before Tradleware answers
 Every crypto order takes roughly ten seconds end to end, and TradingView's webhook
 timeout is a few seconds, so it disconnects long before the response. Measured on the
@@ -287,6 +256,39 @@ back (deduped).
   "no blank line between rows" check was added — csv.writer's own terminator stacks with
   the handler's, so every row would have doubled.
 - Suite 650 → 664, pylint 10.00/10.
+
+**Order journal, same session.** A BTC buy on the OKX bot around June could not be
+accounted for — the local logs had rotated away, the Pi never had them, and OKX's own
+history API only reaches 3 months and only for the subaccount the key was issued for, not
+the main account view. Tradleware had never persisted what it traded at all.
+
+Built `src/misc/order_journal.py` — `record_order(**fields)` appends one JSON line and
+`fsync()`s, no `RotatingFileHandler`, no rotation, ever: unlike the log files, this is the
+only durable record, and losing rows to rotation is the exact failure it exists to fix.
+JSONL rather than CSV, because a `percentage` buy, a `cash` buy and a `quantity` order
+carry different fields and a crypto `order_result` (ccxt-shaped) and IBKR's are genuinely
+different shapes — forcing that into fixed columns means blank cells or silently dropped
+data. Plain append-only file rather than SQLite/Postgres, and one shared file with
+`trader_id` as a field rather than one file per bot — a running database is
+disproportionate for a handful of trades a day, and JSONL rows import into SQLite
+trivially the day a "trade history" dashboard tab actually needs it.
+
+Wired into all three places the webhook handler calls `create_order` — crypto buy, crypto
+sell, stock — covering all three outcomes at each site: filled, rejected (falsy result, no
+exception), and errored (the call raised). The last two were previously unrecorded
+entirely. `dry_run` is journaled unmistakably, or the journal cannot be trusted as a tax
+or reconciliation record.
+
+The fill price is the whole point of a durable record, and the two broker families are
+**not symmetric**: IBKR's `order_result['price']` is already the resolved `avgFillPrice`,
+read directly, but ccxt's `price` is the *requested* price — commonly `0`/`None` for a
+market order and never what was actually paid. Crypto rows instead read `average`
+(falling back to `price`) and `cost`, the authoritative total actually spent. Both fields
+already existed in what each broker returns; nothing new was fetched, they were just
+never stored. Verified by mutation testing: reverting the crypto price handling to a
+plain `order_result.get('price')` failed a test immediately, and removing a
+`record_order` call on a rejected-order branch failed another — both restored after.
+Suite 664 → 679, pylint 10.00/10.
 
 ### 07 Sep 2026 (session 23) — two live-order bugs on Independent Reserve
 A real `percentage: 100` SOL/SGD buy failed with
