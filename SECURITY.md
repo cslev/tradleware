@@ -32,7 +32,7 @@ within a few days rather than hours.
 
 | Version | Supported |
 |---|---|
-| v3.4.0b (latest) | ✅ |
+| v3.6.0b (latest) | ✅ |
 | Earlier releases | ❌ — upgrade to the latest |
 
 Only the latest release receives fixes. Older Docker tags stay on Docker Hub for

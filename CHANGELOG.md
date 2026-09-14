@@ -5,6 +5,49 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.6.0b] - 2026-09-14
+
+A durable record of every order, a webhook that no longer makes TradingView wait for the
+trade, and the stock-side counterpart of v3.5.1b's balance-fee fix.
+
+### Added
+
+- **Order journal** — every order attempt (filled, rejected, errored, insufficient
+  balance, market closed) is now appended as one JSON line to `src/logs/orders.jsonl`,
+  `fsync`'d and never rotated. Previously the only record was `tradleware.log`, which
+  rotates away and left nothing to reconstruct a trade after the fact. Crypto and stock
+  rows read the actual per-unit fill price correctly and asymmetrically — crypto's
+  `average`/`cost` (ccxt's `price` is only the requested price, often 0/None for a market
+  order), stock's `price` directly (IBKR resolves it before returning).
+- **CSV-formatted access log** for unauthenticated dashboard visits — scanner and bot
+  traffic is routed to its own file (`access.log`), on a logger with no Gotify wiring at
+  all, so it can no longer page regardless of `GOTIFY_LOG_LEVEL`. Previously a lowered
+  log level for an unrelated reason could turn routine internet background noise into a
+  notification flood.
+
+### Changed
+
+- **The webhook now acknowledges a signal immediately and executes the order in the
+  background**, instead of holding the connection open for the full balance-fetch +
+  exchange round trip (~10s). TradingView's own webhook timeout is a few seconds, so it
+  was marking successful trades as failed, not only genuine errors. The synchronous
+  response no longer carries the order id, fill price, or quantity — none of that exists
+  yet at acknowledgement time — every outcome is visible via the log, Gotify, and the
+  order journal instead. The per-bot execution lock still serialises execution; it just
+  does so in the background rather than holding the HTTP connection open.
+- **Crypto orders no longer fetch the account balance twice per order.** The webhook
+  handler already fetches it once to validate the signal, while the per-bot lock is held
+  — reused instead of being fetched again inside `create_order`, cutting 3-4s off every
+  order.
+
+### Fixed
+
+- **A stock buy sized at 100% of the account's cash could fail on IB's own commission** —
+  the same shape as the crypto taker-fee bug fixed in v3.5.1b. Whole-share sizing leaves
+  at most one share's worth of cash unspent (zero when price divides cash evenly);
+  fractional-share sizing leaves even less. IB's commission (~$0.005/share, $1.00 minimum)
+  is now reserved before sizing, only when the order would not otherwise fit.
+
 ## [v3.5.1b] - 2026-09-07
 
 Fixes for orders that spend an entire balance, and for exchanges that publish no
