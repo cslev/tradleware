@@ -15,7 +15,12 @@
 
 
 ## Current State
-**v3.5.1b** — 100%-of-balance orders no longer fail on the exchange fee; amounts rounded when a venue publishes no precision; stable IBKR client ids
+**v3.6.0b** — durable JSONL order journal; webhook acknowledges immediately and trades
+in the background (TradingView no longer times out on a successful order); IBKR
+commission reserved so a full-balance stock buy can't fail on the fee; crypto orders no
+longer fetch the balance twice
+
+**v3.5.1b released** — 100%-of-balance orders no longer fail on the exchange fee; amounts rounded when a venue publishes no precision; stable IBKR client ids
 
 **v3.5.0b released** — cash-denominated order sizing on both broker families; configurable stock
 account/contract currency and venue; market-hours settings now reach the trader
