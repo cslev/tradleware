@@ -42,7 +42,11 @@ def size(side="buy", cash=None, shares=None, price=100.0, currency="USD",
   """Call the real _calculate_order_size against a minimal holder."""
   holder = types.SimpleNamespace(
     account_currency=currency, logger=_Recorder(),
-    MIN_SPEND_PERCENTAGE=0.0, MAX_SPEND_PERCENTAGE=1.0)
+    MIN_SPEND_PERCENTAGE=0.0, MAX_SPEND_PERCENTAGE=1.0,
+    DEFAULT_PER_SHARE_COMMISSION=BaseStockTrader.DEFAULT_PER_SHARE_COMMISSION,
+    DEFAULT_MIN_COMMISSION=BaseStockTrader.DEFAULT_MIN_COMMISSION)
+  holder._reserve_commission_headroom = \
+    BaseStockTrader._reserve_commission_headroom.__get__(holder)
   ctx = {"current_price": price}
   if cash is not None:
     ctx["cash_available"] = cash
@@ -110,9 +114,16 @@ class TestGuards:
     with pytest.raises(ValueError, match="Insufficient cash"):
       size(cash=200.0, price=100.0, spend_amount=500.0)
 
-  def test_spending_exactly_the_balance_is_allowed(self):
-    quantity, _ = size(cash=500.0, price=100.0, spend_amount=500.0)
-    assert quantity == 5
+  def test_spending_exactly_the_balance_reserves_commission_headroom(self):
+    """
+    5 shares at 100 spends the full 500 — arithmetically impossible once IB's own
+    commission is added on top, the same shape as the crypto taker-fee bug. Trimmed to
+    4 shares (400 spent + 1.00 commission = 401, well inside the 500 balance) instead
+    of being sized as an order the broker would reject.
+    """
+    quantity, logger = size(cash=500.0, price=100.0, spend_amount=500.0)
+    assert quantity == 4
+    assert any("commission" in m for m in logger.messages)
 
   def test_a_cash_sell_is_refused(self):
     """Buy-only by design — percentage 100 is how a position gets closed."""
@@ -128,6 +139,52 @@ class TestGuards:
     with pytest.raises(ValueError) as exc:
       size(cash=200.0, price=100.0, spend_amount=500.0, currency="EUR")
     assert "EUR" in str(exc.value) and "$" not in str(exc.value)
+
+
+class TestCommissionHeadroom:
+  """
+  IB charges its commission on top of the trade — $0.005/share, $1.00 minimum — so a
+  full-balance buy sized without it is arithmetically impossible, the same shape as the
+  crypto taker-fee bug fixed for Independent Reserve. Only trims when the order would
+  not otherwise fit.
+  """
+
+  def test_a_full_balance_percentage_buy_is_trimmed(self):
+    """percentage: 100 must not size an order the broker will reject for the fee."""
+    quantity, logger = size(cash=500.0, price=100.0, spend_percentage=1.0)
+    assert quantity == 4
+    assert any("commission" in m for m in logger.messages)
+
+  def test_a_partial_balance_buy_is_left_untouched(self):
+    """Existing slack already covers the commission — nothing to trim, nothing logged."""
+    quantity, logger = size(cash=1000.0, price=100.0, spend_percentage=0.5)
+    assert quantity == 5
+    assert not any("commission" in m for m in logger.messages)
+
+  def test_fractional_shares_reserve_headroom_too(self):
+    """
+    Fractional sizing floors to 4dp, leaving at most price/10000 slack — a fraction of
+    a cent, nowhere near the $1 minimum commission. Every full-balance fractional buy
+    hits this, not just the whole-share edge case.
+    """
+    quantity, logger = size(cash=500.0, price=100.0, spend_amount=500.0, fractional=True)
+    spent = quantity * 100.0
+    assert spent + 1.00 <= 500.0
+    assert any("commission" in m for m in logger.messages)
+
+  def test_trimming_down_to_zero_shares_still_raises_the_zero_quantity_error(self):
+    """Cash too small to cover even one share plus the commission — refused, not sized
+    as a free order."""
+    with pytest.raises(ValueError, match="Calculated quantity is 0"):
+      size(cash=100.50, price=100.0, spend_amount=100.50)
+
+  def test_the_trimmed_order_always_fits_the_balance(self):
+    """The one-shot trim is provably sufficient (see _reserve_commission_headroom) —
+    checked here against a case a single iteration could plausibly under-trim."""
+    quantity, _ = size(cash=201.0, price=100.0, spend_amount=201.0)
+    commission = max(quantity * BaseStockTrader.DEFAULT_PER_SHARE_COMMISSION,
+                     BaseStockTrader.DEFAULT_MIN_COMMISSION)
+    assert quantity * 100.0 + commission <= 201.0
 
 
 class TestPercentageModeIsUnchanged:

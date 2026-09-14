@@ -120,27 +120,6 @@ TradingView's timeout, but it is free and it halves the window in which the bala
 change between the check and the sizing — today those are two different reads, so a
 concurrent withdrawal could pass validation and then size against something else.
 
-### Stocks may have the same fee gap crypto just had — unverified
-`base_stock_trader._calculate_order_size` computes `amount_to_spend = cash *
-spend_percentage` with no allowance for commission, so `percentage: 100` sizes an order
-against the entire cash balance. That is exactly the shape that failed on Independent
-Reserve: the order was arithmetically impossible because the fee had to come from money
-already spent.
-
-**Not confirmed to fire on IBKR**, and it needs a different fix if it does:
-- IB charges roughly **$0.005/share with a $1.00 minimum** — a per-share fee, not a
-  percentage, so the crypto approach (`cost / (1 + taker)`) does not transfer. Reserving
-  for it means estimating shares first, which is circular; likely a small flat buffer or
-  an iterate-once-and-shrink.
-- A margin account may absorb a small overdraft silently where IR refused outright, so
-  the failure could be invisible on some accounts and hard on others.
-- The paper test on 05 Sep spent 200 of ~990,955 USD — nowhere near the boundary, so it
-  said nothing about this.
-
-**Cheapest way to settle it:** one `percentage: 100` buy on the paper account. Either IB
-fills it, in which case there is nothing to fix, or it rejects and the message names the
-shortfall.
-
 ### Config hot-reload — prerequisites now in place
 `get_trader_lock(trader_id)` is exposed so a reload can take a bot's lock before swapping
 its trader instance, guaranteeing no request is mid-trade against the old one. Three things
@@ -306,6 +285,32 @@ response in 0.01s. Suite 682 → 682 (three tests rewritten for the new contract
 `response.status_code` is now always `200` regardless of outcome, and the fake trader's
 own call record or a captured log line — not the response body — proves what happened),
 pylint 10.00/10.
+
+**Stock commission-headroom bug, same session — settled without a live paper trade.**
+Confirmed real by working the arithmetic rather than by placing a paper order (no IBKR
+paper connection available in this environment): `_calculate_order_size` floors to whole
+shares, so a `percentage: 100` buy leaves at most one share's worth of cash unspent —
+zero when price divides cash evenly — nowhere near IB's ~$1 minimum commission. For
+fractional shares, sizing floors to 4dp instead, leaving at most `price/10000` — a
+fraction of a cent, so *every* full-balance fractional buy hits this, not only the
+whole-share edge case.
+
+Fixed the same way as the Independent Reserve taker-fee bug — reserve the fee before
+sizing, only when the order would not otherwise fit — but the mechanics differ: IB's
+commission is per-share with a flat minimum, not a percentage of cost, and depends on the
+very share count being solved for. `_reserve_commission_headroom()` sidesteps the
+circularity by checking the quantity the *untrimmed* budget would buy: trimming can only
+lower that quantity, and a lower quantity's commission is never higher, so one trim
+(not an iterate-and-shrink loop) is provably always enough to make the order fit.
+
+Broke `test_cash_sizing.py`'s `size()` test harness, which calls `_calculate_order_size`
+against a bare `types.SimpleNamespace` standing in for `self` — fixed by binding the new
+constants and method onto it, the same way the real class provides them. One existing
+test (`test_spending_exactly_the_balance_is_allowed`) had encoded the very bug being
+fixed as its expected behaviour; renamed and re-asserted rather than deleted, since it now
+documents the fix. Suite 682 → 687, pylint 10.00/10 (checked against the whole `src/`
+tree — pylint run against a single subpackage in isolation misresolves the project's own
+imports and reports false `E0401`s, a tooling quirk, not a real error).
 
 ### 07 Sep 2026 (session 23) — two live-order bugs on Independent Reserve
 A real `percentage: 100` SOL/SGD buy failed with

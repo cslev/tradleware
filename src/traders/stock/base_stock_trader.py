@@ -17,6 +17,11 @@ class BaseStockTrader(ABC):
   VALID_ORDER_SIDES = ['buy', 'sell']
   MIN_SPEND_PERCENTAGE = 0.0
   MAX_SPEND_PERCENTAGE = 1.0
+  # IB's published commission schedule: per share, with a per-order minimum. Used to
+  # reserve headroom for a full-balance buy — see _reserve_commission_headroom. A
+  # future non-IBKR stock broker would override these with its own schedule.
+  DEFAULT_PER_SHARE_COMMISSION = 0.005
+  DEFAULT_MIN_COMMISSION = 1.00
 
   def __init__(self,
                config: dict,
@@ -130,6 +135,41 @@ class BaseStockTrader(ABC):
       )
     self.logger.info(f"Quantity check: selling {quantity} of {shares} shares held")
 
+  def _reserve_commission_headroom(self, amount_to_spend: float, cash: float,
+                                   price: float, fractional_shares: bool) -> float:
+    """
+    Trim a cash budget so IB's own commission still fits inside the account's balance.
+
+    IB charges its commission *on top of* the trade, so spending 100% of cash can be
+    arithmetically impossible for the same reason a crypto exchange's taker fee makes a
+    full-balance buy impossible (see _reserve_fee_headroom in base_crypto_trader.py) —
+    the order itself is not too large, the balance was never enough to cover order +
+    fee. Unlike a percentage-of-cost taker fee, IB's is per-share with a flat minimum,
+    so it depends on the very share count this function is sizing — solved by checking
+    the quantity the untrimmed budget would buy, not by iterating: trimming can only
+    lower that quantity, and a lower quantity's commission is never higher, so one
+    trim is always enough to make the order fit.
+
+    Only trims when the order would not otherwise fit, so a partial-balance buy — which
+    already has slack — is untouched.
+    """
+    raw_quantity = amount_to_spend / price
+    quantity = math.floor(raw_quantity * 10_000) / 10_000 if fractional_shares \
+        else int(raw_quantity)
+    if quantity <= 0:
+      return amount_to_spend  # nothing to reserve for; the zero-quantity check below fires
+    commission = max(quantity * self.DEFAULT_PER_SHARE_COMMISSION, self.DEFAULT_MIN_COMMISSION)
+    spent = quantity * price
+    if spent + commission <= cash:
+      return amount_to_spend
+
+    trimmed = max(amount_to_spend - commission, 0.0)
+    self.logger.info(
+      f"Reserving {commission:.2f} {self.account_currency} for IB's commission — "
+      f"spending {trimmed:.2f} of {amount_to_spend:.2f} {self.account_currency}."
+    )
+    return trimmed
+
   def _calculate_order_size(self,
                             side: str,
                             spend_percentage: float,
@@ -179,6 +219,9 @@ class BaseStockTrader(ABC):
       else:
         amount_to_spend = cash * spend_percentage
         basis = f"{spend_percentage*100:.1f}% of {cash:.2f}"
+
+      amount_to_spend = self._reserve_commission_headroom(
+        amount_to_spend, cash, price, fractional_shares)
 
       raw_quantity = amount_to_spend / price
       # Floor, never round: rounding up puts the order over the cash it was sized
