@@ -306,7 +306,8 @@ class BaseCryptoTrader(ABC):
   #     """Fetch order book for a symbol."""
   #     pass
 
-  async def _resolve_market_and_balance(self, symbol: str) -> Dict[str, Any]:
+  async def _resolve_market_and_balance(self, symbol: str,
+                                        known_balance: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Loads market data and fetches account balance for a given symbol.
     Centralises the repeated market-loading + balance-fetching block that every
@@ -314,6 +315,14 @@ class BaseCryptoTrader(ABC):
 
     Args:
       symbol (str): Trading pair symbol (e.g. 'BTC/USDT').
+      known_balance (dict): Already-fetched CCXT balance dict (same shape fetch_balance()
+                            returns), reused instead of hitting the exchange again. The
+                            webhook handler already fetches the balance once to validate
+                            the signal before ever reaching create_order — while the
+                            per-bot execution lock is held, so nothing else can change it
+                            in between. Refetching bought nothing but 3-4s of latency and
+                            a second window for an exchange-external change (a manual
+                            withdrawal) to make the two reads disagree.
 
     Returns:
       dict with keys:
@@ -350,8 +359,8 @@ class BaseCryptoTrader(ABC):
     amount_limits = limits.get('amount', {}) or {}
     cost_limits   = limits.get('cost',   {}) or {}
 
-    # --- fetch balance ---
-    balance_info = await self.fetch_balance()
+    # --- fetch balance (or reuse an already-fetched one) ---
+    balance_info = known_balance if known_balance is not None else await self.fetch_balance()
     if not balance_info:
       raise RuntimeError(f"Could not fetch balance for {self.account_identifier} on {self.exchange_id}.")
 

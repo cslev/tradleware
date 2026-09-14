@@ -227,7 +227,8 @@ class IRTrader(BaseCryptoTrader):
                          dry_run: bool = False,
                          params: dict = None,
                          *,
-                         spend_amount: float = None) -> Optional[Dict[str, Any]]:
+                         spend_amount: float = None,
+                         known_balance: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
     """
     Create an order on Independent Reserve according to the provided strategy.
 
@@ -271,7 +272,7 @@ class IRTrader(BaseCryptoTrader):
     # and free/total balance snapshots.
     # ─────────────────────────────────────────────────────────────────────────
     try:
-      ctx = await self._resolve_market_and_balance(symbol)
+      ctx = await self._resolve_market_and_balance(symbol, known_balance=known_balance)
     except RuntimeError as exc:
       self.logger.error(f"{exc}")
       return None

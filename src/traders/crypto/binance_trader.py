@@ -265,7 +265,8 @@ class BinanceTrader(BaseCryptoTrader):
                          dry_run: bool = False,
                          params: dict = None,
                          *,
-                         spend_amount: float = None) -> Optional[Dict[str, Any]]:
+                         spend_amount: float = None,
+                         known_balance: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
     """
     Creates an order on Binance with flexible execution and amount.
 
@@ -303,7 +304,7 @@ class BinanceTrader(BaseCryptoTrader):
     # LAYER 2 — RESOLVE MARKET DATA & BALANCE
     # ─────────────────────────────────────────────────────────────────────────
     try:
-      ctx = await self._resolve_market_and_balance(symbol)
+      ctx = await self._resolve_market_and_balance(symbol, known_balance=known_balance)
     except RuntimeError as exc:
       self.logger.error(f"{exc}")
       return None

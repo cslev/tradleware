@@ -11,6 +11,7 @@
 > Last updated: 05 Sep 2026 (session 22)
 > Last updated: 07 Sep 2026 (session 23)
 > Last updated: 12 Sep 2026 (session 24)
+> Last updated: 14 Sep 2026 (session 25)
 
 
 ## Current State
@@ -110,16 +111,6 @@ and stranded whole-share residue from cash-mode DCA lands in the same pool. **Us
 mode for the re-entry tranches too sidesteps all of it** — no signal then reads the balance,
 so residue and deposits are inert.
 
-### Crypto orders fetch the balance twice
-Visible in the timing above: the handler fetches it for buy/sell validation, then
-`_resolve_market_and_balance` fetches it again ~4s later for sizing. Same data, two
-round trips.
-
-Removing the duplicate cuts 3–4s off every crypto order. Not enough on its own to beat
-TradingView's timeout, but it is free and it halves the window in which the balance can
-change between the check and the sizing — today those are two different reads, so a
-concurrent withdrawal could pass validation and then size against something else.
-
 ### Config hot-reload — prerequisites now in place
 `get_trader_lock(trader_id)` is exposed so a reload can take a bot's lock before swapping
 its trader instance, guaranteeing no request is mid-trade against the old one. Three things
@@ -162,6 +153,35 @@ tag (TradingView cannot know an order id, so a signal can never cancel by id), a
 to the `clientId` bug below.
 
 ## Session History
+
+### 14 Sep 2026 (session 25) — crypto orders stop fetching the balance twice
+The webhook handler fetches the balance once for buy/sell validation, then
+`create_order`'s own `_resolve_market_and_balance` fetched it *again* ~4s later for
+sizing — same data, two round trips, both while the per-bot execution lock is held so
+nothing else could have changed it in between. The second read only ever earned its
+keep by catching an exchange-external change (a manual withdrawal), a rare case that a
+stale reservation from the first read already handles safely either way.
+
+`_resolve_market_and_balance` now takes an optional `known_balance` and skips its own
+`fetch_balance()` call when one is supplied. `create_order` grew a matching keyword-only
+`known_balance` parameter across all six exchange implementations (binance, coinbase,
+crypto.com, IR, Kraken, OKX) — the same pattern already used for `spend_amount` — purely
+to forward it through to `_resolve_market_and_balance`; no per-exchange logic changed.
+`app.py`'s two crypto call sites (`_execute_signal`'s buy and sell branches) now pass
+`known_balance=raw_balance`, the dict they already fetched to validate the signal. The
+separate "updated balance" fetch *after* a successful order — shown in the success
+message — is untouched and still genuinely fresh, since that one must reflect the trade
+that just happened.
+
+Six near-identical manual edits (one signature change, one call-site change per
+exchange) is exactly the shape of change where one file gets missed, so a dedicated test
+class reads each file's own source to confirm every one of the six actually wires
+`known_balance` through, rather than assuming the pattern held everywhere it was
+supposed to. Mutation-tested: reverting the core fetch-skip in `base_crypto_trader.py`
+failed 2 tests, and reverting just OKX's call site (simulating a missed file) failed
+exactly the one source-check test for OKX — both restored after. Suite 687 → 702,
+pylint 10.00/10 (checked against the whole `src/` tree, not a single file or subpackage
+— see the note in the 12 Sep entry on why that matters).
 
 ### 12 Sep 2026 (session 24) — scanner traffic stopped paging, and made parseable
 `GOTIFY_LOG_LEVEL` defaults to `WARNING`, but two call sites logged at that level from a

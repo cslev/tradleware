@@ -1286,7 +1286,11 @@ async def _execute_signal(trader, trader_id, ticker, action, order_size, order_s
                 quantity=quantity,
                 spend_amount=spend_amount,
                 order_execution_strategy='market',  # Market order for immediate execution
-                dry_run=dry_run
+                dry_run=dry_run,
+                # Reuse the balance just fetched for validation above — the per-bot
+                # lock is held for this whole call, so nothing else can have changed
+                # it, and refetching bought nothing but 3-4s of latency.
+                known_balance=raw_balance
               )
 
               if order_result:
@@ -1358,7 +1362,11 @@ async def _execute_signal(trader, trader_id, ticker, action, order_size, order_s
                 quantity=quantity,
                 spend_amount=spend_amount,
                 order_execution_strategy='market',  # Market order for immediate execution
-                dry_run=dry_run
+                dry_run=dry_run,
+                # Reuse the balance just fetched for validation above — the per-bot
+                # lock is held for this whole call, so nothing else can have changed
+                # it, and refetching bought nothing but 3-4s of latency.
+                known_balance=raw_balance
               )
 
               if order_result:
