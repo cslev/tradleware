@@ -313,6 +313,62 @@ def get_csv_file_logger(name: str, logfile_name: str, fields,
   return csv_logger
 
 
+def _get_jsonl_rotating_handler(logfile_name: str) -> RotatingFileHandler:
+  """
+  Return the one bare-formatted rotating handler for this file, shared like
+  `_get_rotating_file_handler` and for the same reason.
+
+  Unlike the CSV handler, there is no header: each line is a complete, self-describing
+  JSON object (the caller includes its own "timestamp" field, the same convention
+  order_journal.py uses), so nothing above the first row is needed to parse it.
+  """
+  handler = _file_handlers.get(logfile_name)
+  if handler is not None:
+    return handler
+  with _file_handler_lock:
+    if logfile_name not in _file_handlers:
+      logs_dir = Path(__file__).resolve().parent.parent / "logs"
+      logs_dir.mkdir(parents=True, exist_ok=True)
+      handler = RotatingFileHandler(
+        logs_dir / logfile_name,
+        maxBytes=_int_env('LOG_MAX_BYTES', _LOG_MAX_BYTES_DEFAULT),
+        backupCount=_int_env('LOG_BACKUP_COUNT', _LOG_BACKUP_COUNT_DEFAULT),
+        encoding='utf-8'
+      )
+      # No prefix: the caller's own json.dumps(...) is the entire message, and the
+      # usual '%(asctime)s - [%(name)s] - ...' prefix would stop each line from being
+      # valid JSON on its own.
+      handler.setFormatter(logging.Formatter('%(message)s'))
+      if _bool_env('LOG_COMPRESS_ROTATED', True):
+        handler.namer = _gzip_namer
+        handler.rotator = _gzip_rotator
+      _file_handlers[logfile_name] = handler
+  return _file_handlers[logfile_name]
+
+
+def get_jsonl_file_logger(name: str, logfile_name: str,
+                          level: int = logging.INFO) -> logging.Logger:
+  """
+  A logger, like get_csv_file_logger, with no Gotify path and its own rotating file —
+  but for events that do not fit fixed CSV columns, because the data is variably
+  shaped (an arbitrary webhook payload, say). The caller passes a pre-serialised JSON
+  string as the log message (typically `json.dumps({...})`); this adds nothing to it,
+  so the file is valid JSON-lines — one `json.loads()` per line, no prefix to strip.
+
+  Rotates and gzips like every other file here, which matters more than usual for this
+  one: unlike order_journal.py's orders.jsonl (never rotated, because every real trade
+  must be kept forever), a logger fed by untrusted input — a malformed or unauthenticated
+  webhook body — must have a hard ceiling on disk use regardless of how much garbage
+  arrives, the same property access_logger relies on for scanner traffic.
+  """
+  jsonl_logger = logging.getLogger(name)
+  jsonl_logger.propagate = False
+  jsonl_logger.setLevel(level)
+  if not jsonl_logger.handlers:
+    jsonl_logger.addHandler(_get_jsonl_rotating_handler(logfile_name))
+  return jsonl_logger
+
+
 def get_plain_file_logger(name: str, logfile_name: str,
                           level: int = logging.INFO) -> logging.Logger:
   """

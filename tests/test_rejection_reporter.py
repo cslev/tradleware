@@ -163,6 +163,17 @@ class TestWebhookFloodEndToEnd:
     from src.misc.failure_limiter import FailureLimiter
     app.failure_limiter = FailureLimiter(max_failures=10_000, window_s=60)
 
+  @staticmethod
+  def shared_log_records(caplog):
+    """
+    Records on the shared, flood-vulnerable pipeline this file is about — excludes
+    RejectedWebhooks, a deliberately separate destination with its own bounded-growth
+    guarantee and its own tests (test_webhook_journal.py). Both are non-propagating
+    loggers, so pytest's caplog attaches to each directly (see
+    _pytest.logging.catching_logs) and cannot otherwise tell them apart.
+    """
+    return [r for r in caplog.records if r.name != "RejectedWebhooks"]
+
   async def test_a_flood_of_bad_keys_produces_one_log_line(self, client_factory,
                                                            webhook_url, crypto_trader,
                                                            caplog):
@@ -172,7 +183,8 @@ class TestWebhookFloodEndToEnd:
         response = await client.post(webhook_url,
                                      json=signal_payload(api_key="wrong"))
         assert response.status_code == 401, "rejection behaviour must not change"
-    rejections = [r for r in caplog.records if "invalid API key" in r.getMessage()]
+    rejections = [r for r in self.shared_log_records(caplog)
+                 if "invalid API key" in r.getMessage()]
     assert len(rejections) == 1, f"{len(rejections)} lines written for 50 attempts"
 
   async def test_the_flood_is_still_counted(self, client_factory, webhook_url,
@@ -197,14 +209,16 @@ class TestWebhookFloodEndToEnd:
                                                          caplog):
     """
     The 'webhook received' line used to be written for every request from anyone who
-    knew the path, carrying three attacker-chosen fields.
+    knew the path, carrying three attacker-chosen fields. webhook_journal is the one
+    deliberate, bounded exception to this — excluded here, covered in its own tests.
     """
     caplog.set_level(logging.DEBUG)
     async with client_factory() as client:
       await client.post(webhook_url, json=signal_payload(api_key="wrong",
                                                          ticker="INJECTED-TICKER"))
-    assert "INJECTED-TICKER" not in caplog.text
-    assert "Webhook received" not in caplog.text
+    shared_text = "\n".join(r.getMessage() for r in self.shared_log_records(caplog))
+    assert "INJECTED-TICKER" not in shared_text
+    assert "Webhook received" not in shared_text
 
   async def test_an_authenticated_signal_is_still_announced(self, client_factory,
                                                             webhook_url, crypto_trader,
@@ -223,7 +237,8 @@ class TestWebhookFloodEndToEnd:
       response = await client.post(webhook_url, content=payload,
                                    headers={"content-type": "application/json"})
     assert response.status_code == 400
-    assert "FILLER" not in caplog.text, "attacker-chosen text reached the log file"
+    shared_text = "\n".join(r.getMessage() for r in self.shared_log_records(caplog))
+    assert "FILLER" not in shared_text, "attacker-chosen text reached the shared log file"
 
   async def test_replay_floods_are_collapsed_too(self, client_factory, webhook_url,
                                                  crypto_trader, caplog):

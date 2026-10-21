@@ -12,6 +12,7 @@
 > Last updated: 07 Sep 2026 (session 23)
 > Last updated: 12 Sep 2026 (session 24)
 > Last updated: 14 Sep 2026 (session 25)
+> Last updated: 20 Oct 2026 (session 26)
 
 
 ## Current State
@@ -158,6 +159,72 @@ tag (TradingView cannot know an order id, so a signal can never cancel by id), a
 to the `clientId` bug below.
 
 ## Session History
+
+### 20 Oct 2026 (session 26) — a rejected webhook now leaves a record of what it sent
+Reported directly: a malformed or rejected webhook logged only a short, fixed diagnostic
+phrase ("malformed JSON body", "unknown trader_id", ...) — never the request itself, so
+there was nothing to look at afterward to see what was actually sent. Tracing it found
+two genuinely different gaps wearing the same symptom, needing two different fixes.
+
+**The larger gap: an already-authenticated signal's payload was logged too late.**
+`handle_webhook` has always logged the full payload (redacted of `api_key`) to the bot's
+own logger — but only after replay and freshness checks had *also* passed, near the
+bottom of the function. Every rejection between authentication and that point — a stale
+timestamp, a duplicate signal, a missing or invalid `order_size`, a bad ticker — never
+reached it, so the single most common real-world case (your own bot, correctly
+authenticated, sent something slightly wrong) was exactly the case left with no record.
+Fixed by moving that one log line to fire immediately once the API key is confirmed:
+none of the later checks raise the sender's trust any further, they only reject things
+an authenticated signal can legitimately get wrong, which is precisely where seeing the
+payload matters.
+
+**The smaller, harder gap: rejections before authentication.** Malformed JSON, a
+non-object body, a missing or unknown `trader_id`, a wrong API key — none of these have
+established any trust yet, so the existing design deliberately never logs the body here
+(rejection_reporter's own comment: echoing attacker-supplied text into the shared,
+flood-vulnerable log lets anyone choose what fills it and evicts real history). That
+reasoning is still correct for the *shared* log. The fix is a new, separate destination
+for exactly the data that reasoning says the shared log must never hold:
+`src/misc/webhook_journal.py`, writing JSON-lines to its own `rejected_webhooks.jsonl` —
+same shape as session 24's `access_logger`: own rotating file, no Gotify path, does not
+propagate to root, so a flood is bounded by disk, never by notifications or by crowding
+out `tradleware.log`.
+
+Two details earn their place:
+- **No dedup of its own.** `record_rejected_webhook()` is only called when
+  `rejection_reporter.record()` for the same rejection returns `True` — i.e. only on the
+  first occurrence in its window. Reusing that decision rather than building a second
+  one means a flood writes exactly one journal line, the same count it already writes
+  to the shared log, instead of one line per request.
+- **Redaction is enforced inside the module, not trusted to each call site.** A dict
+  payload gets exact, key-based redaction (`{**data, 'api_key': '***'}`); a body that
+  never parsed as JSON at all gets a best-effort regex pass over the raw text, since
+  there is no dict to redact precisely but the real key can still be sitting in it.
+  Either way the caller cannot forget to ask for it.
+
+Two mutation-testing lessons repeated themselves here, both documented in session 24's
+entry the first time: (1) three *existing* tests in `test_rejection_reporter.py` encoded
+the old, now-superseded invariant — "nothing attacker-chosen ever reaches `caplog.text`"
+— as a blanket assertion rather than one scoped to the shared log specifically. They
+were not wrong when written; the feature they were guarding against not existing yet is
+now a deliberate, separate exception. Re-scoped to exclude the `RejectedWebhooks` logger
+by name, preserving the original intent exactly rather than weakening it. (2) The first
+version of `record_rejected_webhook` had no flood protection at all — caught immediately
+by one of those same three tests (`test_a_flood_of_bad_keys_produces_one_log_line`)
+rather than by anything new, before the gating fix above was added.
+
+Mutation-tested five ways, fresh backup directory verified empty before each: reverting
+the payload-log relocation (3 tests fail), removing the first-occurrence gating (50
+journal lines instead of 1), disabling the api_key redaction (real key appears in
+output), dropping `propagate = False` (probe leaks to a root handler), and deleting the
+`unknown trader_id` call site entirely (its dedicated test fails) — restored byte-identical
+to backup after each. Suite 702 → 726, pylint 10.00/10.
+
+Verified once more against a real `uvicorn` boot before release, not just the test
+client: `rejected_webhooks.jsonl` appears empty on startup as designed, a malformed body
+with a fake secret embedded had it redacted even though the body never parsed as JSON,
+an unknown trader_id was captured with the id intact, and a stale-timestamp signal from
+a real configured bot correctly landed in `tradleware.log` and *not* in the new journal.
 
 ### 14 Sep 2026 (session 25) — crypto orders stop fetching the balance twice
 The webhook handler fetches the balance once for buy/sell validation, then

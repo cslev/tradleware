@@ -35,6 +35,7 @@ from src.misc.config_loader import get_bot_configs, client_id_findings
 from src.misc.failure_limiter import FailureLimiter
 from src.misc.key_strength import assess_key, find_shared_keys
 from src.misc.order_journal import record_order
+from src.misc.webhook_journal import record_rejected_webhook
 from src.misc.rejection_reporter import RejectionReporter
 from src.misc.replay_guard import ReplayGuard, parse_signal_timestamp, signal_fingerprint
 from src.traders.crypto.binance_trader import BinanceTrader
@@ -1535,27 +1536,34 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
       headers={"Retry-After": str(retry_after)})
 
   ## reading JSON body with error handling
+  body = b""  # bound ahead of the try so a failure inside it still has a defined value
   try:
     body = await request.body()
     data = json.loads(body.decode('utf-8'))
   except json.JSONDecodeError as exc:
-    # Only the parser's own complaint is logged. The body itself is attacker-supplied,
-    # and echoing hundreds of its characters into a size-rotated log lets anyone choose
-    # what fills it — and how fast the real history is pushed out.
-    rejection_reporter.record("malformed JSON body", client_ip, str(exc)[:100])
+    # The short complaint goes to the shared log via rejection_reporter (its own
+    # comment explains why the body itself never does). The body still goes somewhere:
+    # webhook_journal redacts and caps it into its own rotating file — but only on the
+    # same first-occurrence-per-window basis rejection_reporter already uses, so a
+    # flood of identical garbage cannot write one journal line per request either.
+    if rejection_reporter.record("malformed JSON body", client_ip, str(exc)[:100]):
+      record_rejected_webhook("malformed JSON body", client_ip, raw_body=body)
     raise HTTPException(
       status_code=400,
       detail=f"Malformed JSON in webhook request: {str(exc)[:200]}") from exc
   except Exception as exc:
-    rejection_reporter.record("unreadable request body", client_ip, str(exc)[:100])
+    if rejection_reporter.record("unreadable request body", client_ip, str(exc)[:100]):
+      record_rejected_webhook("unreadable request body", client_ip, raw_body=body)
     raise HTTPException(
       status_code=400,
       detail=f"Error reading webhook request body: {str(exc)[:200]}") from exc
 
   # Valid JSON is not necessarily an object — every field lookup below assumes one
   if not isinstance(data, dict):
-    rejection_reporter.record(f"body was a JSON {type(data).__name__}, not an object",
-                              client_ip)
+    if rejection_reporter.record(f"body was a JSON {type(data).__name__}, not an object",
+                                 client_ip):
+      record_rejected_webhook(f"body was a JSON {type(data).__name__}, not an object",
+                              client_ip, data=data)
     raise HTTPException(status_code=400, detail="Webhook body must be a JSON object.")
 
   ########################################################################
@@ -1563,11 +1571,15 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
   ########################################################################
   trader_id = data.get("trader_id")
   if not trader_id:
-    rejection_reporter.record("no trader_id in the payload", client_ip)
+    if rejection_reporter.record("no trader_id in the payload", client_ip):
+      record_rejected_webhook("no trader_id in the payload", client_ip, data=data)
     raise HTTPException(status_code=400, detail="Missing field: trader_id")
   if trader_id not in traders:
-    # The submitted id is not echoed: it is attacker-chosen text going into the log
-    rejection_reporter.record("unknown trader_id", client_ip)
+    # The submitted id is not echoed into the shared log: it is attacker-chosen text
+    # and that log is free text with no escaping. webhook_journal is JSON-lines, where
+    # a string value cannot break out and spoof a line, so the id is safe to keep there.
+    if rejection_reporter.record("unknown trader_id", client_ip):
+      record_rejected_webhook("unknown trader_id", client_ip, trader_id=trader_id, data=data)
     raise HTTPException(status_code=404, detail=f"Trader ID '{trader_id}' not found")
 
   ############################
@@ -1585,11 +1597,14 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
   # rejected rather than raising, the same way the login form does it.
   provided_key = str(api_key).encode('utf-8') if api_key else b''
   if not secrets.compare_digest(provided_key, str(expected_api_key).encode('utf-8')):
-    # The submitted key is never logged: it is attacker-controlled (log injection),
-    # a near-miss value is likely a real secret, and ERROR is pushed to Gotify.
+    # The submitted key is never logged, in either destination: it is attacker-
+    # controlled, and a near-miss value is likely a real secret. record_rejected_webhook
+    # redacts the api_key field the same way the rest of the payload is still kept.
     failure_limiter.record_failure(client_ip)
-    rejection_reporter.record(f"invalid API key for bot '{trader_id}'", client_ip,
-                              logger=trader.logger)
+    if rejection_reporter.record(f"invalid API key for bot '{trader_id}'", client_ip,
+                                 logger=trader.logger):
+      record_rejected_webhook(f"invalid API key for bot '{trader_id}'", client_ip,
+                              trader_id=trader_id, data=data)
     raise HTTPException(status_code=401, detail="Invalid API key.")
 
   # Authenticated: forget any earlier failures from this address, so a source that was
@@ -1607,6 +1622,18 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     f"action: '{data.get('action', '<not set>')}', "
     f"ticker: '{data.get('ticker', '<not set>')}'"
   )
+
+  # Full payload, redacted of the API key, logged to this bot's own logger — visible in
+  # its dashboard card. Moved here, right after authentication, rather than after the
+  # replay/freshness checks further down: those checks do not raise the sender's trust
+  # any further, they only reject things an already-authenticated signal can
+  # legitimately get wrong (a stale clock, a resent alert, a typo'd field) — exactly
+  # the cases where seeing the payload matters. It used to sit after all of them, so
+  # every such rejection left no record of what was actually sent.
+  trader.logger.info(
+    f"Webhook received payload: {json.dumps({**data, 'api_key': '***'}, indent=2)}"
+  )
+
 
   ## Ok bot exists and API key is valid, let's extract other fields
   # Extract and validate required fields
