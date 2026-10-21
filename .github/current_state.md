@@ -16,7 +16,11 @@
 
 
 ## Current State
-**v3.6.0b** — durable JSONL order journal; webhook acknowledges immediately and trades
+**v3.6.1b** — a rejected webhook now leaves a record of what it contained: the full
+payload for an authenticated-but-rejected signal, and a new size-capped,
+Gotify-free log for one that could not be matched to a bot at all
+
+**v3.6.0b released** — durable JSONL order journal; webhook acknowledges immediately and trades
 in the background (TradingView no longer times out on a successful order); IBKR
 commission reserved so a full-balance stock buy can't fail on the fee; crypto orders no
 longer fetch the balance twice
