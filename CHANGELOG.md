@@ -5,6 +5,27 @@ All notable changes to Tradleware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.6.1b] - 2026-10-20
+
+A rejected webhook now leaves a record of what it actually contained, instead of only a
+short diagnostic phrase.
+
+### Added
+
+- **A new, size-capped log (`rejected_webhooks.jsonl`)** captures the payload of a
+  webhook that could not be matched to a bot at all — malformed JSON, an unrecognised
+  trader id, a wrong API key. The key itself is always redacted before anything is
+  written. Own rotating file, no Gotify wiring, so it behaves the same way
+  `access.log` already does.
+
+### Changed
+
+- **A rejected-but-authenticated signal now logs its full payload immediately**, to
+  that bot's own log. Previously this only happened for a signal that passed every
+  check; one that failed partway through — a stale timestamp, a duplicate, a missing
+  or invalid field — left no record of what was actually sent. The API key is still
+  redacted either way.
+
 ## [v3.6.0b] - 2026-09-14
 
 A durable record of every order, a webhook that no longer makes TradingView wait for the
